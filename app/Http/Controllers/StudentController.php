@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Imports\StudentsImport;
+use App\Models\Lecturer;
 use App\Models\Student;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,10 @@ class StudentController extends Controller
     public function index(Request $request): View
     {
         $query = Student::with(['schoolClass', 'courseReps.course']);
+        $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
+        if ($lecturerClassIds !== null) {
+            $query->whereIn('class_id', $lecturerClassIds);
+        }
 
         $search = $request->get('search');
         if ($search) {
@@ -38,7 +43,11 @@ class StudentController extends Controller
         }
 
         $students = $query->with(['classReps.schoolClass', 'courseReps'])->latest()->paginate(30)->withQueryString();
-        $classes = \App\Models\SchoolClass::orderBy('name')->get();
+        $classesQuery = \App\Models\SchoolClass::orderBy('name');
+        if ($lecturerClassIds !== null) {
+            $classesQuery->whereIn('id', $lecturerClassIds);
+        }
+        $classes = $classesQuery->get();
 
         if ($request->wantsJson()) {
             $items = collect($students->items())->map(function ($s) {
@@ -100,6 +109,12 @@ class StudentController extends Controller
 
     public function show(Student $student): View
     {
+        $request = request();
+        $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
+        if ($lecturerClassIds !== null && ! $lecturerClassIds->contains((int) $student->class_id)) {
+            abort(403, 'You can only access students in your teaching classes.');
+        }
+
         $student->load([
             'department.faculty',
             'schoolClass.faculty',
@@ -114,7 +129,11 @@ class StudentController extends Controller
         $courseIds = $student->schoolClass ? $student->schoolClass->courses()->pluck('id')->toArray() : [];
         $totalWeeks = $courseIds ? \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count() : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
-        $classes = \App\Models\SchoolClass::orderBy('name')->get();
+        $classesQuery = \App\Models\SchoolClass::orderBy('name');
+        if ($lecturerClassIds !== null) {
+            $classesQuery->whereIn('id', $lecturerClassIds);
+        }
+        $classes = $classesQuery->get();
         $recentAttendance = $student->attendances()
             ->with(['course', 'attendanceWeek'])
             ->latest('id')
@@ -145,6 +164,11 @@ class StudentController extends Controller
 
     public function resetPassword(Request $request, Student $student): RedirectResponse
     {
+        $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
+        if ($lecturerClassIds !== null && ! $lecturerClassIds->contains((int) $student->class_id)) {
+            abort(403, 'You can only manage students in your teaching classes.');
+        }
+
         $password = \Illuminate\Support\Str::password(12);
         $student->update(['password' => \Illuminate\Support\Facades\Hash::make($password)]);
         return back()->with('success', 'Password generated for ' . $student->index_number . '. New password: ' . $password);
@@ -159,5 +183,20 @@ class StudentController extends Controller
         Excel::import(new StudentsImport, $request->file('file'));
 
         return redirect()->route('dashboard.students.index')->with('success', 'Students imported successfully.');
+    }
+
+    private function lecturerClassIdsFromSession(Request $request): ?\Illuminate\Support\Collection
+    {
+        $lecturerId = $request->session()->get('lecturer_id');
+        if (! $lecturerId) {
+            return null;
+        }
+
+        $lecturer = Lecturer::find($lecturerId);
+        if (! $lecturer) {
+            return collect();
+        }
+
+        return $lecturer->courses()->whereNotNull('class_id')->distinct()->pluck('class_id');
     }
 }

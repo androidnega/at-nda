@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 
 class AttendancePdfController extends Controller
 {
@@ -18,7 +20,7 @@ class AttendancePdfController extends Controller
     {
         $this->authorizePdfExport($request, $course);
 
-        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass']);
+        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty', 'schoolClass.department']);
 
         $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
 
@@ -39,6 +41,20 @@ class AttendancePdfController extends Controller
         $className = trim((string) ($course->schoolClass?->name ?? ''));
         if ($className === '') {
             $className = '—';
+        }
+        $institutionName = (string) (config('app.institution_name') ?: config('app.name', 'Attendance System'));
+        $facultyName = (string) ($course->schoolClass?->faculty?->name ?? '—');
+        $departmentName = (string) ($course->schoolClass?->department?->name ?? '—');
+
+        $classLogoDataUri = null;
+        $logoPath = $course->schoolClass?->logo_path;
+        if ($logoPath && Storage::disk('public')->exists($logoPath)) {
+            $abs = Storage::disk('public')->path($logoPath);
+            $mime = Storage::disk('public')->mimeType($logoPath) ?: 'image/png';
+            $bin = @file_get_contents($abs);
+            if ($bin !== false && $bin !== '') {
+                $classLogoDataUri = 'data:' . $mime . ';base64,' . base64_encode($bin);
+            }
         }
 
         $venueDisplay = trim((string) ($course->venueRelation?->name ?? ''));
@@ -62,12 +78,21 @@ class AttendancePdfController extends Controller
         }
 
         $title = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
+        $latestSession = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->latest('id')
+            ->first(['lecturer_status']);
 
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
             'title' => $title,
+            'institutionName' => $institutionName,
+            'facultyName' => $facultyName,
+            'departmentName' => $departmentName,
             'lecturerDisplay' => $lecturerDisplay,
+            'lecturerStatus' => $latestSession?->lecturer_status ?? 'present',
             'className' => $className,
+            'classLogoDataUri' => $classLogoDataUri,
             'venueDisplay' => $venueDisplay,
             'weeks' => $weeks,
             'attendanceByStudent' => $attendanceByStudent,

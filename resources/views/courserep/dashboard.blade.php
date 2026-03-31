@@ -95,6 +95,18 @@
                         <p class="text-[11px] text-slate-400 mt-1">Minutes · 5–480</p>
                     </div>
                 </div>
+                <div class="space-y-1.5">
+                    <label for="lecturer_status" class="{{ $labelBase }}">Lecturer status for this class</label>
+                    <div class="relative">
+                        <span class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-user-tie text-xs"></i></span>
+                        <select name="lecturer_status" id="lecturer_status" class="{{ $fieldBase }} appearance-none pl-10 pr-10 cursor-pointer" required>
+                            <option value="present" {{ old('lecturer_status', 'present') === 'present' ? 'selected' : '' }}>Lecturer present</option>
+                            <option value="absent" {{ old('lecturer_status') === 'absent' ? 'selected' : '' }}>Lecturer absent</option>
+                        </select>
+                        <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
+                    </div>
+                    <p class="text-[11px] text-slate-400">Saved on this attendance session and shown in attendance list/PDF.</p>
+                </div>
                 <div class="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4 sm:p-5" id="session-location-section">
                     <div class="flex items-start gap-3 mb-4">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-primary ring-1 ring-primary/15">

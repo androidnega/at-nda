@@ -18,10 +18,11 @@
             border: 1px solid #e7e5e4;
         }
         .banner {
-            background: #0f766e;
-            color: #ecfdf5;
+            background: #0b3c98;
+            color: #ffffff;
             padding: 14px 16px 16px 16px;
-            border-bottom: 3px solid #d97706;
+            border-bottom: 4px solid #facc15;
+            position: relative;
         }
         .banner h1 {
             margin: 0 0 4px 0;
@@ -35,10 +36,27 @@
             font-size: 8px;
             text-transform: uppercase;
             letter-spacing: 0.12em;
-            color: #99f6e4;
+            color: #fef08a;
             border: 1px solid rgba(255,255,255,0.35);
             padding: 2px 8px;
             border-radius: 2px;
+        }
+        .banner .org {
+            margin-top: 6px;
+            font-size: 9px;
+            color: #e0ecff;
+            line-height: 1.45;
+        }
+        .logo {
+            position: absolute;
+            right: 14px;
+            top: 12px;
+            width: 52px;
+            height: 52px;
+            border-radius: 6px;
+            border: 1px solid rgba(250, 204, 21, 0.7);
+            background: #fff;
+            object-fit: cover;
         }
         .meta {
             width: 100%;
@@ -60,7 +78,7 @@
         .meta .label {
             width: 28%;
             font-weight: bold;
-            color: #0f766e;
+            color: #0b3c98;
         }
         .meta .value {
             color: #44403c;
@@ -74,9 +92,9 @@
             margin-top: 4px;
         }
         table.grid th {
-            background: #134e4a;
-            color: #ecfdf5;
-            border: 1px solid #0f3d3a;
+            background: #0b3c98;
+            color: #fef9c3;
+            border: 1px solid #082c71;
             padding: 7px 6px;
             text-align: left;
             font-size: 9px;
@@ -99,11 +117,11 @@
             text-align: center;
         }
         .check {
-            color: #047857;
+            color: #0b3c98;
             font-weight: bold;
         }
         .miss {
-            color: #b45309;
+            color: #a16207;
         }
         .footer-note {
             font-size: 8px;
@@ -116,14 +134,27 @@
 <body>
     <div class="sheet">
         <div class="banner">
+            @if(!empty($classLogoDataUri))
+                <img src="{{ $classLogoDataUri }}" alt="Class logo" class="logo">
+            @endif
             <span class="tag">Attendance register</span>
             <h1>{{ $title }}</h1>
+            <div class="org">
+                <div>{{ $institutionName }}</div>
+                <div>{{ $facultyName }}</div>
+                <div>{{ $departmentName }}</div>
+            </div>
         </div>
 
         <table class="meta" cellspacing="0">
             <tr>
                 <td class="label">Lecturer</td>
-                <td class="value">{{ $lecturerDisplay }}</td>
+                <td class="value">
+                    {{ $lecturerDisplay }}
+                    <span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:bold;{{ $lecturerStatus === 'absent' ? 'background:#ffe4e6;color:#be123c;' : 'background:#dcfce7;color:#166534;' }}">
+                        Lecturer {{ $lecturerStatus === 'absent' ? 'Absent' : 'Present' }}
+                    </span>
+                </td>
             </tr>
             <tr>
                 <td class="label">Class</td>

@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'courserep' => \App\Http\Middleware\EnsureCourseRep::class,
             'student.attendance' => \App\Http\Middleware\EnsureNotAdminOrLecturer::class,
             'student.auth' => \App\Http\Middleware\EnsureStudentAuthenticated::class,
+            'api.https' => \App\Http\Middleware\ForceHttpsForApi::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

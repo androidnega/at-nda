@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\V1\ActiveSessionResource;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
@@ -12,6 +13,7 @@ use App\Support\ApiEnvelope;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -20,6 +22,55 @@ use Illuminate\Support\Facades\Log;
  */
 class SessionController extends Controller
 {
+    public function index(Request $request): JsonResponse
+    {
+        /** @var Student $auth */
+        $auth = $request->user();
+        $perPage = min(100, max(1, (int) $request->query('per_page', 20)));
+        $page = max(1, (int) $request->query('page', 1));
+        $courseId = $request->query('course_id');
+
+        $cacheKey = sprintf(
+            'api_v1_sessions:%d:%d:%d:%s',
+            $auth->id,
+            $page,
+            $perPage,
+            (string) ($courseId ?? 'all')
+        );
+
+        $cached = Cache::remember($cacheKey, 30, function () use ($auth, $perPage, $courseId) {
+            $query = AttendanceSession::query()
+                ->with(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek'])
+                ->activeWithinTimeWindow()
+                ->whereHas('course', fn ($q) => $q->where('class_id', $auth->class_id))
+                ->latest('id');
+
+            if ($courseId) {
+                $query->where('course_id', (int) $courseId);
+            }
+
+            return $query->paginate($perPage);
+        });
+
+        $rows = ActiveSessionListBuilder::buildRows($cached->getCollection(), $auth);
+
+        return response()->json(ApiEnvelope::success(
+            [
+                'sessions' => ActiveSessionResource::collection(collect($rows)),
+            ],
+            'Sessions fetched',
+            [
+                'pagination' => [
+                    'current_page' => $cached->currentPage(),
+                    'per_page' => $cached->perPage(),
+                    'total' => $cached->total(),
+                    'last_page' => $cached->lastPage(),
+                ],
+                'cached_seconds' => 30,
+            ]
+        ));
+    }
+
     public function active(Request $request): JsonResponse
     {
         try {
@@ -61,7 +112,7 @@ class SessionController extends Controller
                 }
                 if ($classIdFilter && $course->class_id !== (int) $classIdFilter) {
                     $body = array_merge([
-                        'sessions' => ActiveSessionListBuilder::buildRows(collect(), $auth),
+                        'sessions' => ActiveSessionResource::collection(collect()),
                     ], $missedExtras);
 
                     return response()->json(ApiEnvelope::success($body, 'Sessions fetched'));
@@ -75,7 +126,9 @@ class SessionController extends Controller
                 Log::info('api.v1.ACTIVE_SESSIONS', ['count' => $sessions->count(), 'course_id' => $course->id, 'now' => $now]);
 
                 $body = array_merge([
-                    'sessions' => ActiveSessionListBuilder::buildRows($sessions, $auth),
+                    'sessions' => ActiveSessionResource::collection(
+                        collect(ActiveSessionListBuilder::buildRows($sessions, $auth))
+                    ),
                 ], $missedExtras);
 
                 return response()->json(ApiEnvelope::success($body, 'Sessions fetched'));
@@ -97,7 +150,9 @@ class SessionController extends Controller
             Log::info('api.v1.ACTIVE_SESSIONS', ['count' => $sessions->count(), 'now' => $now]);
 
             $body = array_merge([
-                'sessions' => ActiveSessionListBuilder::buildRows($sessions, $auth),
+                'sessions' => ActiveSessionResource::collection(
+                    collect(ActiveSessionListBuilder::buildRows($sessions, $auth))
+                ),
             ], $missedExtras);
 
             return response()->json(ApiEnvelope::success($body, 'Sessions fetched'));

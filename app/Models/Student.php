@@ -361,7 +361,20 @@ class Student extends Model implements AuthenticatableContract
 
     public function isClassRep(): bool
     {
+        if ($this->relationLoaded('classReps')) {
+            return $this->classReps->isNotEmpty();
+        }
+
         return $this->classReps()->exists();
+    }
+
+    public function isCourseRep(): bool
+    {
+        if ($this->relationLoaded('courseReps')) {
+            return $this->courseReps->isNotEmpty();
+        }
+
+        return $this->courseReps()->exists();
     }
 
     public function isRep(): bool

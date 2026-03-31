@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\LoginRequest;
+use App\Http\Resources\Api\V1\StudentResource;
 use App\Models\DeletedStudentIndex;
 use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Support\ApiEnvelope;
-use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -65,12 +65,10 @@ class AuthController extends Controller
         $student->tokens()->where('name', 'mobile')->delete();
         $token = $student->createToken('mobile', ['*'])->plainTextToken;
 
-        $user = StudentApiPayload::forUser($student);
-
         Log::info('api.v1.login.success', ['student_id' => $student->id]);
 
         return response()->json(ApiEnvelope::success([
-            'user' => $user,
+            'user' => new StudentResource($student),
             'token' => $token,
             'token_type' => 'Bearer',
         ], 'Login successful'));
@@ -81,6 +79,16 @@ class AuthController extends Controller
         $request->user()?->currentAccessToken()?->delete();
 
         return response()->json(ApiEnvelope::success(null, 'Logged out'));
+    }
+
+    public function me(Request $request): JsonResponse
+    {
+        /** @var Student $student */
+        $student = $request->user();
+
+        return response()->json(ApiEnvelope::success([
+            'user' => new StudentResource($student),
+        ], 'Profile loaded'));
     }
 
     private function validatePassword(string $input, ?string $stored): bool

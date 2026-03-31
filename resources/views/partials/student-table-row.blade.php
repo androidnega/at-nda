@@ -31,10 +31,14 @@
     </td>
     @if($showRepColumn)
     <td class="{{ $tc }} align-top">
-        @if($student->isRep())
-        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">Rep</span>
-        @else
-        <span class="text-gray-400 {{ $compact ? 'text-xs' : 'text-sm' }}">—</span>
+        @if($student->isClassRep())
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">Class Rep</span>
+        @endif
+        @if($student->isCourseRep())
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-800">Course Rep</span>
+        @endif
+        @if(!$student->isClassRep() && !$student->isCourseRep())
+            <span class="text-gray-400 {{ $compact ? 'text-xs' : 'text-sm' }}">—</span>
         @endif
     </td>
     @endif

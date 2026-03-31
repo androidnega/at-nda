@@ -26,6 +26,13 @@
                         <span>{{ $course->getScheduleLabel() }}</span>
                     @endif
                     <span class="text-gray-600 font-medium tabular-nums">{{ $course->attendances_count }} mark{{ $course->attendances_count === 1 ? '' : 's' }}</span>
+                    @php $lastSession = $course->attendanceSessions->first(); @endphp
+                    @if($lastSession?->lecturer_status)
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold {{ $lastSession->lecturer_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }}">
+                            <i class="fas fa-user-tie"></i>
+                            Lecturer {{ $lastSession->lecturer_status === 'absent' ? 'Absent' : 'Present' }}
+                        </span>
+                    @endif
                 </div>
             </a>
             <div class="flex flex-wrap items-center gap-2 shrink-0 sm:pl-2">

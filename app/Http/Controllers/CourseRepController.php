@@ -136,6 +136,7 @@ class CourseRepController extends Controller
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
             'mode' => 'required|in:location,qr,hybrid,wifi',
+            'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
             'location_lat' => 'nullable|numeric',
             'location_lng' => 'nullable|numeric',
@@ -192,6 +193,7 @@ class CourseRepController extends Controller
             'start_time' => now(),
             'end_time' => $expiresAt,
             'expires_at' => $expiresAt,
+            'lecturer_status' => $validated['lecturer_status'],
             'location_lat' => $needsAnchor ? $lat : null,
             'location_lng' => $needsAnchor ? $lng : null,
             'attendance_range_m' => $needsAnchor ? $range : null,
@@ -502,6 +504,7 @@ class CourseRepController extends Controller
         $courses = Course::query()
             ->whereIn('class_id', $classIds)
             ->with(['schoolClass'])
+            ->with(['attendanceSessions' => fn ($q) => $q->latest('id')->limit(1)])
             ->withCount('attendances')
             ->orderBy('course_name')
             ->get();
@@ -528,6 +531,11 @@ class CourseRepController extends Controller
         }
 
         $course->loadMissing(['schoolClass', 'lecturer', 'venueRelation']);
+        $recentSessions = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->latest('id')
+            ->limit(20)
+            ->get(['id', 'attendance_week_id', 'lecturer_status', 'start_time', 'created_at']);
 
         $query = Attendance::query()
             ->with(['student'])
@@ -550,6 +558,7 @@ class CourseRepController extends Controller
         return view('courserep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
+            'recentSessions' => $recentSessions,
             'dashboardRole' => 'courserep',
         ]);
     }

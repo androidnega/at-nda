@@ -29,6 +29,7 @@ class AttendanceSession extends Model
         'start_time',
         'end_time',
         'allowed_wifi_ssid',
+        'lecturer_status',
     ];
 
     public function attendanceWeek(): BelongsTo

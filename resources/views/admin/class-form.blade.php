@@ -19,7 +19,7 @@
     </div>
 @endif
 
-<form method="POST" action="{{ $schoolClass ? route('dashboard.classes.update', $schoolClass) : route('dashboard.classes.store') }}" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+<form method="POST" action="{{ $schoolClass ? route('dashboard.classes.update', $schoolClass) : route('dashboard.classes.store') }}" enctype="multipart/form-data" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     @csrf
     @if($schoolClass) @method('PUT') @endif
 
@@ -76,6 +76,22 @@
                 <p class="text-xs text-gray-500 mt-1.5">Change this when the class runs in a new term or year.</p>
             @endif
             @error('semester_id')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+        </div>
+        <div>
+            <label for="class_logo" class="block text-sm font-medium text-gray-700 mb-2">Class Logo (PDF)</label>
+            <input type="file" id="class_logo" name="class_logo" accept="image/png,image/jpeg,image/webp"
+                class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-gray-500 mt-1.5">Optional. Used on attendance sheet PDFs for this class.</p>
+            @if($schoolClass?->logo_path)
+                <div class="mt-3 flex items-center gap-3">
+                    <img src="{{ $schoolClass->logoUrl() }}" alt="Class logo" class="h-14 w-14 rounded-lg border border-gray-200 object-cover bg-white">
+                    <label class="inline-flex items-center gap-2 text-xs text-red-700">
+                        <input type="checkbox" name="remove_class_logo" value="1">
+                        Remove current logo
+                    </label>
+                </div>
+            @endif
+            @error('class_logo')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
         </div>
     </div>
 

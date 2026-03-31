@@ -22,11 +22,9 @@ class LecturerDashboardController extends Controller
             return redirect()->route('lecturer.login');
         }
 
-        $query = $lecturer->courses()->with(['schoolClass', 'attendanceWeeks']);
-        if ($lecturer->class_id) {
-            $query->where('class_id', $lecturer->class_id);
-        }
-        $courses = $query->get();
+        $courses = $lecturer->courses()
+            ->with(['schoolClass', 'attendanceWeeks'])
+            ->get();
 
         return view('dashboard.lecturer', ['lecturer' => $lecturer, 'courses' => $courses, 'dashboardRole' => 'lecturer']);
     }

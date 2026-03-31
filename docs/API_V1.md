@@ -38,7 +38,9 @@ Defined in `AppServiceProvider::boot()`.
 |--------|------|------|--------|
 | POST | `/api/v1/auth/login` | No | Returns `data.user` (includes `attendance_data_version`), `data.token`, `data.token_type` |
 | POST | `/api/v1/auth/logout` | Bearer | |
+| GET | `/api/v1/auth/me` | Bearer | `data.user` — authenticated student profile |
 | GET | `/api/v1/profile` | Bearer | `data.user` — same fields as `StudentApiPayload`, includes `weekly_timetable` (lectures + credit-hour progress) |
+| GET | `/api/v1/sessions` | Bearer | Paginated active sessions (`page`, `per_page`); response `meta.pagination` |
 | GET | `/api/v1/sessions/active` | Bearer | Query: `course_id`, `class_id`, `include_missed_warnings`, `min_missed`, `lookback_days` — `data.sessions`, optional `warnings` / `warnings_map`; each session includes `credit_hours` |
 | POST | `/api/v1/attendance` | Bearer | Same body as legacy `POST /api/attendance`; server injects `index_number` from the token |
 | GET | `/api/v1/settings` | No | Cached 60s; `meta.cached_seconds` |
@@ -50,6 +52,11 @@ Defined in `AppServiceProvider::boot()`.
 - `422`: validation — `errors` is a Laravel-style field map.  
 - `401`: missing/invalid token (`api/v1/*` only uses the strict envelope for `AuthenticationException`).  
 - Legacy `/api/*` error JSON is unchanged.
+
+## HTTPS (production)
+
+- `/api/v1/*` enforces HTTPS in production.
+- Insecure requests are redirected with HTTP `308` to `https://...`.
 
 ## Caching
 

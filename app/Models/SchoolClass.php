@@ -5,12 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class SchoolClass extends Model
 {
     protected $table = 'classes';
 
-    protected $fillable = ['name', 'code', 'faculty_id', 'department_id', 'level', 'semester_id'];
+    protected $fillable = ['name', 'code', 'faculty_id', 'department_id', 'level', 'semester_id', 'logo_path'];
 
     protected $casts = ['level' => 'integer'];
 
@@ -40,6 +41,15 @@ class SchoolClass extends Model
     public function students(): HasMany
     {
         return $this->hasMany(Student::class, 'class_id');
+    }
+
+    public function logoUrl(): ?string
+    {
+        if (! $this->logo_path) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($this->logo_path);
     }
 
     public function getDisplayNameAttribute(): string

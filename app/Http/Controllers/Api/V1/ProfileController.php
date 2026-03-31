@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\V1\StudentResource;
 use App\Models\Student;
 use App\Support\ApiEnvelope;
-use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,7 +20,7 @@ class ProfileController extends Controller
         $student = $request->user();
 
         return response()->json(ApiEnvelope::success(
-            ['user' => StudentApiPayload::forUser($student)],
+            ['user' => new StudentResource($student)],
             'Profile loaded'
         ));
     }

@@ -9,6 +9,7 @@ use App\Models\SchoolClass;
 use App\Models\Semester;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -73,12 +74,17 @@ class ClassController extends Controller
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
             'semester_id' => 'required|exists:semesters,id',
+            'class_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
         $dept = Department::find($validated['department_id']);
         if ($dept && $dept->faculty_id != $validated['faculty_id']) {
             return back()->withInput()->with('error', 'Department must belong to selected faculty');
         }
-        SchoolClass::create($validated);
+        $class = SchoolClass::create(collect($validated)->except('class_logo')->all());
+        if ($request->hasFile('class_logo')) {
+            $class->logo_path = $request->file('class_logo')->store('class-logos', 'public');
+            $class->save();
+        }
         return redirect()->route('dashboard.classes.index')->with('success', 'Class created');
     }
 
@@ -98,12 +104,25 @@ class ClassController extends Controller
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
             'semester_id' => 'required|exists:semesters,id',
+            'class_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'remove_class_logo' => 'nullable|boolean',
         ]);
         $dept = Department::find($validated['department_id']);
         if ($dept && $dept->faculty_id != $validated['faculty_id']) {
             return back()->withInput()->with('error', 'Department must belong to selected faculty');
         }
-        $schoolClass->update($validated);
+        $schoolClass->update(collect($validated)->except(['class_logo', 'remove_class_logo'])->all());
+        if ($request->boolean('remove_class_logo') && $schoolClass->logo_path) {
+            Storage::disk('public')->delete($schoolClass->logo_path);
+            $schoolClass->logo_path = null;
+        }
+        if ($request->hasFile('class_logo')) {
+            if ($schoolClass->logo_path) {
+                Storage::disk('public')->delete($schoolClass->logo_path);
+            }
+            $schoolClass->logo_path = $request->file('class_logo')->store('class-logos', 'public');
+        }
+        $schoolClass->save();
         return redirect()->route('dashboard.classes.index')->with('success', 'Class updated');
     }
 

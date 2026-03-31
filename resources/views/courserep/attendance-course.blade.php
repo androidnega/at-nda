@@ -17,6 +17,15 @@
                 @endif
                 Attendance marks for this course only
             </p>
+            @if($recentSessions->isNotEmpty())
+                @php $latest = $recentSessions->first(); @endphp
+                <p class="mt-2">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold {{ $latest->lecturer_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }}">
+                        <i class="fas fa-user-tie"></i>
+                        Lecturer {{ $latest->lecturer_status === 'absent' ? 'Absent' : 'Present' }}
+                    </span>
+                </p>
+            @endif
         </div>
         <div class="flex flex-wrap items-center gap-2">
             <a href="{{ route('dashboard.class-attendance.course.pdf', $course) }}" target="_blank" rel="noopener"
@@ -56,6 +65,21 @@
         </div>
     </div>
 </form>
+
+@if($recentSessions->isNotEmpty())
+<div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">
+    <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent session lecturer tags</p>
+    <div class="flex flex-wrap gap-2">
+        @foreach($recentSessions as $sess)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium {{ $sess->lecturer_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }}">
+                <i class="fas fa-user-tie"></i>
+                {{ $sess->lecturer_status === 'absent' ? 'Absent' : 'Present' }}
+                <span class="text-[10px] opacity-80">· {{ optional($sess->start_time ?? $sess->created_at)->format('M d H:i') }}</span>
+            </span>
+        @endforeach
+    </div>
+</div>
+@endif
 
 <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
     <div class="overflow-x-auto">
