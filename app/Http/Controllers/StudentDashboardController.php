@@ -159,7 +159,9 @@ class StudentDashboardController extends Controller
         $totalPresent = Attendance::where('student_id', $student->id)->count();
         $totalWeeks = (int) DB::table('attendances')->where('student_id', $student->id)->distinct()->count('attendance_week_id');
 
-        $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student);
+        $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student)
+            ->filter(fn (array $row) => ! $row['already_marked'])
+            ->values();
 
         return view('student.dashboard', compact(
             'student',

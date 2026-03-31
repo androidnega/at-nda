@@ -40,7 +40,6 @@
                 @php
                     $session = $row['session'];
                     $course = $row['course'];
-                    $alreadyMarked = $row['already_marked'];
                     $mode = $session->mode ?? 'location';
                     $modeLabel = match ($mode) {
                         'qr' => 'QR code',
@@ -49,7 +48,7 @@
                         default => 'Venue',
                     };
                 @endphp
-                <li class="rounded-[1.25rem] sm:rounded-2xl border-2 border-emerald-400/80 bg-gradient-to-br from-emerald-50 via-white to-sky-50/90 p-4 sm:p-6 shadow-lg shadow-emerald-900/10 ring-1 ring-emerald-500/15 flex flex-col gap-4 touch-manipulation">
+                <li class="rounded-2xl bg-white p-4 sm:p-5 shadow-sm flex flex-col gap-4 touch-manipulation">
                     <div class="flex items-start gap-3">
                         <span class="shrink-0 w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/30">
                             <i class="fas fa-clipboard-check text-base" aria-hidden="true"></i>
@@ -62,7 +61,7 @@
                             <p class="text-[11px] text-slate-600 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <span>Week {{ $session->attendanceWeek?->week_number ?? '—' }}</span>
                                 <span class="text-slate-300" aria-hidden="true">·</span>
-                                <span class="inline-flex items-center gap-1 rounded-lg bg-white/90 border border-emerald-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ $modeLabel }}</span>
+                                <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ $modeLabel }}</span>
                                 @if($session->expires_at)
                                     <span class="text-slate-400">·</span>
                                     <span class="text-amber-800 font-medium">Closes {{ $session->expires_at->timezone(config('app.timezone'))->format('g:i A') }}</span>
@@ -70,18 +69,12 @@
                             </p>
                         </div>
                     </div>
-                    <div class="w-full pt-0.5 border-t border-emerald-200/60">
-                        @if($alreadyMarked)
-                            <span class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/90 py-3.5 text-sm font-semibold text-emerald-900">
-                                <i class="fas fa-check-circle"></i> Marked for this session
-                            </span>
-                        @else
-                            <a href="{{ route('web.attendance.form', $course) }}"
-                               class="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-4 text-sm font-bold shadow-md shadow-emerald-600/25 transition-colors">
-                                <i class="fas fa-arrow-right-to-bracket"></i>
-                                Mark attendance
-                            </a>
-                        @endif
+                    <div class="w-full pt-0.5">
+                        <a href="{{ route('web.attendance.form', $course) }}"
+                           class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
+                            <i class="fas fa-arrow-right-to-bracket"></i>
+                            Mark attendance
+                        </a>
                     </div>
                 </li>
             @endforeach
