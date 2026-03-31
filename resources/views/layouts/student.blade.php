@@ -9,7 +9,9 @@
             <meta name="broadcast-class-id" content="{{ $student->class_id }}">
         @endif
     @endisset
-    @vite(['resources/js/realtime.js'])
+    @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
+        @vite(['resources/js/realtime.js'])
+    @endif
     <meta name="theme-color" content="#0ea5e9">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">

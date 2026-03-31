@@ -9,7 +9,9 @@
             <meta name="broadcast-class-id" content="{{ $repStudent->class_id }}">
         @endif
     @endisset
-    @vite(['resources/js/realtime.js'])
+    @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
+        @vite(['resources/js/realtime.js'])
+    @endif
     @stack('head')
     <title>@yield('title', 'Dashboard') - {{ config('app.name') }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
