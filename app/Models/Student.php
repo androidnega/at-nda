@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -186,19 +187,137 @@ class Student extends Model implements AuthenticatableContract
         if (!preg_match('/^data:image\/(\w+);base64,/', $imageData, $matches)) {
             return false;
         }
-        $ext = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
         $raw = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $imageData), true);
         if ($raw === false || $raw === '') {
             return false;
         }
+        return $this->storeOptimizedProfileImage($raw);
+    }
+
+    /**
+     * Store a web-uploaded profile photo with server-side optimization (max 500KB).
+     */
+    public function saveProfileImageFromUpload(UploadedFile $file): bool
+    {
+        $raw = @file_get_contents($file->getRealPath());
+        if ($raw === false || $raw === '') {
+            return false;
+        }
+
+        return $this->storeOptimizedProfileImage($raw);
+    }
+
+    private function storeOptimizedProfileImage(string $raw): bool
+    {
+        $optimized = $this->optimizeProfileImageBinary($raw, 500 * 1024);
+        if ($optimized === null || $optimized['binary'] === '') {
+            return false;
+        }
+
         if ($this->profile_image) {
             Storage::disk('public')->delete($this->profile_image);
         }
-        $filename = 'students/' . $this->id . '_' . uniqid() . '.' . $ext;
-        Storage::disk('public')->put($filename, $raw);
+
+        $filename = 'students/' . $this->id . '_' . uniqid() . '.' . $optimized['extension'];
+        Storage::disk('public')->put($filename, $optimized['binary']);
         $this->profile_image = $filename;
 
         return true;
+    }
+
+    /**
+     * Compress and resize while preserving visual quality and keeping <= $maxBytes.
+     *
+     * @return array{binary:string, extension:string}|null
+     */
+    private function optimizeProfileImageBinary(string $raw, int $maxBytes): ?array
+    {
+        if (!function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        $src = @imagecreatefromstring($raw);
+        if ($src === false) {
+            return null;
+        }
+
+        $srcW = imagesx($src);
+        $srcH = imagesy($src);
+        if ($srcW < 2 || $srcH < 2) {
+            imagedestroy($src);
+            return null;
+        }
+
+        $maxDimension = 1280;
+        $scale = min(1, $maxDimension / max($srcW, $srcH));
+        $targetW = max(1, (int) floor($srcW * $scale));
+        $targetH = max(1, (int) floor($srcH * $scale));
+
+        $canvas = imagecreatetruecolor($targetW, $targetH);
+        imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopyresampled($canvas, $src, 0, 0, 0, 0, $targetW, $targetH, $srcW, $srcH);
+        imagedestroy($src);
+
+        $ext = function_exists('imagewebp') ? 'webp' : 'jpg';
+        $best = '';
+        $bestLen = PHP_INT_MAX;
+        $quality = 86;
+
+        for ($pass = 0; $pass < 10; $pass++) {
+            $binary = $this->renderProfileImageBinary($canvas, $ext, $quality);
+            if ($binary === null) {
+                continue;
+            }
+
+            $len = strlen($binary);
+            if ($len < $bestLen) {
+                $best = $binary;
+                $bestLen = $len;
+            }
+            if ($len <= $maxBytes) {
+                imagedestroy($canvas);
+                return ['binary' => $binary, 'extension' => $ext];
+            }
+
+            if ($quality > 62) {
+                $quality -= 6;
+                continue;
+            }
+
+            $nextW = max(480, (int) floor(imagesx($canvas) * 0.9));
+            $nextH = max(480, (int) floor(imagesy($canvas) * 0.9));
+            if ($nextW === imagesx($canvas) && $nextH === imagesy($canvas)) {
+                break;
+            }
+
+            $smaller = imagecreatetruecolor($nextW, $nextH);
+            imagefill($smaller, 0, 0, imagecolorallocate($smaller, 255, 255, 255));
+            imagecopyresampled($smaller, $canvas, 0, 0, 0, 0, $nextW, $nextH, imagesx($canvas), imagesy($canvas));
+            imagedestroy($canvas);
+            $canvas = $smaller;
+        }
+
+        imagedestroy($canvas);
+        if ($best === '' || strlen($best) > $maxBytes) {
+            return null;
+        }
+
+        return ['binary' => $best, 'extension' => $ext];
+    }
+
+    private function renderProfileImageBinary($image, string $ext, int $quality): ?string
+    {
+        ob_start();
+        $ok = $ext === 'webp'
+            ? imagewebp($image, null, $quality)
+            : imagejpeg($image, null, $quality);
+        $data = ob_get_clean();
+
+        if (!$ok || !is_string($data) || $data === '') {
+            return null;
+        }
+
+        return $data;
     }
 
     public function getProgramLabel(): string

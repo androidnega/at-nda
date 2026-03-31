@@ -14,7 +14,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class StudentDashboardController extends Controller
@@ -173,6 +172,121 @@ class StudentDashboardController extends Controller
         ));
     }
 
+    public function attendanceHistory(Request $request): View|\Illuminate\Http\RedirectResponse
+    {
+        $studentId = $request->session()->get('student_id');
+        if (!$studentId) {
+            return redirect()->route('home')->with('info', 'Please sign in to view attendance history.');
+        }
+
+        $student = Student::with('department.faculty')->find($studentId);
+        if (!$student) {
+            $request->session()->forget('student_id');
+            return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
+        }
+
+        if ($student->needsBasicOnboarding()) {
+            return redirect()->route('student.onboarding');
+        }
+
+        if (!$student->hasCompletedProfile()) {
+            return redirect()->route('student.profile');
+        }
+
+        $sessions = collect();
+        $attendanceBySession = collect();
+        if ($student->class_id) {
+            $sessions = AttendanceSession::query()
+                ->whereHas('course', fn ($q) => $q->where('class_id', $student->class_id))
+                ->where(function ($q) {
+                    $q->ended()->orWhere('is_active', false);
+                })
+                ->with(['course', 'attendanceWeek'])
+                ->orderByRaw('COALESCE(end_time, expires_at, created_at) DESC')
+                ->limit(400)
+                ->get();
+
+            $sessionIds = $sessions->pluck('id')->all();
+            $attendanceBySession = Attendance::query()
+                ->where('student_id', $student->id)
+                ->whereIn('attendance_session_id', $sessionIds)
+                ->with('course')
+                ->get()
+                ->keyBy('attendance_session_id');
+        }
+
+        $history = $sessions->map(function (AttendanceSession $session) use ($attendanceBySession) {
+            $attendance = $attendanceBySession->get($session->id);
+            $isPresent = $attendance !== null;
+
+            return [
+                'session' => $session,
+                'course' => $session->course,
+                'week' => $session->attendanceWeek?->week_number,
+                'is_present' => $isPresent,
+                'attendance' => $attendance,
+                'time' => $attendance?->attendance_time ?? $session->end_time ?? $session->expires_at ?? $session->created_at,
+            ];
+        });
+
+        $presentCount = $history->where('is_present', true)->count();
+        $absentCount = $history->where('is_present', false)->count();
+        $totalSessions = $history->count();
+        $attendanceRate = $totalSessions > 0 ? round(($presentCount / $totalSessions) * 100, 1) : 0.0;
+
+        $courseStats = $history
+            ->groupBy(fn (array $row) => $row['course']?->id ?? 0)
+            ->map(function (Collection $rows) {
+                $first = $rows->first();
+                $present = $rows->where('is_present', true)->count();
+                $total = $rows->count();
+
+                return [
+                    'course_name' => $first['course']?->course_name ?? 'Unknown course',
+                    'course_code' => $first['course']?->course_code,
+                    'present' => $present,
+                    'absent' => $total - $present,
+                    'total' => $total,
+                    'rate' => $total > 0 ? round(($present / $total) * 100) : 0,
+                ];
+            })
+            ->sortByDesc('total')
+            ->values();
+
+        $trend = $history
+            ->filter(fn (array $row) => !empty($row['week']))
+            ->groupBy('week')
+            ->map(function (Collection $rows, $week) {
+                $present = $rows->where('is_present', true)->count();
+                $total = $rows->count();
+                $weekNumber = (int) $week;
+
+                return [
+                    'week' => $weekNumber,
+                    'label' => 'Week ' . $weekNumber,
+                    'present' => $present,
+                    'absent' => $total - $present,
+                    'total' => $total,
+                    'rate' => $total > 0 ? round(($present / $total) * 100) : 0,
+                ];
+            })
+            ->sortBy('week')
+            ->values()
+            ->take(-8)
+            ->values();
+
+        return view('student.attendance-history', compact(
+            'student',
+            'history',
+            'presentCount',
+            'absentCount',
+            'totalSessions',
+            'attendanceRate',
+            'courseStats',
+            'trend'
+        ));
+    }
+
     public function profileForm(Request $request): View|\Illuminate\Http\RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
@@ -266,7 +380,7 @@ class StudentDashboardController extends Controller
             if ($field === 'phone_number') {
                 $rules['phone_number'] = 'required|string|min:10|max:30';
             } elseif ($field === 'profile_image') {
-                $rules['profile_photo'] = 'required|image|max:5120';
+                $rules['profile_photo'] = 'required|image|mimes:jpg,jpeg,png,webp|max:10240';
             } else {
                 $rules[$field] = 'required|string|max:255';
             }
@@ -284,10 +398,9 @@ class StudentDashboardController extends Controller
             $student->phone_number = preg_replace('/[^0-9+]/', '', $validated['phone_number']);
         }
         if (in_array('profile_image', $missing, true) && $request->hasFile('profile_photo')) {
-            if ($student->profile_image) {
-                Storage::disk('public')->delete($student->profile_image);
+            if (!$student->saveProfileImageFromUpload($request->file('profile_photo'))) {
+                return redirect()->back()->withInput()->with('error', 'Could not process that profile image. Use a clear JPG, PNG, or WEBP photo.');
             }
-            $student->profile_image = $request->file('profile_photo')->store('students', 'public');
         }
         $student->save();
 
@@ -420,8 +533,8 @@ class StudentDashboardController extends Controller
             'department_id' => 'required|exists:departments,id',
             'phone_number' => 'nullable|string|max:30',
             'profile_photo' => $student->profile_image
-                ? ['nullable', 'image', 'max:5120']
-                : ['required', 'image', 'max:5120'],
+                ? ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
+                : ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ]);
 
         $department = \App\Models\Department::find($validated['department_id']);
@@ -430,10 +543,9 @@ class StudentDashboardController extends Controller
         }
 
         if ($request->hasFile('profile_photo')) {
-            if ($student->profile_image) {
-                Storage::disk('public')->delete($student->profile_image);
+            if (!$student->saveProfileImageFromUpload($request->file('profile_photo'))) {
+                return redirect()->back()->withInput()->with('error', 'Could not process that profile image. Use a clear JPG, PNG, or WEBP photo.');
             }
-            $student->profile_image = $request->file('profile_photo')->store('students', 'public');
         }
 
         if (array_key_exists('phone_number', $validated) && $validated['phone_number'] !== null && $validated['phone_number'] !== '') {

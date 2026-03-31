@@ -81,6 +81,7 @@ Route::post('/student/logout', [StudentDashboardController::class, 'logout'])->n
 
 Route::middleware('student.auth')->group(function () {
     Route::get('/student/attendance-web', [StudentDashboardController::class, 'attendanceWebEntry'])->name('student.attendance.web');
+    Route::get('/student/attendance-history', [StudentDashboardController::class, 'attendanceHistory'])->name('student.attendance.history');
     Route::get('/student/onboarding', [StudentDashboardController::class, 'onboardingForm'])->name('student.onboarding');
     Route::post('/student/onboarding', [StudentDashboardController::class, 'onboardingStore'])->name('student.onboarding.post');
     Route::get('/student/profile', [StudentDashboardController::class, 'profileForm'])->name('student.profile');

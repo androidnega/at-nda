@@ -66,16 +66,11 @@
                 <i class="fas fa-qrcode w-5 text-center text-emerald-500"></i>
                 Mark attendance
             </a>
+            <a href="{{ route('student.attendance.history') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('student.attendance.history') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+                <i class="fas fa-chart-line w-5 text-center text-sky-500"></i>
+                Attendance history
+            </a>
         </nav>
-        <div class="p-3 border-t border-slate-100">
-            <form method="POST" action="{{ route('student.logout') }}">
-                @csrf
-                <button type="submit" class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-700">
-                    <i class="fas fa-right-from-bracket"></i>
-                    Log out
-                </button>
-            </form>
-        </div>
     </aside>
 
     <div class="lg:pl-[17rem] min-h-screen min-h-[100dvh] flex flex-col w-full min-w-0">

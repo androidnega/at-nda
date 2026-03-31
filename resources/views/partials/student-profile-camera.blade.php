@@ -5,7 +5,7 @@
 @endphp
 <div class="space-y-3" data-profile-camera="{{ $pf }}">
     <label class="block text-sm font-medium text-slate-700 mb-1">{{ $label }}</label>
-    <p class="text-xs text-slate-500 mb-2">Use your device camera — position your face in the frame, then capture. This photo is used to verify you when marking attendance on the web.</p>
+    <p class="text-xs text-slate-500 mb-2">Use your device camera — position your face in the frame, then capture. This photo is used to verify you when marking attendance on the web. Uploaded photos are optimized on the server and kept under 500KB.</p>
     <div class="rounded-xl overflow-hidden bg-black border border-slate-200 aspect-[4/3] max-h-72 relative">
         <video id="{{ $pf }}_video" playsinline muted class="w-full h-full object-cover hidden"></video>
         <div id="{{ $pf }}_placeholder" class="absolute inset-0 flex items-center justify-center text-slate-400 text-sm p-4 text-center">Tap &quot;Open camera&quot; to start</div>
