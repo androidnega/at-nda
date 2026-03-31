@@ -16,6 +16,7 @@ use App\Http\Controllers\StaffAccountController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
+use App\Http\Controllers\RunMigrationsController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
@@ -49,6 +50,25 @@ Route::post('/clear-filter', function (\Illuminate\Http\Request $request) {
     $request->session()->forget(['filter_class_id', 'filter_index']);
     return redirect()->route('home');
 })->name('home.clear-filter');
+
+Route::get('/run-migrations', RunMigrationsController::class)->name('system.run-migrations');
+Route::get('/run-migartions', RunMigrationsController::class); // alias for common typo
+Route::get('/run-migrations-auto', function () {
+    $key = (string) config('app.run_migrations_key', '');
+    if ($key === '') {
+        abort(500, 'RUN_MIGRATIONS_KEY is not configured.');
+    }
+
+    return redirect()->route('system.run-migrations', ['key' => $key]);
+});
+Route::get('/run-migartions-auto', function () {
+    $key = (string) config('app.run_migrations_key', '');
+    if ($key === '') {
+        abort(500, 'RUN_MIGRATIONS_KEY is not configured.');
+    }
+
+    return redirect()->route('system.run-migrations', ['key' => $key]);
+});
 
 Route::get('/media/students/{student}/profile-image', [StudentImageController::class, 'show'])
     ->name('media.students.profile-image')

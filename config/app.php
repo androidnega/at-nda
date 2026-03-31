@@ -21,6 +21,11 @@ return [
     'auth_hero_image' => env('AUTH_HERO_IMAGE', 'https://www.shutterstock.com/image-photo/children-using-laptops-school-africa-600nw-2547522299.jpg'),
 
     /*
+    | Key used by the one-click migration endpoint /run-migrations?key=...
+    */
+    'run_migrations_key' => env('RUN_MIGRATIONS_KEY', ''),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
