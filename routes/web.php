@@ -82,9 +82,13 @@ Route::middleware('student.attendance')->prefix('web/attendance')->name('web.att
     Route::post('verify', [AttendanceController::class, 'verify'])->name('verify');
     Route::post('mark', [AttendanceController::class, 'mark'])->name('mark');
     Route::post('sync', [AttendanceController::class, 'sync'])->name('sync');
+    Route::get('direct/{course}', [AttendanceController::class, 'directEntry'])->name('direct');
     Route::get('{course}/success', [AttendanceController::class, 'success'])->name('success');
     Route::get('{course}', [AttendanceController::class, 'form'])->name('form');
 });
+
+Route::middleware('student.attendance')->get('/mark-attendance/{course}', [AttendanceController::class, 'directEntry'])
+    ->name('attendance.direct.link');
 
 Route::middleware('student.attendance')->group(function () {
     Route::get('/attendance/{course}', [AttendanceController::class, 'legacyRedirectToForm']);

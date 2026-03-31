@@ -41,6 +41,15 @@ class AttendanceController extends Controller
         return redirect()->route('web.attendance.success', $course, 301);
     }
 
+    /**
+     * Share-friendly entry URL for web attendance check-in.
+     * Guests will still be prompted for index number on the attendance page.
+     */
+    public function directEntry(Course $course): RedirectResponse
+    {
+        return redirect()->route('web.attendance.form', $course, 302);
+    }
+
     public function verify(Request $request): JsonResponse
     {
         $validated = $request->validate([
