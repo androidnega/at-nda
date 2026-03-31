@@ -46,11 +46,15 @@
             </div>
             <nav class="flex-1 overflow-y-auto py-4 px-3">
                 @php $dashboardRole = $dashboardRole ?? 'admin'; @endphp
-                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Manage</p>
+                @php
+                    $isLecturerView = session()->has('lecturer_id') && !session()->has('admin_id');
+                @endphp
+                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{{ $isLecturerView ? 'Lecturer' : 'Manage' }}</p>
                 <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.dashboard') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-th-large w-5 text-center"></i>
                     <span>Dashboard</span>
                 </a>
+                @if(!$isLecturerView)
                 <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.classes.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-layer-group w-5 text-center"></i>
                     <span>Classes</span>
@@ -86,6 +90,7 @@
                     <i class="fas fa-cog w-5 text-center"></i>
                     <span>Settings</span>
                 </a>
+                @endif
             </nav>
         </div>
     </aside>
@@ -99,11 +104,18 @@
                     <i class="fas fa-bars text-lg"></i>
                 </button>
                 <div class="flex-1 min-w-0"></div>
-                @php $user = $user ?? (session()->has('admin_id') ? \App\Models\User::find(session('admin_id')) : null); @endphp
+                @php
+                    $isLecturerView = session()->has('lecturer_id') && !session()->has('admin_id');
+                    $user = $user ?? (session()->has('admin_id') ? \App\Models\User::find(session('admin_id')) : null);
+                    $lecturerProfile = $isLecturerView ? \App\Models\Lecturer::find(session('lecturer_id')) : null;
+                    $profileName = $isLecturerView ? ($lecturerProfile?->name ?? 'Lecturer') : ($user?->name ?? 'Administrator');
+                    $profileEmail = $isLecturerView ? ($lecturerProfile?->email ?? 'Staff dashboard') : ($user?->email ?? 'Staff dashboard');
+                    $logoutRoute = $isLecturerView ? route('lecturer.logout') : route('admin.logout');
+                @endphp
                 <div class="relative shrink-0" id="staff-profile-wrap">
                     <button type="button" id="staff-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                        @if($user?->name)
-                            <span class="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{{ strtoupper(substr($user->name, 0, 1)) }}</span>
+                        @if($profileName)
+                            <span class="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{{ strtoupper(substr($profileName, 0, 1)) }}</span>
                         @else
                             <span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                                 <i class="fas fa-user text-sm"></i>
@@ -113,13 +125,19 @@
                     </button>
                     <div id="staff-profile-menu" class="hidden absolute right-0 top-full mt-1.5 w-56 rounded-lg bg-white border border-gray-200 py-2 z-[60] overflow-hidden">
                         <div class="px-3 py-2.5 border-b border-gray-100">
-                            <p class="text-sm font-semibold text-gray-900 truncate">{{ $user?->name ?? 'Administrator' }}</p>
-                            <p class="text-xs text-gray-500 truncate mt-0.5">{{ $user?->email ?? 'Staff dashboard' }}</p>
+                            <p class="text-sm font-semibold text-gray-900 truncate">{{ $profileName }}</p>
+                            <p class="text-xs text-gray-500 truncate mt-0.5">{{ $profileEmail }}</p>
                         </div>
-                        <a href="{{ route('dashboard.profile.edit') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                            <i class="fas fa-user-gear text-gray-400 w-4"></i> Profile
-                        </a>
-                        <form action="{{ route('admin.logout') }}" method="POST" class="border-t border-gray-100 mt-1 pt-1">
+                        @if(!$isLecturerView)
+                            <a href="{{ route('dashboard.profile.edit') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-user-gear text-gray-400 w-4"></i> Profile
+                            </a>
+                        @else
+                            <a href="{{ route('lecturer.password.change.form') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-key text-gray-400 w-4"></i> Change password
+                            </a>
+                        @endif
+                        <form action="{{ $logoutRoute }}" method="POST" class="border-t border-gray-100 mt-1 pt-1">
                             @csrf
                             <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left font-medium">
                                 <i class="fas fa-right-from-bracket w-4"></i> Log out

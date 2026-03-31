@@ -55,11 +55,8 @@
                 </div>
             </div>
         </div>
-        <div class="px-5 py-3 bg-gray-50/50 border-t border-gray-100">
-            <a href="{{ route('dashboard.pdf.export', $course) }}" target="_blank" class="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 text-sm font-medium">
-                <i class="fas fa-file-pdf"></i>
-                Export PDF
-            </a>
+        <div class="px-5 py-3 bg-gray-50/50 border-t border-gray-100 text-xs text-gray-500">
+            Assigned class: <span class="font-medium text-gray-700">{{ $course->schoolClass?->name ?? '—' }}</span>
         </div>
     </div>
     @empty

@@ -22,6 +22,14 @@ class EnsureAdminOrLecturer
         if ($r = RoleAccess::requireStaffSession($request)) {
             return $r;
         }
+        if ($request->session()->has('lecturer_id') && ! $request->session()->has('admin_id')) {
+            $allowedForLecturer = [
+                'dashboard.dashboard',
+            ];
+            if (! in_array((string) $request->route()?->getName(), $allowedForLecturer, true)) {
+                return redirect()->route('dashboard.dashboard')->with('error', 'Access denied for lecturer account.');
+            }
+        }
 
         return $next($request);
     }
