@@ -9,6 +9,7 @@ use App\Models\SchoolClass;
 use App\Models\Semester;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -81,11 +82,17 @@ class ClassController extends Controller
             return back()->withInput()->with('error', 'Department must belong to selected faculty');
         }
         $class = SchoolClass::create(collect($validated)->except('class_logo')->all());
-        if ($request->hasFile('class_logo')) {
+        $logoColumnExists = Schema::hasColumn('classes', 'logo_path');
+        if ($request->hasFile('class_logo') && $logoColumnExists) {
             $class->logo_path = $request->file('class_logo')->store('class-logos', 'public');
             $class->save();
         }
-        return redirect()->route('dashboard.classes.index')->with('success', 'Class created');
+        $redirect = redirect()->route('dashboard.classes.index')->with('success', 'Class created');
+        if ($request->hasFile('class_logo') && ! $logoColumnExists) {
+            $redirect->with('error', 'Class created, but logo was skipped because database is not updated yet. Run migrations.');
+        }
+
+        return $redirect;
     }
 
     public function edit(SchoolClass $schoolClass): View
@@ -112,18 +119,27 @@ class ClassController extends Controller
             return back()->withInput()->with('error', 'Department must belong to selected faculty');
         }
         $schoolClass->update(collect($validated)->except(['class_logo', 'remove_class_logo'])->all());
-        if ($request->boolean('remove_class_logo') && $schoolClass->logo_path) {
+        $logoColumnExists = Schema::hasColumn('classes', 'logo_path');
+        if ($logoColumnExists && $request->boolean('remove_class_logo') && $schoolClass->logo_path) {
             Storage::disk('public')->delete($schoolClass->logo_path);
             $schoolClass->logo_path = null;
         }
-        if ($request->hasFile('class_logo')) {
+        if ($logoColumnExists && $request->hasFile('class_logo')) {
             if ($schoolClass->logo_path) {
                 Storage::disk('public')->delete($schoolClass->logo_path);
             }
             $schoolClass->logo_path = $request->file('class_logo')->store('class-logos', 'public');
         }
-        $schoolClass->save();
-        return redirect()->route('dashboard.classes.index')->with('success', 'Class updated');
+        if ($logoColumnExists) {
+            $schoolClass->save();
+        }
+
+        $redirect = redirect()->route('dashboard.classes.index')->with('success', 'Class updated');
+        if (($request->hasFile('class_logo') || $request->boolean('remove_class_logo')) && ! $logoColumnExists) {
+            $redirect->with('error', 'Class updated, but logo changes were skipped because database is not updated yet. Run migrations.');
+        }
+
+        return $redirect;
     }
 
     public function destroy(SchoolClass $schoolClass): RedirectResponse

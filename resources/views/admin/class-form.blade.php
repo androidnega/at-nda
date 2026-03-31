@@ -82,9 +82,17 @@
             <input type="file" id="class_logo" name="class_logo" accept="image/png,image/jpeg,image/webp"
                 class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
             <p class="text-xs text-gray-500 mt-1.5">Optional. Used on attendance sheet PDFs for this class.</p>
+            <div id="class-logo-preview-wrap" class="mt-3 {{ $schoolClass?->logo_path ? '' : 'hidden' }}">
+                <p class="text-xs font-medium text-slate-600 mb-1">Preview</p>
+                <img
+                    id="class-logo-preview"
+                    src="{{ $schoolClass?->logo_path ? $schoolClass->logoUrl() : '' }}"
+                    alt="Class logo preview"
+                    class="h-20 w-20 rounded-lg border border-gray-200 object-cover bg-white"
+                >
+            </div>
             @if($schoolClass?->logo_path)
                 <div class="mt-3 flex items-center gap-3">
-                    <img src="{{ $schoolClass->logoUrl() }}" alt="Class logo" class="h-14 w-14 rounded-lg border border-gray-200 object-cover bg-white">
                     <label class="inline-flex items-center gap-2 text-xs text-red-700">
                         <input type="checkbox" name="remove_class_logo" value="1">
                         Remove current logo
@@ -119,6 +127,22 @@
     }
     faculty.addEventListener('change', filter);
     filter();
+})();
+
+(function () {
+    var input = document.getElementById('class_logo');
+    var wrap = document.getElementById('class-logo-preview-wrap');
+    var preview = document.getElementById('class-logo-preview');
+    if (!input || !wrap || !preview) return;
+
+    input.addEventListener('change', function () {
+        var file = input.files && input.files[0] ? input.files[0] : null;
+        if (!file) return;
+        if (!file.type || file.type.indexOf('image/') !== 0) return;
+        var url = URL.createObjectURL(file);
+        preview.src = url;
+        wrap.classList.remove('hidden');
+    });
 })();
 </script>
 @endsection
