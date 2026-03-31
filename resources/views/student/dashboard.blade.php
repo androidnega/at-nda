@@ -5,8 +5,8 @@
 @section('breadcrumb')
     @if($liveAttendanceSessions->isNotEmpty())
         <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
-            <span class="inline-flex items-center gap-2 text-emerald-700 font-semibold">
-                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+            <span class="inline-flex items-center gap-2 text-amber-700 font-semibold">
+                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
                 Live sessions
             </span>
         </nav>
@@ -22,16 +22,16 @@
 
 @section('content')
 @if (session('success'))
-    <div class="mb-4 p-3 sm:p-4 bg-emerald-50 text-emerald-900 rounded-xl text-sm border border-emerald-100">{{ session('success') }}</div>
+    <div class="mb-4 p-3 sm:p-4 bg-amber-50 text-amber-900 rounded-xl text-sm border border-amber-100">{{ session('success') }}</div>
 @endif
 @if (session('info'))
-    <div class="mb-4 p-3 sm:p-4 bg-sky-50 text-sky-900 rounded-xl text-sm border border-sky-100">{{ session('info') }}</div>
+    <div class="mb-4 p-3 sm:p-4 bg-slate-100 text-slate-900 rounded-xl text-sm border border-slate-200">{{ session('info') }}</div>
 @endif
 
 @if($liveAttendanceSessions->isNotEmpty())
     <div class="max-w-lg mx-auto w-full space-y-5 md:max-w-none">
         <div class="text-center md:text-left pt-safe">
-            <p class="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">Live sessions</p>
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Live sessions</p>
             <p class="text-xs text-slate-500 mt-1">Each open session is listed separately — mark each one before it closes.</p>
         </div>
 
@@ -48,9 +48,9 @@
                         default => 'Venue',
                     };
                 @endphp
-                <li class="rounded-2xl bg-white p-4 sm:p-5 shadow-sm flex flex-col gap-4 touch-manipulation">
+                <li class="rounded-2xl bg-white p-4 sm:p-5 border border-slate-200 flex flex-col gap-4 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <span class="shrink-0 w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/30">
+                        <span class="shrink-0 w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center">
                             <i class="fas fa-clipboard-check text-base" aria-hidden="true"></i>
                         </span>
                         <div class="min-w-0 flex-1">
@@ -64,14 +64,14 @@
                                 <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ $modeLabel }}</span>
                                 @if($session->expires_at)
                                     <span class="text-slate-400">·</span>
-                                    <span class="text-amber-800 font-medium">Closes {{ $session->expires_at->timezone(config('app.timezone'))->format('g:i A') }}</span>
+                                    <span class="text-amber-900 font-medium">Closes {{ $session->expires_at->timezone(config('app.timezone'))->format('g:i A') }}</span>
                                 @endif
                             </p>
                         </div>
                     </div>
                     <div class="w-full pt-0.5">
                         <a href="{{ route('web.attendance.form', $course) }}"
-                           class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
+                           class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
                             <i class="fas fa-arrow-right-to-bracket"></i>
                             Mark attendance
                         </a>
@@ -84,13 +84,17 @@
 @else
 
 <div class="space-y-5 sm:space-y-6">
-    <div class="rounded-2xl bg-gradient-to-br from-sky-500 via-sky-600 to-blue-700 text-white p-5 sm:p-6 shadow-lg shadow-sky-500/20">
-        <p class="text-sky-100 text-xs font-medium uppercase tracking-wider">Welcome back</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 truncate">{{ $student->getDisplayNameOrIndex() }}</h1>
-        <p class="text-sky-100/90 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
+    @php
+        $greeting = collect(['Hello', 'Yo'])->random();
+        $greetingPunct = $greeting === 'Yo' ? '!' : '';
+    @endphp
+    <div class="rounded-2xl bg-slate-100 border border-slate-200 p-5 sm:p-6">
+        <p class="text-amber-700 text-xs font-semibold uppercase tracking-wider">Student</p>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $greeting }} {{ $student->getDisplayNameOrIndex() }}{{ $greetingPunct }}</h1>
+        <p class="text-slate-600 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
         @if($student->department?->name)
-            <p class="text-white/90 text-sm mt-2 flex items-center gap-2">
-                <i class="fas fa-building-columns text-sky-200"></i>
+            <p class="text-slate-600 text-sm mt-2 flex items-center gap-2">
+                <i class="fas fa-building-columns text-amber-600"></i>
                 {{ $student->department->name }}
             </p>
         @endif
@@ -103,16 +107,16 @@
     @endif
 
     <div class="grid grid-cols-2 gap-3 sm:gap-4">
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-5 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
             <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600"><i class="fas fa-check-double text-sm"></i></span>
+                <span class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-700"><i class="fas fa-check-double text-sm"></i></span>
                 Present
             </div>
             <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalPresent }}</p>
         </div>
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-5 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
             <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600"><i class="fas fa-calendar-week text-sm"></i></span>
+                <span class="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-700"><i class="fas fa-calendar-week text-sm"></i></span>
                 Weeks
             </div>
             <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalWeeks }}</p>
@@ -120,7 +124,7 @@
     </div>
 
     @if($byCourse->isNotEmpty())
-    <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-6 shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-6">
         <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Attendance by course</h2>
         <div class="h-56 sm:h-64">
             <canvas id="courseChart"></canvas>
@@ -129,7 +133,7 @@
     @endif
 
     @if($byWeek->isNotEmpty())
-    <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-6 shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-6">
         <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Trend by week</h2>
         <div class="h-56 sm:h-64">
             <canvas id="weekChart"></canvas>
@@ -137,7 +141,7 @@
     </div>
     @endif
 
-    <div class="rounded-2xl bg-white border border-slate-200/80 overflow-hidden shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <h2 class="font-semibold text-slate-800 text-sm sm:text-base">Recent attendance</h2>
         </div>
@@ -148,7 +152,7 @@
                     <p class="font-medium text-slate-900 text-sm">{{ $a->course?->course_name ?? '—' }}</p>
                     <p class="text-xs text-slate-500 mt-0.5">Week {{ $a->attendanceWeek?->week_number ?? '—' }} · {{ $a->attendance_time?->format('M d, Y H:i') ?? '—' }}</p>
                 </div>
-                <span class="shrink-0 px-2 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold">Present</span>
+                <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
             </div>
             @empty
             <div class="p-10 text-center text-slate-500 text-sm">No attendance records yet</div>
@@ -180,8 +184,8 @@
                 datasets: [{
                     label: 'Present',
                     data: byCourse.map(c => c.count),
-                    backgroundColor: 'rgba(14, 165, 233, 0.65)',
-                    borderColor: 'rgb(2, 132, 199)',
+                    backgroundColor: 'rgba(234, 179, 8, 0.5)',
+                    borderColor: 'rgb(202, 138, 4)',
                     borderWidth: 1,
                     borderRadius: 6
                 }]
@@ -205,8 +209,8 @@
                 datasets: [{
                     label: 'Attendance',
                     data: byWeek.map(w => w.count),
-                    borderColor: 'rgb(16, 185, 129)',
-                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                    borderColor: 'rgb(185, 28, 28)',
+                    backgroundColor: 'rgba(185, 28, 28, 0.12)',
                     fill: true,
                     tension: 0.35
                 }]

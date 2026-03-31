@@ -20,7 +20,7 @@
 
 @section('content')
 <div class="w-full {{ ($lay ?? '') === 'courserep' ? 'max-w-6xl mx-auto' : 'max-w-lg sm:max-w-xl' }}">
-    <div class="rounded-2xl bg-white border border-slate-200/80 shadow-sm p-5 sm:p-7">
+    <div class="rounded-2xl bg-white border border-slate-200 p-5 sm:p-7">
         <h1 class="text-xl font-bold text-slate-900">Welcome</h1>
         <p class="text-slate-500 text-sm mt-1">
             @if(in_array('profile_image', $missingFields, true))
@@ -42,7 +42,7 @@
             <div>
                 <label for="first_name" class="block text-sm font-medium text-slate-700 mb-2">First name</label>
                 <input type="text" id="first_name" name="first_name" value="{{ old('first_name', $student->first_name) }}" required autocomplete="given-name"
-                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
                 @error('first_name')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
             @endif
@@ -50,7 +50,7 @@
             <div>
                 <label for="last_name" class="block text-sm font-medium text-slate-700 mb-2">Last name</label>
                 <input type="text" id="last_name" name="last_name" value="{{ old('last_name', $student->last_name) }}" required autocomplete="family-name"
-                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
                 @error('last_name')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
             @endif
@@ -59,7 +59,7 @@
                 <label for="phone_number" class="block text-sm font-medium text-slate-700 mb-2">Mobile phone</label>
                 <input type="text" id="phone_number" name="phone_number" value="{{ old('phone_number', $student->phone_number) }}" required inputmode="tel" autocomplete="tel" minlength="10"
                     placeholder="e.g. 0244123456"
-                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
                 @error('phone_number')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
             @endif
@@ -67,7 +67,7 @@
                 @include('partials.student-profile-camera', ['prefix' => 'onboarding', 'required' => true, 'label' => 'Profile photo'])
                 @error('profile_photo')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             @endif
-            <button type="submit" class="w-full bg-sky-600 text-white py-3 rounded-xl font-semibold hover:bg-sky-700 transition shadow-md shadow-sky-600/20">
+            <button type="submit" class="w-full bg-amber-700 text-white py-3 rounded-xl font-semibold hover:bg-amber-800 transition">
                 Continue
             </button>
         </form>

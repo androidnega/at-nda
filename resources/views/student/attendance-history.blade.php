@@ -4,7 +4,7 @@
 
 @section('breadcrumb')
     <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-slate-500">
-        <a href="{{ route('dashboard.dashboard') }}" class="hover:text-sky-600 transition-colors">Dashboard</a>
+        <a href="{{ route('dashboard.dashboard') }}" class="hover:text-amber-700 transition-colors">Dashboard</a>
         <span class="text-slate-300">/</span>
         <span class="font-semibold text-slate-800 truncate">Attendance history</span>
     </nav>
@@ -12,33 +12,33 @@
 
 @section('content')
 <div class="space-y-5 sm:space-y-6">
-    <div class="rounded-2xl bg-gradient-to-br from-sky-500 via-sky-600 to-blue-700 text-white p-5 sm:p-6 shadow-lg shadow-sky-500/20">
-        <p class="text-sky-100 text-xs font-medium uppercase tracking-wider">Attendance overview</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 truncate">{{ $student->getDisplayNameOrIndex() }}</h1>
-        <p class="text-sky-100/90 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
+    <div class="rounded-2xl bg-slate-100 border border-slate-200 p-5 sm:p-6">
+        <p class="text-amber-700 text-xs font-semibold uppercase tracking-wider">Attendance overview</p>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $student->getDisplayNameOrIndex() }}</h1>
+        <p class="text-slate-600 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4">
             <p class="text-xs uppercase tracking-wide text-slate-500">Sessions</p>
             <p class="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{{ $totalSessions }}</p>
         </div>
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4">
             <p class="text-xs uppercase tracking-wide text-slate-500">Present</p>
-            <p class="text-2xl font-bold text-emerald-700 mt-1 tabular-nums">{{ $presentCount }}</p>
+            <p class="text-2xl font-bold text-amber-700 mt-1 tabular-nums">{{ $presentCount }}</p>
         </div>
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4">
             <p class="text-xs uppercase tracking-wide text-slate-500">Absent</p>
-            <p class="text-2xl font-bold text-rose-600 mt-1 tabular-nums">{{ $absentCount }}</p>
+            <p class="text-2xl font-bold text-rose-700 mt-1 tabular-nums">{{ $absentCount }}</p>
         </div>
-        <div class="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-sm">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4">
             <p class="text-xs uppercase tracking-wide text-slate-500">Rate</p>
-            <p class="text-2xl font-bold text-sky-700 mt-1 tabular-nums">{{ number_format($attendanceRate, 1) }}%</p>
+            <p class="text-2xl font-bold text-slate-800 mt-1 tabular-nums">{{ number_format($attendanceRate, 1) }}%</p>
         </div>
     </div>
 
     @if($trend->isNotEmpty())
-    <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-5 shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
         <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Attendance trend</h2>
         <div class="space-y-3">
             @foreach($trend as $t)
@@ -48,7 +48,7 @@
                         <span class="font-semibold text-slate-700">{{ $t['present'] }}/{{ $t['total'] }} present</span>
                     </div>
                     <div class="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div class="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500" style="width: {{ $t['rate'] }}%;"></div>
+                        <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-rose-500" style="width: {{ $t['rate'] }}%;"></div>
                     </div>
                 </div>
             @endforeach
@@ -57,7 +57,7 @@
     @endif
 
     @if($courseStats->isNotEmpty())
-    <div class="rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-5 shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
         <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">By course</h2>
         <div class="space-y-3">
             @foreach($courseStats as $c)
@@ -78,7 +78,7 @@
     </div>
     @endif
 
-    <div class="rounded-2xl bg-white border border-slate-200/80 overflow-hidden shadow-sm">
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-100">
             <h2 class="font-semibold text-slate-800 text-sm sm:text-base">Attendance records</h2>
         </div>
@@ -96,7 +96,7 @@
                         </p>
                     </div>
                     @if($row['is_present'])
-                        <span class="shrink-0 px-2 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold">Present</span>
+                        <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
                     @else
                         <span class="shrink-0 px-2 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold">Absent</span>
                     @endif
