@@ -58,6 +58,7 @@ class StudentApiPayload
             'level' => $class?->level ?? null,
             'phone_number' => $student->phone_number,
             'updated_at' => $student->updated_at?->toIso8601String(),
+            'weekly_timetable' => $student->weeklyTimetableSummary(),
         ], self::attendanceSyncMeta());
     }
 }

@@ -73,6 +73,7 @@ class StudentController extends Controller
             'level' => $class?->level ?? null,
             'phone' => $student->phone_number,
             'has_password' => !empty($student->password),
+            'weekly_timetable' => $student->weeklyTimetableSummary(),
         ];
         if ($settings->enable_ip_binding && $student->bound_ip) {
             $item['bound_ip'] = $student->bound_ip;

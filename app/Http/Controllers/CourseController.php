@@ -35,6 +35,7 @@ class CourseController extends Controller
             'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
+            'credit_hours' => 'required|integer|min:1|max:12',
             'venue' => 'nullable|string|max:255',
             'venue_id' => 'nullable|exists:venues,id',
             'lecturer_name' => 'nullable|string|max:255',
@@ -46,6 +47,7 @@ class CourseController extends Controller
             'next_week_number' => 'nullable|integer|min:1|max:500',
         ]);
         $validated['attendance_window_minutes'] = $validated['attendance_window_minutes'] ?? 60;
+        $validated['credit_hours'] = $validated['credit_hours'] ?? 2;
         $validated['lecturer_name'] = $this->syncLecturerName($validated);
         foreach (['location_lat', 'location_lng', 'attendance_range_m', 'next_week_number'] as $k) {
             if (array_key_exists($k, $validated) && $validated[$k] === '') {
@@ -76,6 +78,7 @@ class CourseController extends Controller
             'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
+            'credit_hours' => 'required|integer|min:1|max:12',
             'venue' => 'nullable|string|max:255',
             'venue_id' => 'nullable|exists:venues,id',
             'lecturer_name' => 'nullable|string|max:255',

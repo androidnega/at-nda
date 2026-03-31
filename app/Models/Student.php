@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
@@ -393,6 +394,72 @@ class Student extends Model implements AuthenticatableContract
         }
 
         return $this->class_id ? collect([$this->class_id]) : collect();
+    }
+
+    /**
+     * Weekly lecture + credit-hour progress for timetable cards (web + mobile).
+     *
+     * @return array{lectures_total:int,lectures_taken:int,lectures_remaining:int,credit_hours_total:int,credit_hours_taken:int,credit_hours_remaining:int}
+     */
+    public function weeklyTimetableSummary(?Carbon $at = null): array
+    {
+        $classIds = $this->timetableVisibleClassIds();
+        if ($classIds->isEmpty()) {
+            return [
+                'lectures_total' => 0,
+                'lectures_taken' => 0,
+                'lectures_remaining' => 0,
+                'credit_hours_total' => 0,
+                'credit_hours_taken' => 0,
+                'credit_hours_remaining' => 0,
+            ];
+        }
+
+        $courses = Course::query()
+            ->whereIn('class_id', $classIds)
+            ->whereNotNull('day_of_week')
+            ->whereNotNull('start_time')
+            ->whereNotNull('end_time')
+            ->get(['id', 'credit_hours']);
+
+        $lecturesTotal = $courses->count();
+        if ($lecturesTotal === 0) {
+            return [
+                'lectures_total' => 0,
+                'lectures_taken' => 0,
+                'lectures_remaining' => 0,
+                'credit_hours_total' => 0,
+                'credit_hours_taken' => 0,
+                'credit_hours_remaining' => 0,
+            ];
+        }
+
+        $courseCredits = $courses
+            ->mapWithKeys(fn (Course $c) => [$c->id => max(1, (int) ($c->credit_hours ?? 2))]);
+        $creditHoursTotal = $courseCredits->sum();
+
+        $now = $at ?? now();
+        $weekStart = $now->copy()->startOfWeek(Carbon::MONDAY);
+        $weekEnd = $now->copy()->endOfWeek(Carbon::SUNDAY);
+
+        $takenCourseIds = Attendance::query()
+            ->where('student_id', $this->id)
+            ->whereIn('course_id', $courseCredits->keys()->all())
+            ->whereBetween('attendance_time', [$weekStart, $weekEnd])
+            ->distinct()
+            ->pluck('course_id');
+
+        $lecturesTaken = $takenCourseIds->count();
+        $creditHoursTaken = $takenCourseIds->sum(fn ($id) => (int) ($courseCredits->get($id) ?? 0));
+
+        return [
+            'lectures_total' => $lecturesTotal,
+            'lectures_taken' => $lecturesTaken,
+            'lectures_remaining' => max($lecturesTotal - $lecturesTaken, 0),
+            'credit_hours_total' => $creditHoursTotal,
+            'credit_hours_taken' => $creditHoursTaken,
+            'credit_hours_remaining' => max($creditHoursTotal - $creditHoursTaken, 0),
+        ];
     }
 
     /** True if this student is assigned as a course rep for the given course (can run session / attendance rules). */

@@ -54,6 +54,7 @@ class FlutterSessionFormatter
             'course_id' => $session->course_id,
             'course_name' => $courseName,
             'course_code' => $courseCode,
+            'credit_hours' => (int) ($course?->credit_hours ?? 2),
             'venue' => $venue,
             'lecturer_name' => $lecturerName,
             'mode' => $mode,

@@ -46,11 +46,13 @@ class DashboardTimetableController extends Controller
         $byDay = $courses->groupBy('day_key');
         $dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         $orderedDays = collect($dayOrder)->filter(fn (string $d) => $byDay->has($d))->values()->all();
+        $weekProgress = $student->weeklyTimetableSummary();
 
         return view('dashboard.timetable', [
             'courses' => $courses,
             'byDay' => $byDay,
             'orderedDays' => $orderedDays,
+            'weekProgress' => $weekProgress,
             'layout' => $student->isRep() ? 'layouts.courserep' : 'layouts.student',
             'student' => $student,
         ]);

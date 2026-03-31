@@ -16,6 +16,7 @@ class Course extends Model
         'day_of_week',
         'start_time',
         'end_time',
+        'credit_hours',
         'venue',
         'lecturer_name',
         'location_lat',
@@ -28,6 +29,7 @@ class Course extends Model
     protected $casts = [
         'location_lat' => 'decimal:7',
         'location_lng' => 'decimal:7',
+        'credit_hours' => 'integer',
     ];
 
     public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo

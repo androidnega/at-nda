@@ -66,6 +66,12 @@
                     @error('end_time')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div>
+                    <label for="credit_hours" class="block text-sm font-medium text-gray-700 mb-2">Credit Hours</label>
+                    <input type="number" id="credit_hours" name="credit_hours" value="{{ old('credit_hours', $course?->credit_hours ?? 2) }}" min="1" max="12" required
+                        class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                    @error('credit_hours')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
                     <label for="venue_id" class="block text-sm font-medium text-gray-700 mb-2">Venue</label>
                     <select id="venue_id" name="venue_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
                         <option value="">— None —</option>

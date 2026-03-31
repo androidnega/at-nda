@@ -14,7 +14,13 @@
                 <span class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
                     <i class="fas fa-calendar-week"></i>
                 </span>
-                <span><strong class="text-gray-900">{{ $courses->count() }}</strong> sessions this week</span>
+                <span><strong class="text-gray-900">{{ $weekProgress['lectures_remaining'] ?? 0 }}</strong> lectures left this week</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-gray-600 bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-2.5">
+                <span class="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                    <i class="fas fa-hourglass-half"></i>
+                </span>
+                <span><strong class="text-gray-900">{{ $weekProgress['credit_hours_remaining'] ?? 0 }}</strong> credit hours left</span>
             </div>
         @endif
     </div>
