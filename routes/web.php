@@ -215,6 +215,8 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
             Route::get('/', [StaffAccountController::class, 'index'])->name('index');
             Route::get('/create', [StaffAccountController::class, 'create'])->name('create');
             Route::post('/', [StaffAccountController::class, 'store'])->name('store');
+            Route::post('/lecturers/{lecturer}/reset-password', [StaffAccountController::class, 'resetLecturerPassword'])->name('lecturers.reset-password');
+            Route::delete('/lecturers/{lecturer}', [StaffAccountController::class, 'removeLecturerAccount'])->name('lecturers.destroy');
             Route::get('/admins/{user}/edit', [StaffAccountController::class, 'editAdmin'])->name('admins.edit');
             Route::put('/admins/{user}', [StaffAccountController::class, 'updateAdmin'])->name('admins.update');
             Route::delete('/admins/{user}', [StaffAccountController::class, 'destroyAdmin'])->name('admins.destroy');

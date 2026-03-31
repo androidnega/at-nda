@@ -6,6 +6,7 @@ use App\Models\Lecturer;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -19,13 +20,49 @@ class StaffAccountController extends Controller
 {
     public function index(): View
     {
+        $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
+        $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
         $admins = User::orderBy('name')->get();
         $lecturersWithLogin = Lecturer::query()
             ->whereNotNull('password')
             ->orderBy('name')
             ->get();
 
-        return view('admin.staff-accounts.index', compact('admins', 'lecturersWithLogin'));
+        $lecturerIds = $lecturersWithLogin->pluck('id')->all();
+        $presenceRows = empty($lecturerIds)
+            ? collect()
+            : DB::table('attendance_sessions')
+                ->join('courses', 'attendance_sessions.course_id', '=', 'courses.id')
+                ->leftJoin('classes', 'courses.class_id', '=', 'classes.id')
+                ->whereIn('attendance_sessions.lecturer_id', $lecturerIds)
+                ->where('attendance_sessions.lecturer_status', 'present')
+                ->selectRaw('attendance_sessions.lecturer_id, courses.id as course_id, courses.course_name, courses.course_code, classes.name as class_name, COUNT(*) as present_sessions')
+                ->groupBy('attendance_sessions.lecturer_id', 'courses.id', 'courses.course_name', 'courses.course_code', 'classes.name')
+                ->orderByDesc('present_sessions')
+                ->get()
+                ->groupBy('lecturer_id');
+
+        $lecturerPresenceSummary = [];
+        foreach ($lecturersWithLogin as $lecturer) {
+            $rows = collect($presenceRows->get($lecturer->id, []));
+            $lecturerPresenceSummary[$lecturer->id] = [
+                'total_present' => (int) $rows->sum('present_sessions'),
+                'by_course' => $rows->map(fn ($r) => [
+                    'course_name' => $r->course_name,
+                    'course_code' => $r->course_code,
+                    'class_name' => $r->class_name,
+                    'present_sessions' => (int) $r->present_sessions,
+                ])->values(),
+            ];
+        }
+
+        return view('admin.staff-accounts.index', compact(
+            'admins',
+            'lecturersWithLogin',
+            'lecturerPresenceSummary',
+            'hasUsernameColumn',
+            'hasMustChangeColumn'
+        ));
     }
 
     public function create(): View
@@ -46,7 +83,7 @@ class StaffAccountController extends Controller
             $lecturer = Lecturer::findOrFail($validated['lecturer_id']);
             $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
             $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
-            $username = ($hasUsernameColumn ? $lecturer->username : null) ?: ('lecturer' . $lecturer->id);
+            $username = ($hasUsernameColumn ? $lecturer->username : null) ?: $this->buildFancyLecturerUsername($lecturer->name, $lecturer->id);
             $baseUsername = Str::slug($username, '');
             if ($baseUsername === '') {
                 $baseUsername = 'lecturer' . $lecturer->id;
@@ -110,6 +147,42 @@ class StaffAccountController extends Controller
             ->with('success', 'Administrator account created.');
     }
 
+    public function resetLecturerPassword(Lecturer $lecturer): RedirectResponse
+    {
+        $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
+        $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
+
+        $generatedPassword = Str::upper(Str::random(10));
+        if ($hasUsernameColumn && empty($lecturer->username)) {
+            $lecturer->username = $this->buildFancyLecturerUsername($lecturer->name, $lecturer->id);
+        }
+        $lecturer->password = Hash::make($generatedPassword);
+        if ($hasMustChangeColumn) {
+            $lecturer->must_change_password = true;
+        }
+        $lecturer->save();
+
+        return redirect()->route('dashboard.staff-accounts.index')
+            ->with('success', 'Lecturer temporary password reset. ' . ($hasUsernameColumn ? 'Username: ' . $lecturer->username . ' | ' : '') . 'Temporary password: ' . $generatedPassword);
+    }
+
+    public function removeLecturerAccount(Lecturer $lecturer): RedirectResponse
+    {
+        $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
+        $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
+
+        $lecturer->password = null;
+        if ($hasUsernameColumn) {
+            $lecturer->username = null;
+        }
+        if ($hasMustChangeColumn) {
+            $lecturer->must_change_password = false;
+        }
+        $lecturer->save();
+
+        return redirect()->route('dashboard.staff-accounts.index')->with('success', 'Lecturer login account removed.');
+    }
+
     public function editAdmin(User $user): View
     {
         return view('admin.staff-accounts.edit-admin', ['user' => $user]);
@@ -152,5 +225,26 @@ class StaffAccountController extends Controller
 
         return redirect()->route('dashboard.staff-accounts.index')
             ->with('success', 'Administrator account removed.');
+    }
+
+    private function buildFancyLecturerUsername(string $name, int $id): string
+    {
+        $words = preg_split('/\s+/', strtolower(trim($name))) ?: [];
+        $first = $words[0] ?? 'lecturer';
+        $last = $words[count($words) - 1] ?? 'staff';
+        $baseA = preg_replace('/[^a-z0-9]/', '', $first . '.' . $last);
+        $baseB = preg_replace('/[^a-z0-9]/', '', substr($first, 0, 1) . $last);
+        $suffixes = ['byte', 'core', 'logic', 'stack', 'matrix', 'vector', 'quant', 'kernel'];
+        $baseC = preg_replace('/[^a-z0-9]/', '', $first . $suffixes[$id % count($suffixes)]);
+        $candidates = array_values(array_unique(array_filter([$baseA, $baseB, $baseC, 'lecturer' . $id])));
+
+        foreach ($candidates as $candidate) {
+            if (! Lecturer::where('id', '!=', $id)->where('username', $candidate)->exists()
+                && ! User::where('username', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        return 'lecturer' . $id;
     }
 }

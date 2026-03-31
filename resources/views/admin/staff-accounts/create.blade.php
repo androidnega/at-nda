@@ -34,6 +34,7 @@
             </select>
             @error('lecturer_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             <p class="text-xs text-gray-500 mt-2">System generates temporary password automatically. Lecturer must change it on first login at <strong>/admin</strong>.</p>
+            <p class="text-xs text-indigo-600 mt-1">Username is auto-generated from lecturer name with a computer-style format (e.g. <span class="font-mono">kwame.byte</span>).</p>
         </div>
 
         <div id="admin-account-fields" class="{{ old('account_type', 'admin') === 'admin' ? '' : 'hidden' }} space-y-5">

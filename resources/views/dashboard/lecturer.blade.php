@@ -13,7 +13,10 @@
 
 <div class="mb-6 sm:mb-8">
     <h1 class="text-2xl sm:text-3xl font-bold text-primary">{{ $greeting }}, {{ $lecturer->name }}</h1>
-    <p class="text-gray-500 text-sm mt-1">Lecturer</p>
+    <p class="text-gray-500 text-sm mt-1">Lecturer · Only your linked courses/classes are visible</p>
+    <a href="{{ route('lecturer.password.change.form') }}" class="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:underline">
+        <i class="fas fa-key"></i> Change password
+    </a>
 </div>
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 sm:mb-8">
@@ -24,6 +27,15 @@
         <div class="min-w-0">
             <p class="text-gray-500 text-sm font-medium">My Courses</p>
             <p class="text-2xl font-bold text-gray-800">{{ $courses->count() }}</p>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+        <span class="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
+            <i class="fas fa-users-rectangle text-xl"></i>
+        </span>
+        <div class="min-w-0">
+            <p class="text-gray-500 text-sm font-medium">Classes I Teach</p>
+            <p class="text-2xl font-bold text-gray-800">{{ $courses->pluck('class_id')->filter()->unique()->count() }}</p>
         </div>
     </div>
 </div>

@@ -49,10 +49,6 @@ class LecturerAuthController extends Controller
             return redirect()->route('admin.login')->with('error', 'Session expired. Sign in again.');
         }
 
-        if (! Schema::hasColumn('lecturers', 'must_change_password') || ! $lecturer->must_change_password) {
-            return redirect()->route('dashboard.dashboard');
-        }
-
         return view('lecturer.change-password', compact('lecturer'));
     }
 

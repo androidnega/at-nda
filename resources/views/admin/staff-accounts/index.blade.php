@@ -82,23 +82,42 @@
                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Username</th>
                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">First login status</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Presence stats</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
                 @forelse($lecturersWithLogin as $l)
                 <tr class="hover:bg-gray-50/50">
                     <td class="px-4 py-3 font-medium text-gray-900">{{ $l->name }}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600 font-mono">{{ $l->username ?: '—' }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600 font-mono">{{ ($hasUsernameColumn ?? false) ? ($l->username ?: '—') : '—' }}</td>
                     <td class="px-4 py-3 text-sm">
-                        @if($l->must_change_password)
+                        @if(($hasMustChangeColumn ?? false) && $l->must_change_password)
                             <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">Must change password</span>
                         @else
                             <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Updated</span>
                         @endif
                     </td>
+                    <td class="px-4 py-3 text-xs text-gray-700">
+                        @php $summary = $lecturerPresenceSummary[$l->id] ?? ['total_present' => 0, 'by_course' => collect()]; @endphp
+                        <p class="font-semibold text-gray-900">{{ $summary['total_present'] }} present session(s)</p>
+                        @foreach(($summary['by_course'] ?? collect())->take(3) as $row)
+                            <p class="mt-1">{{ $row['course_name'] }}{{ $row['course_code'] ? ' (' . $row['course_code'] . ')' : '' }} · {{ $row['class_name'] ?: 'No class' }} · {{ $row['present_sessions'] }}</p>
+                        @endforeach
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <form action="{{ route('dashboard.staff-accounts.lecturers.reset-password', $l) }}" method="POST" class="inline" onsubmit="return confirm('Generate new temporary password for this lecturer?')">
+                            @csrf
+                            <button type="submit" class="text-primary hover:underline text-sm font-medium">Reset password</button>
+                        </form>
+                        <form action="{{ route('dashboard.staff-accounts.lecturers.destroy', $l) }}" method="POST" class="inline ml-3" onsubmit="return confirm('Remove this lecturer login account?')">
+                            @csrf @method('DELETE')
+                            <button type="submit" class="text-red-600 hover:underline text-sm font-medium">Remove login</button>
+                        </form>
+                    </td>
                 </tr>
                 @empty
-                <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">No lecturer login accounts yet.</td></tr>
+                <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No lecturer login accounts yet.</td></tr>
                 @endforelse
             </tbody>
         </table>
