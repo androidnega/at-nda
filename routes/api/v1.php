@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('api.https')->group(function () {
+    Route::prefix('auth')->middleware('throttle:api-v1-login')->group(function () {
+        Route::post('login', [AuthController::class, 'login']);
+    });
+
     Route::get('settings', [SettingsController::class, 'index'])->middleware('throttle:api-v1');
 
     Route::get('students/removed', [LegacyStudentController::class, 'removed'])->middleware('throttle:api-v1');

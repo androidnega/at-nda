@@ -12,7 +12,6 @@ use App\Http\Controllers\StudentOnboardingController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
-    Route::post('/auth/login', [AuthController::class, 'login']);
     Route::get('/students', [StudentController::class, 'index']);
 });
 
