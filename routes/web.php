@@ -54,17 +54,17 @@ Route::post('/clear-filter', function (\Illuminate\Http\Request $request) {
 Route::get('/run-migrations', RunMigrationsController::class)->name('system.run-migrations');
 Route::get('/run-migartions', RunMigrationsController::class); // alias for common typo
 Route::get('/run-migrations-auto', function () {
-    $key = (string) config('app.run_migrations_key', '');
+    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
     if ($key === '') {
-        abort(500, 'RUN_MIGRATIONS_KEY is not configured.');
+        abort(500, 'Migration key cannot be derived from configuration.');
     }
 
     return redirect()->route('system.run-migrations', ['key' => $key]);
 });
 Route::get('/run-migartions-auto', function () {
-    $key = (string) config('app.run_migrations_key', '');
+    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
     if ($key === '') {
-        abort(500, 'RUN_MIGRATIONS_KEY is not configured.');
+        abort(500, 'Migration key cannot be derived from configuration.');
     }
 
     return redirect()->route('system.run-migrations', ['key' => $key]);
