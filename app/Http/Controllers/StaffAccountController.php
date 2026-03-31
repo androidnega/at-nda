@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -43,29 +44,47 @@ class StaffAccountController extends Controller
             ]);
 
             $lecturer = Lecturer::findOrFail($validated['lecturer_id']);
-            $username = $lecturer->username ?: ('lecturer' . $lecturer->id);
+            $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
+            $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
+            $username = ($hasUsernameColumn ? $lecturer->username : null) ?: ('lecturer' . $lecturer->id);
             $baseUsername = Str::slug($username, '');
             if ($baseUsername === '') {
                 $baseUsername = 'lecturer' . $lecturer->id;
             }
             $usernameCandidate = $baseUsername;
             $suffix = 1;
-            while (
-                Lecturer::where('id', '!=', $lecturer->id)->where('username', $usernameCandidate)->exists()
-                || User::where('username', $usernameCandidate)->exists()
-            ) {
-                $suffix++;
-                $usernameCandidate = $baseUsername . $suffix;
+            if ($hasUsernameColumn) {
+                while (
+                    Lecturer::where('id', '!=', $lecturer->id)->where('username', $usernameCandidate)->exists()
+                    || User::where('username', $usernameCandidate)->exists()
+                ) {
+                    $suffix++;
+                    $usernameCandidate = $baseUsername . $suffix;
+                }
             }
 
             $generatedPassword = Str::upper(Str::random(10));
-            $lecturer->username = $usernameCandidate;
             $lecturer->password = Hash::make($generatedPassword);
-            $lecturer->must_change_password = true;
+            if ($hasUsernameColumn) {
+                $lecturer->username = $usernameCandidate;
+            }
+            if ($hasMustChangeColumn) {
+                $lecturer->must_change_password = true;
+            }
             $lecturer->save();
 
-            return redirect()->route('dashboard.staff-accounts.index')
-                ->with('success', 'Lecturer account created. Username: ' . $usernameCandidate . ' | Temporary password: ' . $generatedPassword);
+            $message = 'Lecturer account created. ';
+            if ($hasUsernameColumn) {
+                $message .= 'Username: ' . $usernameCandidate . ' | ';
+            }
+            $message .= 'Temporary password: ' . $generatedPassword;
+
+            $redirect = redirect()->route('dashboard.staff-accounts.index')->with('success', $message);
+            if (! $hasUsernameColumn || ! $hasMustChangeColumn) {
+                $redirect->with('error', 'Database upgrade pending: run migrations to enable lecturer username + forced first password change.');
+            }
+
+            return $redirect;
         }
 
         $validated = $request->validate([

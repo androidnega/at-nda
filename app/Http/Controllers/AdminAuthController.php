@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class AdminAuthController extends Controller
@@ -37,14 +38,17 @@ class AdminAuthController extends Controller
             return redirect()->route('dashboard.dashboard');
         }
 
-        $lecturer = Lecturer::query()
-            ->where('email', $identifier)
-            ->orWhere('username', $identifier)
-            ->first();
+        $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
+        $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
+        $lecturerQuery = Lecturer::query()->where('email', $identifier);
+        if ($hasUsernameColumn) {
+            $lecturerQuery->orWhere('username', $identifier);
+        }
+        $lecturer = $lecturerQuery->first();
         if ($lecturer && ! empty($lecturer->password) && Hash::check($password, $lecturer->password)) {
             $request->session()->forget('admin_id');
             $request->session()->put('lecturer_id', $lecturer->id);
-            if ($lecturer->must_change_password) {
+            if ($hasMustChangeColumn && $lecturer->must_change_password) {
                 return redirect()->route('lecturer.password.change.form');
             }
 

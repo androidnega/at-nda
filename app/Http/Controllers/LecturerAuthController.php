@@ -6,6 +6,7 @@ use App\Models\Lecturer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 class LecturerAuthController extends Controller
 {
     public function loginForm(): \Illuminate\Http\RedirectResponse
@@ -48,7 +49,7 @@ class LecturerAuthController extends Controller
             return redirect()->route('admin.login')->with('error', 'Session expired. Sign in again.');
         }
 
-        if (! $lecturer->must_change_password) {
+        if (! Schema::hasColumn('lecturers', 'must_change_password') || ! $lecturer->must_change_password) {
             return redirect()->route('dashboard.dashboard');
         }
 
@@ -73,7 +74,9 @@ class LecturerAuthController extends Controller
         ]);
 
         $lecturer->password = Hash::make($validated['password']);
-        $lecturer->must_change_password = false;
+        if (Schema::hasColumn('lecturers', 'must_change_password')) {
+            $lecturer->must_change_password = false;
+        }
         $lecturer->save();
 
         return redirect()->route('dashboard.dashboard')->with('success', 'Password updated successfully.');
