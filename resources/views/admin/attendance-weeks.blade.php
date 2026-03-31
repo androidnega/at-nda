@@ -3,7 +3,7 @@
 @section('title', 'Attendance weeks')
 
 @section('content')
-<div class="max-w-5xl mx-auto space-y-8 pb-8">
+<div class="w-full max-w-none space-y-8 pb-8">
     {{-- Page header --}}
     <div class="bg-white border border-gray-200 rounded-xl p-6 sm:p-8">
         <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Term &amp; numbering</p>
