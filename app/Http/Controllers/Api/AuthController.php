@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeletedStudentIndex;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,13 +24,22 @@ class AuthController extends Controller
     {
         if ($request->is('api/v1/auth/login')) {
             $request->validate([
-                'email' => 'required|email',
+                'index_number' => 'required',
                 'password' => 'required|string',
             ]);
 
+            $user = User::where('index_number', $request->index_number)->first();
+            if (! $user || ! Hash::check($request->password, $user->password)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid credentials',
+                ], 401);
+            }
+
             return response()->json([
+                'status' => true,
                 'message' => 'Login successful',
-                'token' => 'sample-token',
+                'user' => $user,
             ]);
         }
 
