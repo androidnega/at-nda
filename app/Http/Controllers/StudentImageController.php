@@ -16,7 +16,14 @@ class StudentImageController extends Controller
         }
 
         $absolutePath = Storage::disk('public')->path($path);
-        $mime = Storage::disk('public')->mimeType($path) ?: 'image/jpeg';
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $mime = match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            default => (Storage::disk('public')->mimeType($path) ?: 'application/octet-stream'),
+        };
 
         return response()->file($absolutePath, [
             'Content-Type' => $mime,

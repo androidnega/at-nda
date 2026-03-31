@@ -258,7 +258,7 @@ class Student extends Model implements AuthenticatableContract
         imagecopyresampled($canvas, $src, 0, 0, 0, 0, $targetW, $targetH, $srcW, $srcH);
         imagedestroy($src);
 
-        $ext = function_exists('imagewebp') ? 'webp' : 'jpg';
+        $ext = 'jpg';
         $best = '';
         $bestLen = PHP_INT_MAX;
         $quality = 86;
