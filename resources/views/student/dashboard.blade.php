@@ -2,6 +2,8 @@
 
 @section('title', 'Dashboard')
 
+@section('body_class', 'overflow-hidden select-none')
+
 @section('breadcrumb')
     @if($liveAttendanceSessions->isNotEmpty())
         <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
@@ -19,6 +21,24 @@
         </nav>
     @endif
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+    function blockCopy(e) {
+        e.preventDefault();
+    }
+    document.addEventListener('copy', blockCopy);
+    document.addEventListener('cut', blockCopy);
+    document.addEventListener('dragstart', blockCopy);
+    document.addEventListener('selectstart', blockCopy);
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+})();
+</script>
+@endpush
 
 @section('content')
 @if (session('success'))
