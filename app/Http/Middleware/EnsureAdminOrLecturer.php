@@ -25,6 +25,9 @@ class EnsureAdminOrLecturer
         if ($request->session()->has('lecturer_id') && ! $request->session()->has('admin_id')) {
             $allowedForLecturer = [
                 'dashboard.dashboard',
+                'dashboard.students.index',
+                'dashboard.students.show',
+                'dashboard.students.reset-password',
             ];
             if (! in_array((string) $request->route()?->getName(), $allowedForLecturer, true)) {
                 return redirect()->route('dashboard.dashboard')->with('error', 'Access denied for lecturer account.');

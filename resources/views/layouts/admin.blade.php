@@ -54,6 +54,12 @@
                     <i class="fas fa-th-large w-5 text-center"></i>
                     <span>Dashboard</span>
                 </a>
+                @if($isLecturerView)
+                <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.students.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-user-graduate w-5 text-center"></i>
+                    <span>Students</span>
+                </a>
+                @endif
                 @if(!$isLecturerView)
                 <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.classes.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-layer-group w-5 text-center"></i>
