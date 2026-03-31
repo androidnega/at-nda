@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>@yield('title', 'Admin') - {{ config('app.name') }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+                    colors: {
+                        primary: { DEFAULT: '#e11d48', 50: '#fff1f2', 100: '#ffe4e6', 500: '#e11d48', 600: '#be123c' },
+                    }
+                }
+            }
+        }
+    </script>
+    @include('partials.minimal-ui')
+    <style>
+        .sidebar-overlay { @apply fixed inset-0 bg-black/40 z-40 lg:hidden; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-gray-900 antialiased font-sans">
+    {{-- Mobile sidebar overlay --}}
+    <div id="sidebar-overlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
+
+    {{-- Sidebar --}}
+    <aside id="sidebar" class="fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200 sidebar-transition -translate-x-full lg:translate-x-0">
+        <div class="flex flex-col h-full">
+            <div class="p-5 border-b border-gray-100">
+                <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-2.5">
+                    <span class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                        <i class="fas fa-clipboard-check text-lg"></i>
+                    </span>
+                    <span class="font-bold text-gray-800 text-lg">{{ config('app.name') }}</span>
+                </a>
+            </div>
+            <nav class="flex-1 overflow-y-auto py-4 px-3">
+                @php $dashboardRole = $dashboardRole ?? 'admin'; @endphp
+                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Manage</p>
+                <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.dashboard') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-th-large w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.classes.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-layer-group w-5 text-center"></i>
+                    <span>Classes</span>
+                </a>
+                <a href="{{ route('dashboard.semesters.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.semesters.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-calendar-alt w-5 text-center"></i>
+                    <span>Semesters</span>
+                </a>
+                <a href="{{ route('dashboard.courses.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.courses.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-book w-5 text-center"></i>
+                    <span>Courses</span>
+                </a>
+                <a href="{{ route('dashboard.attendance-weeks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.attendance-weeks.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-calendar-week w-5 text-center"></i>
+                    <span>Attendance weeks</span>
+                </a>
+                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-6">System</p>
+                @if(session()->has('admin_id'))
+                <a href="{{ route('dashboard.staff-accounts.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.staff-accounts.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-users-cog w-5 text-center"></i>
+                    <span>User management</span>
+                </a>
+                @endif
+                <a href="{{ route('dashboard.venues.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.venues.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-map-marker-alt w-5 text-center"></i>
+                    <span>Venues</span>
+                </a>
+                <a href="{{ route('dashboard.lecturers.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.lecturers.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-chalkboard-teacher w-5 text-center"></i>
+                    <span>Lecturers</span>
+                </a>
+                <a href="{{ route('dashboard.settings.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.settings.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-cog w-5 text-center"></i>
+                    <span>Settings</span>
+                </a>
+            </nav>
+        </div>
+    </aside>
+
+    {{-- Main content wrapper --}}
+    <div class="lg:pl-64 min-h-screen flex flex-col w-full min-w-0">
+        {{-- Top bar --}}
+        <header class="sticky top-0 z-30 w-full bg-white border-b border-gray-200">
+            <div class="flex items-center justify-between gap-3 w-full max-w-[100vw] px-4 sm:px-6 lg:px-8 py-3 min-h-[3.25rem]">
+                <button type="button" id="sidebar-toggle" class="lg:hidden p-2 -ml-2 rounded-lg text-gray-600 hover:bg-gray-100" aria-label="Toggle menu">
+                    <i class="fas fa-bars text-lg"></i>
+                </button>
+                <div class="flex-1 min-w-0"></div>
+                @php $user = $user ?? (session()->has('admin_id') ? \App\Models\User::find(session('admin_id')) : null); @endphp
+                <div class="relative shrink-0" id="staff-profile-wrap">
+                    <button type="button" id="staff-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                        @if($user?->name)
+                            <span class="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{{ strtoupper(substr($user->name, 0, 1)) }}</span>
+                        @else
+                            <span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                <i class="fas fa-user text-sm"></i>
+                            </span>
+                        @endif
+                        <i class="fas fa-chevron-down text-[10px] text-gray-400 hidden sm:block"></i>
+                    </button>
+                    <div id="staff-profile-menu" class="hidden absolute right-0 top-full mt-1.5 w-56 rounded-lg bg-white border border-gray-200 py-2 z-[60] overflow-hidden">
+                        <div class="px-3 py-2.5 border-b border-gray-100">
+                            <p class="text-sm font-semibold text-gray-900 truncate">{{ $user?->name ?? 'Administrator' }}</p>
+                            <p class="text-xs text-gray-500 truncate mt-0.5">{{ $user?->email ?? 'Staff dashboard' }}</p>
+                        </div>
+                        <a href="{{ route('dashboard.profile.edit') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            <i class="fas fa-user-gear text-gray-400 w-4"></i> Profile
+                        </a>
+                        <form action="{{ route('admin.logout') }}" method="POST" class="border-t border-gray-100 mt-1 pt-1">
+                            @csrf
+                            <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left font-medium">
+                                <i class="fas fa-right-from-bracket w-4"></i> Log out
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        {{-- Page content --}}
+        <main class="flex-1 w-full min-w-0 max-w-[100vw] px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+            @yield('content')
+        </main>
+    </div>
+
+    <script>
+        (function() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            const toggle = document.getElementById('sidebar-toggle');
+            function open() { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+            function close() { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); document.body.style.overflow = ''; }
+            toggle?.addEventListener('click', () => sidebar.classList.contains('-translate-x-full') ? open() : close());
+            overlay?.addEventListener('click', close);
+            window.matchMedia('(min-width: 1024px)').addEventListener('change', e => { if (e.matches) close(); });
+
+            const staffBtn = document.getElementById('staff-profile-btn');
+            const staffMenu = document.getElementById('staff-profile-menu');
+            const staffWrap = document.getElementById('staff-profile-wrap');
+            staffBtn?.addEventListener('click', function(e) {
+                e.stopPropagation();
+                staffMenu?.classList.toggle('hidden');
+            });
+            document.addEventListener('click', function() { staffMenu?.classList.add('hidden'); });
+            staffWrap?.addEventListener('click', function(e) { e.stopPropagation(); });
+        })();
+    </script>
+    @stack('scripts')
+</body>
+</html>

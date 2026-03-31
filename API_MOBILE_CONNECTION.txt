@@ -1,0 +1,277 @@
+================================================================================
+HOW THE API CONNECTS TO THE MOBILE APP
+================================================================================
+AT-NDA Attendance System | API ↔ Mobile App Connection
+================================================================================
+
+0. API v1 (PRODUCTION CONTRACT) — NEW
+---------------------------------------
+• Versioned base path: /api/v1/... (strict JSON envelope + Laravel Sanctum tokens).
+• Legacy unversioned routes (/api/login, /api/sessions/active, …) are UNCHANGED.
+• Full guide: docs/API_V1.md · Postman: docs/postman/at-nda-api-v1.postman_collection.json
+• Login: POST /api/v1/auth/login → use Authorization: Bearer <token> on protected routes.
+
+• **Attendance reset sync:** When admins reset weeks/sessions, the server bumps
+  `attendance_data_version`. Flutter must persist this integer and **clear local SQLite
+  attendance rows + recompute sidebar stats** when it increases.
+  The version is returned on:
+  - `GET /api/settings` and `GET /api/v1/settings`
+  - `POST /api/login`, `POST /api/me` — inside `user` and at top level (legacy shape)
+  - `POST /api/v1/auth/login` and `GET /api/v1/profile` — inside `data.user`
+  - `GET /api/attendance/sync` — top level next to `attendances` / `deleted_ids`
+  After a reset, call `GET /api/attendance/sync` (replace local cache with server list;
+  empty `attendances` means all cleared). FCM: `data.action=attendance_data_reset`
+  (requires `FCM_SERVER_KEY` + registered device token). Optional Echo: channels
+  `app.attendance.sync` / `class.{id}.sync`, event `attendance.data_reset`.
+
+1. OVERVIEW
+-----------
+The Laravel backend exposes REST API endpoints under /api. The Flutter mobile
+app connects to these endpoints over HTTP/HTTPS. There is no WebSocket or
+persistent connection—each request is independent (stateless).
+
+  [Flutter App]  ---- HTTP/HTTPS ----  [Laravel API at /api/*]
+       │                                      │
+       │  POST /api/login                     │
+       │  GET  /api/students                  │
+       │  POST /api/attendance                │
+       └──────────────────────────────────────┘
+
+2. CONNECTION SETUP
+------------------
+• Base URL: The mobile app stores the backend URL (e.g. http://192.168.1.38:8000)
+• All API routes are prefixed with /api
+• Full URL example: http://192.168.1.38:8000/api/login
+
+• Network: App and backend must be on the same network (or backend reachable)
+  - Same WiFi/LAN: Use server IP (e.g. 192.168.1.38)
+  - Emulator: Android uses 10.0.2.2 to reach host; iOS uses localhost
+  - Production: Use your domain (https://your-domain.com)
+
+3. AUTHENTICATION MODEL (STATELESS)
+----------------------------------
+The API does NOT use sessions or tokens for mobile. Each request carries the
+student's index_number (and password only for login).
+
+• Login: POST /api/login with { index_number, password }
+  → Returns { user: {...}, token: null } on success (token reserved for future Sanctum use).
+  → Same fields are merged at the top level for older clients (id, name, student_id,
+     first_name, middle_name, last_name, profile_picture, …). App stores index_number locally.
+
+• Refresh profile (same auth as login): POST /api/me with { index_number, password }
+  → Same JSON shape as login success.
+
+• Subsequent requests: Include index_number in the request body or query.
+  Example: POST /api/attendance with { "index_number": "BC/ITD/24/001", ... }
+
+• No bearer token, no session cookie. The index_number identifies the student.
+
+4. REQUEST/RESPONSE FLOW
+------------------------
+• Method: GET for reads, POST for writes
+• Headers: Content-Type: application/json (for POST)
+• Body: JSON for POST (e.g. {"index_number": "BC/ITD/24/001"})
+• Response: Always JSON
+
+• API routes do NOT require CSRF token (unlike web routes).
+
+5. TYPICAL MOBILE APP FLOW
+--------------------------
+1. App launches → GET /api/settings (optional, for feature flags)
+2. User enters index + password → POST /api/login
+3. On success → App stores index_number in local storage/state
+4. If not onboarded → POST /api/onboarding/complete (profile, phone, photo)
+5. Fetch courses/sessions → GET /api/sessions/active?index_number=... → { "sessions": [ ... ] }
+6. Mark attendance → POST /api/attendance with index_number, course_id, coordinates (lat/lng or latitude/longitude), optional accuracy
+
+6. HTTP CLIENT (FLUTTER)
+------------------------
+The app uses a package like `dio` or `http`:
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/login'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({'index_number': index, 'password': password}),
+  );
+
+7. CORS
+-------
+The Laravel backend has CORS configured (config/cors.php) to allow requests
+from the mobile app's origin. For native mobile apps, CORS typically does
+not apply (it's a browser restriction). For Flutter web, ensure the backend
+allows the app's origin.
+
+8. ERROR HANDLING
+-----------------
+• 200: Success
+• 404: Resource not found (e.g. index not in database)
+• 401: Unauthorized (wrong password)
+• 422: Validation error (missing field, invalid data)
+• 500: Server error
+
+The app should check response status and parse the JSON body for messages.
+
+9. API ROUTES SUMMARY (routes/api.php)
+--------------------------------------
+POST   /api/login              Student login → { user, token }
+  • 404: error_code student_not_found | student_removed, was_removed, in_system: false, removed_at (if removed)
+POST   /api/me                 Same body as login; refresh profile / “fetch user”
+POST   /api/student/profile    Update profile (phone, photo, names) — syncs to web DB
+GET    /api/faculties          List faculties
+GET    /api/departments         Departments by faculty_id
+GET    /api/students           List/filter students (?class_id, ?course_id, ?limit default 500 max 2000)
+GET    /api/students/removed   Deletions log: ?since=ISO8601 — { removed, removed_indexes, count }
+  • Poll to clear local cache when an index was deleted from the system.
+GET    /api/students/status    ?index_number=… — { exists, in_system, was_removed, error_code }
+  • Quick check: student_removed vs student_not_found (never existed).
+POST   /api/students/lookup    Lookup by index (no password) — 404 includes error_code, was_removed
+GET    /api/sessions/active     { "sessions": [ ... ] } — all current sessions (may be empty)
+  • Optional: include_missed_warnings=1 & password=… & index_number=… → adds "warnings" + "warnings_map"
+GET    /api/attendance/missed-warnings  index_number + password (optional min_missed, lookback_days)
+  • Courses (same class as student) with ≥2 missed ended sessions (no attendance row). Response:
+    warnings: [ { course_id, course_name, course_code, missed_count } ], warnings_map: { "1": 2, "3": 3 }
+  • Active = is_active, valid time window; course relation must resolve.
+  • Expired sessions are auto-deactivated before each read.
+  • Each item includes already_marked for that student (when index_number sent).
+GET    /api/settings            System settings
+POST   /api/attendance          Submit attendance (controller: markAttendance)
+GET    /api/attendance/sync     Full attendance rows + deleted_ids (SQLite sync; needs index + password)
+POST   /api/attendance/sync     Offline queue upload — same body as web /web/attendance/sync (records[])
+  • Validates session, time window, geofence, Wi‑Fi, signed QR (when QR_SECRET is set)
+POST   /api/update-profile      first_name, middle_name?, last_name (index + password)
+POST   /api/device-token        Firebase FCM token (index + password)
+GET    /api/onboarding/check    Check if student onboarded
+POST   /api/onboarding/complete Complete onboarding
+POST   /api/onboarding/save-face Save face descriptor
+
+10. CONFIGURATION
+-----------------
+• Backend: .env APP_URL should match your server (e.g. http://192.168.1.38:8000)
+• Profile photos: run once per deploy: php artisan storage:link
+  (links public/storage → storage/app/public so profile_picture URLs under /storage/... work)
+• Signed QR (anti-tamper): set QR_SECRET in .env (long random string). Sessions get base64 JSON
+  { data: { session_id, expires_at }, sig: HMAC-SHA256 }. Inner expires_at is capped by session end;
+  ttl defaults to QR_TOKEN_TTL_MINUTES (2). If QR_SECRET is empty, plain random qr_tokens are used (dev only).
+• FCM (push): set FCM_SERVER_KEY in .env (Firebase Console → Cloud Messaging → Server key).
+  When unset, session-start notifications are skipped (no error).
+• Mobile: Store baseUrl in config. Change per environment (dev/staging/prod).
+
+11. SERVER ACCESSIBLE ON NETWORK
+--------------------------------
+To allow Flutter app (or other devices) to reach the API on your LAN:
+
+  php artisan serve --host=0.0.0.0 --port=8000
+
+Then use your machine's IP (e.g. http://192.168.1.38:8000) as the base URL.
+
+12. API LOGIN & STUDENTS (EXACT FORMAT)
+--------------------------------------
+POST /api/login
+  Body: { "index_number": "BC/ITD/24/047", "password": "123456" }
+  • 404: { "message": "Index not found" }
+  • 401: { "message": "Wrong password" }
+  • 200: { "user": { ... }, "token": null } plus the same fields at the top level.
+          user includes: id, name, student_id (same as index_number), index_number,
+          first_name, middle_name, last_name, profile_picture (full URL or null),
+          profile_image / profile_image_url (same URL as profile_picture for compatibility),
+          class_name, faculty, department, level, phone_number, updated_at (ISO8601).
+          token is null until API token auth is added.
+
+GET /api/students?index_number=BC/ITD/24/047
+  • Returns [] if not found
+  • Returns [{ student }] if found (same format as login success)
+  • Each student includes profile_image and profile_image_url (identical full URL when set)
+
+POST /api/student/profile
+  • Syncs mobile profile changes to the server (same data as the web “Profile & photo” page).
+  • Body JSON:
+      index_number (required), password (required),
+      phone_number (optional), first_name (optional), last_name (optional),
+      profile_image (optional, data URL: "data:image/jpeg;base64,...")
+  • 401: wrong index or password
+  • 422: invalid base64 image
+  • 200: { "success": true, "user": { ... }, "student": { ... } } — same profile object
+          in both keys (Flutter should prefer "user").
+
+13. ACTIVE SESSION & ATTENDANCE (Flutter)
+----------------------------------------
+GET /api/sessions/active?index_number=...&course_id=...&class_id=...
+  • Returns only: { "sessions": [ { ... }, ... ] }
+  • When none match: { "sessions": [] }.
+  • Errors (403/404/500): { "sessions": [], "message": "..." }.
+  • Pass index_number so each session object’s already_marked reflects attendance for
+    that student today (same rule as POST /api/attendance duplicate check).
+  • Multiple active sessions may appear (e.g. different courses); order by newest id.
+  • Lecturer / venue prefer snapshots on the session row (copied from course when the
+    session opens), with fallback to the course relations.
+  • Each session object fields:
+      id, course_id (required for POST /api/attendance with course_id),
+      course_name, course_code, venue, lecturer_name,       mode (qr|location|hybrid|wifi),
+      location_required (bool — false for qr / wifi: do not require GPS for marking),
+      requires_qr_proof (bool — true for qr/hybrid for normal students),
+      wifi_required (bool — if true, POST wifi_ssid must match expected_wifi_ssid),
+      expected_wifi_ssid (string|null — only for mode wifi),
+      lat, lng, range_meters, qr_token, end_time, updated_at (ISO8601), already_marked
+
+POST /api/sessions/{session_id}/location
+  • Main course rep only: set / refresh session anchor from device GPS after session starts.
+  • Body JSON: lat, lng, accuracy (optional, meters), index_number, password
+  • 200: { message, session_id, lat, lng, gps_accuracy, updated_at }
+  • 403: not main rep; 401: wrong password; 422: session not active
+
+GET /api/sessions/current-qr/{session_id}
+  • Returns the static qr_token for that session (same as /sessions/active).
+  • 200: { "qr_token": "...", "session_id": <int> }
+
+POST /api/attendance
+  • Body: index_number (required), and one of: course_id, numeric session_id, or qr_code (session qr_token).
+    Scan-only: send qr_code = scanned token (course_id optional). lat/lng only if location_required.
+    course_id must be the numeric id from sessions/active — not course_code. week_id is optional and ignored.
+  • Coordinates: send **lat** and **lng**, OR **latitude** and **longitude** (both pairs are accepted).
+    Optional **accuracy** or **horizontal_accuracy** (meters, from Geolocator): server allows
+    distance ≤ range_meters + min(accuracy, cap) so the check matches typical “in range” UI
+    (overlap of GPS uncertainty with the geofence). cap defaults to 120 m (see GEOFENCE_ACCURACY_SLACK_CAP_M).
+  • Use the **same** lat/lng anchor as GET /api/sessions/active for that session (`lat`, `lng`, `range_meters`).
+    Do not use course/venue coordinates from elsewhere — the session anchor may differ after the rep sets GPS.
+  • Does NOT require onboarding (student must exist in DB). Face match runs only if
+    the student has enrolled a face on the server.
+  • mode=location: geofence only (lat/lng required); no QR proof.
+  • mode=qr: QR proof only (qr_code/session_token = qr_token); lat/lng not required.
+  • mode=hybrid: both geofence and QR proof (non–course rep).
+  • For qr / hybrid modes, qr_code or session_token must equal the session qr_token.
+    Optional: send session_id (numeric PK); if present it must match the session row.
+  • Body: index_number, course_id OR session_id (numeric id from active response),
+    lat/lng (or latitude/longitude), optional accuracy, optional qr_code (or session_token), face_descriptor, timestamp, optional device_ip
+  • 404: Student not found / Session not found
+  • 403: { "message": "Out of range", "distance_meters", "allowed_meters", "accuracy_slack_meters", "effective_limit_meters" } — Haversine vs session anchor
+  • 403: { "message": "Invalid QR Code" } — token or session_id mismatch
+  • 200: { "message": "Already marked" } — same student + same session + same calendar day
+  • 200: { "message": "Attendance recorded successfully", "status": "success" } on success
+
+GET /api/attendance/sync
+
+  Query: index_number, password, since (optional ISO date — filters deleted_ids only)
+  • 200: { "attendances": [ ... ], "deleted_ids": [ ... ] }
+  • Attendance rows include id, student_id, course_id, attendance_session_id,
+    session_index (per-course ordinal 1,2,3… — use this for “Session N” labels;
+    attendance_session_id is the DB PK and can be large after many terms),
+    week_number, attendance_week_id, attendance_time, status, synced, lat, lng,
+    qr_code, device_ip, created_at, updated_at
+  • When a row is deleted server-side, its id is stored; Flutter removes it from SQLite.
+
+POST /api/update-profile
+
+  Body: index_number, password, first_name?, middle_name?, last_name?
+  • 200: { "success": true, "student": { ... profile fields, no email } }
+
+POST /api/device-token
+
+  Body: index_number, password, firebase_token, optional student_id (must match account)
+  • 200: { "message": "Device token saved", "student_id": ... }
+
+Active dev session: runs automatically with `php artisan db:seed` (via DatabaseSeeder).
+To run only this seeder: `php artisan db:seed --class=ActiveSessionDevSeeder`
+
+================================================================================
+END
+================================================================================

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Button Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="p-8">
+    <h1 class="text-2xl font-bold mb-4">Button Responsiveness Test</h1>
+    
+    <button id="test-btn" class="w-full mb-4 bg-blue-600 text-white py-3 rounded-xl font-semibold">
+        Test Button
+    </button>
+    
+    <div id="output" class="p-4 bg-gray-100 rounded"></div>
+    
+    <script>
+        console.log('Script loading...');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM ready');
+            
+            var btn = document.getElementById('test-btn');
+            var output = document.getElementById('output');
+            
+            if (btn) {
+                console.log('Button found');
+                btn.addEventListener('click', function() {
+                    console.log('Button clicked!');
+                    output.innerHTML = 'Button clicked at ' + new Date().toLocaleTimeString();
+                });
+            } else {
+                console.error('Button not found');
+            }
+        });
+    </script>
+</body>
+</html>

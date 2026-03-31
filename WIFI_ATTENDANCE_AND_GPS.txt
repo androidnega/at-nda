@@ -1,0 +1,62 @@
+================================================================================
+WHY “OUT OF RANGE” HAPPENS (EVEN AT 200 M + RELAXED SERVER RADIUS)
+================================================================================
+
+Phone GPS is often wrong indoors:
+  • Multipath, weak sky view → position jumps tens–hundreds of meters.
+  • The “anchor” lat/lng on the session is also GPS-derived → two noisy points
+    are compared with Haversine distance; both can drift in different directions.
+  • OS may return last-known location or coarse accuracy.
+
+Other approaches (short overview):
+  • Bluetooth beacons / UWB — very accurate indoors; needs hardware + app work.
+  • NFC / tap-to-mark — proximity to a tag; no distance math.
+  • Wi‑Fi SSID / BSSID — “same building Wi‑Fi” check; implemented as optional mode
+    below (SSID is not secret; treat as convenience + light gate, not strong security).
+
+================================================================================
+NEW BACKEND MODE: wifi (SAME WI‑FI NETWORK / SSID)
+================================================================================
+
+Course reps can open a session with Mode = “Wi‑Fi (same network)” and set the
+**expected SSID** (exact name as shown on phones: Settings → Wi‑Fi).
+
+Students on POST /api/attendance send:
+  • wifi_ssid = current network name (must match server, case-insensitive trim)
+
+No GPS check for that session. QR proof is not required for wifi mode.
+
+GET /api/sessions/active includes per session:
+  • mode: "wifi"
+  • location_required: false
+  • wifi_required: true
+  • expected_wifi_ssid: "<the SSID the rep set>"
+
+================================================================================
+COPY FOR CURSOR / FLUTTER (wifi + GPS + QR)
+================================================================================
+
+1) GPS / location / hybrid / qr-only
+   • Use session.location_required from GET /api/sessions/active.
+   • If false: do NOT request location permission; do not block attendance on GPS.
+   • If true: request permission, obtain lat/lng, send as lat/lng on POST /api/attendance.
+
+2) Wi‑Fi mode (mode === "wifi" or wifi_required === true)
+   • Use package network_info_plus or connectivity_plus as appropriate for your stack.
+   • On Android 10+, reading SSID often requires **location permission** (OS rule) —
+     that is different from GPS: you may need coarse location enabled to read SSID,
+     but you still do not need to *send* lat/lng to the API for wifi mode.
+   • POST /api/attendance body must include:
+       wifi_ssid: "<current WiFi SSID string>"
+     Compare locally to expected_wifi_ssid if you want UX pre-checks; server enforces.
+
+3) POST /api/attendance (wifi session)
+   Required: index_number, course_id or session_id or qr_code (same as other modes),
+   plus: wifi_ssid
+   Omit lat/lng (or null) — server will not require geofence for wifi mode.
+
+4) Security note for product owners
+   • SSID is broadcast and can be spoofed on rooted devices; for higher assurance
+     combine with QR, face, or future BSSID allowlists.
+
+================================================================================

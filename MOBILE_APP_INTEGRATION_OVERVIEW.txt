@@ -1,0 +1,452 @@
+================================================================================
+AT-NDA ATTENDANCE SYSTEM — MOBILE APP INTEGRATION OVERVIEW
+================================================================================
+Takoradi Technical University | Student Attendance | Web Backend Reference
+Generated for mobile app development — student-facing only, no admin login
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1. System Overview
+2. Base URL & Authentication
+3. Student Onboarding
+4. Course List & Availability
+5. Attendance Marking (QR + Location)
+6. Sync (Offline → Online)
+7. Data Models & Structure
+8. System Settings
+9. API Endpoints Summary
+10. Recommended Mobile Additions
+
+================================================================================
+1. SYSTEM OVERVIEW
+================================================================================
+
+The web backend is a Laravel app. Students mark attendance via:
+  • QR code scan (when session is in QR or hybrid mode)
+  • Location (GPS) when within range of session (location, hybrid, or QR)
+
+Flow:
+  1. Student enters index number (or logs in)
+  2. If not onboarded → complete onboarding (profile photo, phone, face if enabled)
+  3. Student selects course (or scans QR)
+  4. Location is verified (must be within attendance_range_m of session)
+  5. Face verification (optional, if enabled in settings)
+  6. Mark attendance → POST /attendance/mark or sync later via POST /attendance/sync
+
+Admin is web-only. Course reps open sessions from web. Students use mobile or web.
+
+================================================================================
+2. BASE URL & AUTHENTICATION
+================================================================================
+
+BASE URL: [Your deployed URL, e.g. https://your-domain.com]
+
+All endpoints are under web routes (no /api prefix). POST requests require CSRF:
+  • Laravel stores CSRF in cookie: XSRF-TOKEN
+  • Mobile must: GET any page first (e.g. /) to receive cookie, then send
+    header: X-XSRF-TOKEN: <cookie value> on all POST requests
+  • Or: use _token in POST body (from meta tag on a page)
+
+Alternative: Backend can add API routes with Sanctum or exclude CSRF for mobile.
+
+Student login: Session-based (student_id, student_index in session). Mobile can
+  either: (a) use session cookies for webview, or (b) backend adds token-based auth.
+
+================================================================================
+3. STUDENT ONBOARDING
+================================================================================
+
+3.1 CHECK IF ONBOARDED
+----------------------
+GET /onboarding/check?index_number=ITN123456
+
+Response:
+  {
+    "onboarded": true|false,
+    "needs_face_enrollment": true|false,  // if face verification on but no face
+    "student": null | {
+      "id": 1,
+      "index_number": "ITN123456",
+      "first_name": "John",
+      "last_name": "Doe"
+    }
+  }
+
+3.2 COMPLETE ONBOARDING
+-----------------------
+POST /onboarding/complete
+Content-Type: application/json
+
+Body:
+  {
+    "index_number": "ITN123456",
+    "phone_number": "0244123456",
+    "profile_image": "data:image/jpeg;base64,/9j/4AAQ...",  // base64 data URL
+    "face_descriptor": [0.1, -0.2, ...]  // 128 floats, required if face enabled
+  }
+
+Validation:
+  • index_number: required
+  • phone_number: required, min 10, max 20 chars
+  • profile_image: required, base64 data URL (data:image/jpeg;base64,...)
+  • face_descriptor: required if SystemSetting.enable_face_verification;
+    must be array of 128 floats
+
+Response:
+  { "success": true, "message": "Onboarding complete" }
+  or { "success": false, "message": "..." } with 4xx status
+
+Notes:
+  • If IP binding enabled: device IP may be stored as bound_ip
+  • If allow_multiple_index_on_device: false, only one student per device
+
+3.3 SAVE FACE (ADD/UPDATE FACE LATER)
+-------------------------------------
+POST /onboarding/save-face
+
+Body:
+  {
+    "index_number": "ITN123456",
+    "descriptor": [0.1, -0.2, ...]  // 128 floats
+  }
+
+Response:
+  { "success": true, "message": "Face enrolled" }
+
+Face descriptor: 128-dimensional vector from face-api.js or similar. Use
+  faceapi.nets.faceRecognitionNet.computeFaceDescriptor(face).
+
+================================================================================
+4. COURSE LIST & AVAILABILITY
+================================================================================
+
+4.1 CURRENT WEB BEHAVIOUR
+-------------------------
+GET / returns HTML with courses. No JSON API for course list by default.
+
+Courses are filtered by:
+  • session filter_class_id (if student filtered by index)
+  • session student_id → if student has class_id, filter by that class
+
+For each course, web computes:
+  • available: boolean (session active AND within class time)
+  • message: "Attendance not open" | "Outside class time" | null
+  • session: AttendanceSession or null
+  • expiresAt: ISO8601 string
+
+4.2 COURSE FILTER BY INDEX (WEB)
+---------------------------------
+POST /filter-by-index
+Body: { "index_number": "ITN123456" }
+
+Sets session filter_class_id from student's class. Next GET / returns courses
+  filtered by that class. Web only; mobile should use a dedicated API.
+
+4.3 RECOMMENDED: ADD COURSE LIST API
+------------------------------------
+Mobile needs a JSON endpoint. Suggested:
+
+GET /api/courses?index_number=ITN123456
+
+Returns:
+  [
+    {
+      "id": 1,
+      "course_name": "Data Structures",
+      "course_code": "CS101",
+      "venue": "Room A",
+      "lecturer_name": "Dr. Smith",
+      "day_of_week": "Monday",
+      "start_time": "08:00",
+      "end_time": "10:00",
+      "available": true,
+      "message": null,
+      "session": {
+        "id": 5,
+        "mode": "hybrid",
+        "session_token": "abc123...",
+        "expires_at": "2025-03-19T10:00:00.000Z",
+        "location_lat": 5.123,
+        "location_lng": -1.234,
+        "attendance_range_m": 50
+      }
+    }
+  ]
+
+If session is null or not available, student cannot mark. If session exists,
+  use session_token for QR scan, or location for range check.
+
+================================================================================
+5. ATTENDANCE MARKING (QR + LOCATION)
+================================================================================
+
+5.1 VERIFY (OPTIONAL PRE-CHECK)
+-------------------------------
+POST /attendance/verify
+
+Body:
+  {
+    "index_number": "ITN123456",
+    "course_id": 1,
+    "latitude": 5.123456,
+    "longitude": -1.234567
+  }
+
+Use before marking to verify: student exists, onboarded, in range, session valid.
+
+Response:
+  {
+    "verified": true,
+    "student": { "id": 1, "index_number": "ITN123456" },
+    "profile_image_url": "https://.../storage/students/1_xxx.jpg",
+    "face_descriptor": [0.1, ...] | null,
+    "face_verification_enabled": true,
+    "face_match_threshold": 0.5
+  }
+
+Or 422:
+  { "verified": false, "message": "Out of range", "distance": 120 }
+  { "verified": false, "message": "Complete onboarding first", "onboarding_required": true }
+
+5.2 VERIFY FACE (IF FACE VERIFICATION ENABLED)
+-----------------------------------------------
+POST /attendance/verify-face
+
+Body:
+  {
+    "index_number": "ITN123456",
+    "course_id": 1,
+    "descriptor": [0.1, -0.2, ...]  // 128 floats
+  }
+
+Response:
+  { "verified": true } | { "verified": false, "message": "Face does not match", "distance": 0.6 }
+
+5.3 MARK ATTENDANCE
+-------------------
+POST /attendance/mark
+
+Body:
+  {
+    "index_number": "ITN123456",
+    "course_id": 1,
+    "latitude": 5.123456,
+    "longitude": -1.234567,
+    "session_token": "abc123...",
+    "qr_sig": "hex...",   // from QR JSON (rotating anti-replay)
+    "qr_t": 123456        // epoch step from QR JSON
+  }
+
+Rules:
+  • Order: geofence first (latitude/longitude), then QR proof for qr / hybrid (non-reps).
+  • Location mode: only range check; no session_token required.
+  • QR mode: range + session_token; include qr_sig + qr_t from scanned JSON (rotates every 45s).
+  • Hybrid mode: range + same QR/session as QR mode (not location-only anymore).
+  • Course rep for that course: QR/session proof skipped (they run the session); still must
+    be in range unless auto-marked when opening the session.
+
+Response:
+  {
+    "success": true,
+    "message": "Marked",
+    "redirect": "https://.../attendance/1/success"
+  }
+
+Or:
+  { "success": true, "message": "Already marked", "redirect": "..." }
+
+Or 422:
+  { "success": false, "message": "Session closed or expired" }
+  { "success": false, "message": "Out of range", "distance": 120 }
+  { "success": false, "message": "Invalid QR code" }
+  { "success": false, "message": "Complete onboarding first", "onboarding_required": true }
+
+5.4 QR CODE PAYLOAD
+-------------------
+When admin/course rep opens session, QR JSON includes rotating fields:
+
+  {
+    "course_id": 1,
+    "session_id": "abc123...",
+    "expires_at": "2025-03-19T10:00:00.000Z",
+    "t": 9876543210,
+    "sig": "<hmac — changes every 45 seconds>"
+  }
+
+Mobile app must:
+  1. Scan QR (live camera on projector/screen — stale screenshots expire)
+  2. Parse JSON
+  3. Send course_id, session_id (session_token), qr_sig (= sig), qr_t (= t), lat/lng
+  4. POST /api/attendance (or web /attendance/mark) with the same fields
+
+API POST /api/attendance also accepts qr_sig, qr_t (same semantics).
+
+5.5 LOCATION-BASED (NO QR)
+--------------------------
+If session mode is "location" only:
+  • POST with index_number, course_id, latitude, longitude (active session for course)
+  • No QR fields required
+
+Hybrid always requires valid session token + proof (or rep exemption) after range check.
+
+5.6 DISTANCE CALCULATION
+-----------------------
+Backend uses Haversine formula. Earth radius 6371000 m. distance(lat1,lng1,lat2,lng2)
+  returns meters. Student must be within session.attendance_range_m.
+
+================================================================================
+6. SYNC (OFFLINE → ONLINE)
+================================================================================
+
+POST /attendance/sync
+
+For bulk sync of attendance records marked offline:
+
+Body:
+  {
+    "records": [
+      {
+        "index_number": "ITN123456",
+        "course_id": 1,
+        "latitude": 5.123,
+        "longitude": -1.234,
+        "session_token": "abc123...",
+        "qr_sig": "...",
+        "qr_t": 123,
+        "attendance_time": "2025-03-19T10:30:00.000Z"
+      }
+    ]
+  }
+
+Include qr_sig / qr_t when syncing QR or hybrid sessions when available.
+
+attendance_time: ISO8601 string. Must be within attendance_window_minutes
+  (default 60) of current time. Same validation as mark per record.
+
+Response:
+  { "success": true, "synced": 5, "failed": 2 }
+
+Duplicate records are skipped (no error, just not counted in synced).
+
+================================================================================
+7. DATA MODELS & STRUCTURE
+================================================================================
+
+7.1 STUDENT
+-----------
+  id, index_number, first_name, last_name, profile_image, phone_number,
+  password, department_id, class_id, face_descriptor, bound_ip, timestamps
+
+  isOnboarded(): bool — requires profile_image, phone_number; if face enabled, face_descriptor
+  getProgramLabel(): string — from index prefix (ITN, ITS, ITD)
+
+7.2 COURSE
+----------
+  id, course_name, course_code, class_id, day_of_week, start_time, end_time,
+  venue, lecturer_name, location_lat, location_lng, attendance_range_m,
+  attendance_window_minutes, timestamps
+
+  activeSession(): AttendanceSession | null
+  isWithinClassTime(): bool — day of week + time window match
+
+7.3 ATTENDANCE SESSION
+----------------------
+  id, course_id, attendance_week_id, mode, is_active, session_token,
+  expires_at, location_lat, location_lng, attendance_range_m, timestamps
+
+  mode: 'location' | 'qr' | 'hybrid'
+  session_token: 32-char random string
+  isValid(): bool — is_active && !expires_at past
+  hasLocation(): bool — lat, lng, range all set
+  getQrPayload(): { course_id, session_id (token), expires_at }
+
+7.4 ATTENDANCE
+--------------
+  id, student_id, course_id, attendance_session_id, attendance_week_id,
+  attendance_time, status, synced, timestamps
+
+  status: 'present'
+
+7.5 ATTENDANCE WEEK
+-------------------
+  id, course_id, week_number, week_date, timestamps
+
+7.6 SCHOOL CLASS
+----------------
+  id, name, code, faculty_id, department_id, level, timestamps
+
+7.7 FACULTY / DEPARTMENT
+------------------------
+  faculties: id, name, university_id
+  departments: id, name, faculty_id
+
+================================================================================
+8. SYSTEM SETTINGS
+================================================================================
+
+  enable_face_verification: bool
+  enable_ip_binding: bool
+  allow_multiple_index_on_device: bool
+  face_match_threshold: float (e.g. 0.5; lower = stricter)
+
+If enable_ip_binding: student bound to device IP when onboarding.
+  allow_multiple_index_on_device: if false, one student per device.
+
+Face match: euclidean distance between 128-float descriptors. Verified if
+  distance < face_match_threshold.
+
+================================================================================
+9. API ENDPOINTS SUMMARY
+================================================================================
+
+  GET  /onboarding/check?index_number=
+  POST /onboarding/complete
+  POST /onboarding/save-face
+
+  GET  /attendance/{course}           (HTML form)
+  GET  /attendance/{course}/success   (HTML success)
+  POST /attendance/verify
+  POST /attendance/verify-face
+  POST /attendance/mark
+  POST /attendance/sync
+
+  GET  /student/login
+  POST /student/check-index
+  POST /student/login
+  POST /student/logout
+  GET  /student/set-password
+  POST /student/set-password
+  GET  /dashboard
+  GET  /student/profile
+  POST /student/profile
+  GET  /student/departments/{faculty}
+  POST /filter-by-index
+  POST /clear-filter
+
+================================================================================
+10. STUDENT LOGIN (OPTIONAL FOR MOBILE)
+================================================================================
+
+If mobile uses session-based auth (e.g. webview):
+  POST /student/check-index — Body: { index_number }
+    → If no password: redirect to set-password
+    → If has password: redirect to login form
+  POST /student/login — Body: { index_number, password }
+  POST /student/set-password — Body: { index_number, password, password_confirmation }
+
+Session stores student_id, student_index. Then / returns courses filtered by
+  student's class_id.
+
+================================================================================
+11. RECOMMENDED MOBILE ADDITIONS
+================================================================================
+
+  • Add GET /api/courses or /api/courses.json for course list as JSON
+  • Add token-based auth (Sanctum) for mobile if not using session cookies
+  • Optional: GET /api/settings for enable_face_verification, etc.
+  • Optional: GET /api/student/attendances for student's own attendance history
+
+================================================================================
+END OF DOCUMENT
+================================================================================
