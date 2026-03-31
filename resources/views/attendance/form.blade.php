@@ -44,8 +44,6 @@
         @endif
         @if($activeSession && $requireFaceVerification)
         <p class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Web check-in uses <strong>face verification</strong> against your profile photo. Use a clear face photo on your profile, and allow the camera in a <strong>secure context</strong> (HTTPS, or localhost — plain HTTP on a LAN IP may block the camera).</p>
-        @elseif($activeSession)
-        <p class="mt-2 text-xs text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">Face verification is currently <strong>disabled</strong> for web check-in by admin settings.</p>
         @endif
 
         @if(!$activeSession)
@@ -106,11 +104,23 @@
         {{-- Step 2: Location or session verify — visible immediately when signed in so the page is never blank; guests see it after Continue --}}
         <div id="step-2" class="space-y-4 hidden">
             <p id="step-2-title" class="text-base font-semibold text-gray-900">Confirming…</p>
-            <div id="location-checking" class="hidden p-3 rounded-xl bg-blue-50 text-blue-700 flex items-center gap-2">
-                <span class="text-blue-500">●</span> <span id="location-checking-msg">Confirming session…</span>
+            <div id="location-checking" class="hidden p-4 rounded-xl bg-blue-50 text-blue-800 border border-blue-100 flex items-center gap-3">
+                <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                    <i class="fa-solid fa-location-crosshairs animate-location-scan" aria-hidden="true"></i>
+                </span>
+                <div class="flex-1">
+                    <p id="location-checking-msg" class="font-medium">Scanning your location...</p>
+                    <p class="text-xs text-blue-700/80 mt-0.5">Please keep this page open while we verify your location.</p>
+                </div>
             </div>
-            <div id="location-ok" class="hidden p-3 rounded-xl bg-green-50 text-green-700 flex items-center gap-2">
-                ✓ Session confirmed
+            <div id="location-ok" class="hidden p-4 rounded-xl bg-green-50 text-green-800 border border-green-100 flex items-center gap-3">
+                <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600">
+                    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                </span>
+                <div class="flex-1">
+                    <p class="font-medium">You're within the session location.</p>
+                    <p id="location-ok-msg" class="text-xs text-green-700/80 mt-0.5">Marking attendance shortly...</p>
+                </div>
             </div>
         </div>
 
@@ -217,6 +227,15 @@
 
 #qr-reader__header_message {
     display: none !important;
+}
+
+@keyframes locationScan {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(0.82); opacity: 0.65; }
+}
+
+.animate-location-scan {
+    animation: locationScan 1s ease-in-out infinite;
 }
 </style>
 @endsection
@@ -691,8 +710,20 @@ function runAttendanceFlow() {
         if (data.verified) {
             verifiedData = data;
             document.getElementById('location-ok').classList.remove('hidden');
-            var delay = 350;
+            var okMsg = document.getElementById('location-ok-msg');
+            var secondsRemaining = 6;
+            if (okMsg) okMsg.textContent = 'Marking attendance in ' + secondsRemaining + ' seconds...';
+            var countdown = setInterval(function() {
+                secondsRemaining -= 1;
+                if (secondsRemaining <= 0) {
+                    clearInterval(countdown);
+                    if (okMsg) okMsg.textContent = 'Marking attendance now...';
+                    return;
+                }
+                if (okMsg) okMsg.textContent = 'Marking attendance in ' + secondsRemaining + ' seconds...';
+            }, 1000);
             setTimeout(function() {
+                clearInterval(countdown);
                 document.getElementById('step-2').classList.add('hidden');
                 if (isWifiMode) {
                     // Wi-Fi mode: auto-mark attendance immediately
@@ -708,7 +739,7 @@ function runAttendanceFlow() {
                     updateFlowStatus('Marking attendance…');
                     autoMarkAttendance(indexNumber);
                 }
-            }, delay);
+            }, 6000);
         } else {
             showStatus(data.message || 'Verification failed', 'error');
         }
@@ -750,7 +781,7 @@ function runAttendanceFlow() {
         var step2title = document.getElementById('step-2-title');
         if (step2title) step2title.textContent = 'Confirming your session…';
         var lcm = document.getElementById('location-checking-msg');
-        if (lcm) lcm.textContent = 'Confirming session…';
+        if (lcm) lcm.textContent = 'Scanning your location...';
         document.getElementById('location-checking').classList.remove('hidden');
         document.getElementById('location-ok').classList.add('hidden');
         try {
