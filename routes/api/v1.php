@@ -14,6 +14,24 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('api.https')->group(function () {
+    // Browsers and mistaken clients use GET; login only accepts POST with JSON body.
+    Route::get('auth/login', function () {
+        return response()->json([
+            'status' => false,
+            'message' => 'Use POST with JSON body: index_number, password. GET is not supported.',
+            'data' => [
+                'method' => 'POST',
+                'content_type' => 'application/json',
+                'body' => [
+                    'index_number' => 'string (student index)',
+                    'password' => 'string',
+                ],
+            ],
+            'errors' => null,
+            'meta' => null,
+        ], 405);
+    })->middleware('throttle:api-v1');
+
     Route::prefix('auth')->middleware('throttle:api-v1-login')->group(function () {
         Route::post('login', [AuthController::class, 'login']);
     });
