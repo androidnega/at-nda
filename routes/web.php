@@ -124,6 +124,8 @@ Route::post('/admin/logout', [\App\Http\Controllers\AdminAuthController::class, 
 Route::get('/lecturer/login', [\App\Http\Controllers\LecturerAuthController::class, 'loginForm'])->name('lecturer.login');
 Route::post('/lecturer/login', [\App\Http\Controllers\LecturerAuthController::class, 'login']);
 Route::post('/lecturer/logout', [\App\Http\Controllers\LecturerAuthController::class, 'logout'])->name('lecturer.logout');
+Route::get('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePasswordForm'])->name('lecturer.password.change.form');
+Route::post('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePassword'])->name('lecturer.password.change.post');
 
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
 Route::post('/onboarding/complete', [StudentOnboardingController::class, 'complete'])->name('onboarding.complete');

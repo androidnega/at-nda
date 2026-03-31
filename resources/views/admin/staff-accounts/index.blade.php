@@ -7,7 +7,7 @@
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
         <div>
             <h1 class="text-2xl font-bold text-primary">User management</h1>
-            <p class="text-gray-500 text-sm mt-1">Administrator accounts for this dashboard (staff login). <strong>Lecturers</strong> are added under <a href="{{ route('dashboard.lecturers.index') }}" class="text-primary hover:underline">Lecturers</a> without passwords.</p>
+            <p class="text-gray-500 text-sm mt-1">Administrator and lecturer accounts for staff login at <strong>/admin</strong>.</p>
         </div>
         <a href="{{ route('dashboard.staff-accounts.create') }}" class="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-primary/90 shrink-0">
             <i class="fas fa-user-plus"></i>
@@ -62,6 +62,43 @@
                 </tr>
                 @empty
                 <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">No administrator accounts.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="bg-white rounded-xl border border-gray-100 overflow-hidden mt-6">
+    <div class="px-4 py-3 bg-gray-50 border-b border-gray-100">
+        <h2 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-chalkboard-teacher text-primary"></i>
+            Lecturer Login Accounts
+        </h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full min-w-[400px]">
+            <thead class="bg-white border-b border-gray-100">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Username</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">First login status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @forelse($lecturersWithLogin as $l)
+                <tr class="hover:bg-gray-50/50">
+                    <td class="px-4 py-3 font-medium text-gray-900">{{ $l->name }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600 font-mono">{{ $l->username ?: '—' }}</td>
+                    <td class="px-4 py-3 text-sm">
+                        @if($l->must_change_password)
+                            <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">Must change password</span>
+                        @else
+                            <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Updated</span>
+                        @endif
+                    </td>
+                </tr>
+                @empty
+                <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">No lecturer login accounts yet.</td></tr>
                 @endforelse
             </tbody>
         </table>

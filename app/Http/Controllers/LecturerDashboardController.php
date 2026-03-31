@@ -21,6 +21,9 @@ class LecturerDashboardController extends Controller
             $request->session()->forget('lecturer_id');
             return redirect()->route('lecturer.login');
         }
+        if ($lecturer->must_change_password) {
+            return redirect()->route('lecturer.password.change.form');
+        }
 
         $courses = $lecturer->courses()
             ->with(['schoolClass', 'attendanceWeeks'])

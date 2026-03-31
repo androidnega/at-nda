@@ -11,7 +11,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Lecturer extends Model
 {
-    protected $fillable = ['name', 'class_id'];
+    protected $fillable = ['name', 'class_id', 'email', 'username', 'password', 'must_change_password'];
+
+    protected $hidden = ['password'];
+
+    protected $casts = [
+        'must_change_password' => 'boolean',
+    ];
 
     public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {

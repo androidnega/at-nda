@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Lecturer;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -16,17 +19,55 @@ class StaffAccountController extends Controller
     public function index(): View
     {
         $admins = User::orderBy('name')->get();
+        $lecturersWithLogin = Lecturer::query()
+            ->whereNotNull('password')
+            ->orderBy('name')
+            ->get();
 
-        return view('admin.staff-accounts.index', compact('admins'));
+        return view('admin.staff-accounts.index', compact('admins', 'lecturersWithLogin'));
     }
 
     public function create(): View
     {
-        return view('admin.staff-accounts.create');
+        $lecturers = Lecturer::orderBy('name')->get();
+
+        return view('admin.staff-accounts.create', compact('lecturers'));
     }
 
     public function store(Request $request): RedirectResponse
     {
+        $accountType = (string) $request->input('account_type', 'admin');
+        if ($accountType === 'lecturer') {
+            $validated = $request->validate([
+                'lecturer_id' => 'required|exists:lecturers,id',
+            ]);
+
+            $lecturer = Lecturer::findOrFail($validated['lecturer_id']);
+            $username = $lecturer->username ?: ('lecturer' . $lecturer->id);
+            $baseUsername = Str::slug($username, '');
+            if ($baseUsername === '') {
+                $baseUsername = 'lecturer' . $lecturer->id;
+            }
+            $usernameCandidate = $baseUsername;
+            $suffix = 1;
+            while (
+                Lecturer::where('id', '!=', $lecturer->id)->where('username', $usernameCandidate)->exists()
+                || User::where('username', $usernameCandidate)->exists()
+            ) {
+                $suffix++;
+                $usernameCandidate = $baseUsername . $suffix;
+            }
+
+            $generatedPassword = Str::upper(Str::random(10));
+            $lecturer->username = $usernameCandidate;
+            $lecturer->password = Hash::make($generatedPassword);
+            $lecturer->must_change_password = true;
+            $lecturer->save();
+
+            return redirect()->route('dashboard.staff-accounts.index')
+                ->with('success', 'Lecturer account created. Username: ' . $usernameCandidate . ' | Temporary password: ' . $generatedPassword);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => [

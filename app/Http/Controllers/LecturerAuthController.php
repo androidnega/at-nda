@@ -34,4 +34,48 @@ class LecturerAuthController extends Controller
         $request->session()->forget('lecturer_id');
         return redirect()->route('admin.login');
     }
+
+    public function changePasswordForm(Request $request): \Illuminate\View\View|\Illuminate\Http\RedirectResponse
+    {
+        $lecturerId = $request->session()->get('lecturer_id');
+        if (! $lecturerId) {
+            return redirect()->route('admin.login')->with('error', 'Please sign in first.');
+        }
+
+        $lecturer = Lecturer::find($lecturerId);
+        if (! $lecturer) {
+            $request->session()->forget('lecturer_id');
+            return redirect()->route('admin.login')->with('error', 'Session expired. Sign in again.');
+        }
+
+        if (! $lecturer->must_change_password) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
+        return view('lecturer.change-password', compact('lecturer'));
+    }
+
+    public function changePassword(Request $request): RedirectResponse
+    {
+        $lecturerId = $request->session()->get('lecturer_id');
+        if (! $lecturerId) {
+            return redirect()->route('admin.login')->with('error', 'Please sign in first.');
+        }
+
+        $lecturer = Lecturer::find($lecturerId);
+        if (! $lecturer) {
+            $request->session()->forget('lecturer_id');
+            return redirect()->route('admin.login')->with('error', 'Session expired. Sign in again.');
+        }
+
+        $validated = $request->validate([
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        $lecturer->password = Hash::make($validated['password']);
+        $lecturer->must_change_password = false;
+        $lecturer->save();
+
+        return redirect()->route('dashboard.dashboard')->with('success', 'Password updated successfully.');
+    }
 }
