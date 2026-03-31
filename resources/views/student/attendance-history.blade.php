@@ -12,9 +12,15 @@
 
 @section('content')
 <div class="space-y-5 sm:space-y-6">
+    @php
+        $lastName = trim((string) $student->last_name);
+        $displayName = $lastName !== ''
+            ? \Illuminate\Support\Str::title($lastName)
+            : $student->index_number;
+    @endphp
     <div class="rounded-2xl bg-slate-100 border border-slate-200 p-5 sm:p-6">
         <p class="text-amber-700 text-xs font-semibold uppercase tracking-wider">Attendance overview</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $student->getDisplayNameOrIndex() }}</h1>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $displayName }}</h1>
         <p class="text-slate-600 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
     </div>
 
@@ -48,7 +54,7 @@
                         <span class="font-semibold text-slate-700">{{ $t['present'] }}/{{ $t['total'] }} present</span>
                     </div>
                     <div class="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-rose-500" style="width: {{ $t['rate'] }}%;"></div>
+                        <div class="h-full rounded-full bg-amber-500" style="width: {{ $t['rate'] }}%;"></div>
                     </div>
                 </div>
             @endforeach

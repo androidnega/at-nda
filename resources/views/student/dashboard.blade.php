@@ -85,12 +85,16 @@
 
 <div class="space-y-5 sm:space-y-6">
     @php
+        $lastName = trim((string) $student->last_name);
+        $displayName = $lastName !== ''
+            ? \Illuminate\Support\Str::title($lastName)
+            : $student->index_number;
         $greeting = collect(['Hello', 'Yo'])->random();
         $greetingPunct = $greeting === 'Yo' ? '!' : '';
     @endphp
     <div class="rounded-2xl bg-slate-100 border border-slate-200 p-5 sm:p-6">
         <p class="text-amber-700 text-xs font-semibold uppercase tracking-wider">Student</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $greeting }} {{ $student->getDisplayNameOrIndex() }}{{ $greetingPunct }}</h1>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
         <p class="text-slate-600 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
         @if($student->department?->name)
             <p class="text-slate-600 text-sm mt-2 flex items-center gap-2">
