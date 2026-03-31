@@ -197,11 +197,19 @@ class StudentDashboardController extends Controller
 
         $sessions = collect();
         $attendanceBySession = collect();
+        $attendanceRows = Attendance::query()
+            ->where('student_id', $student->id)
+            ->with(['course', 'attendanceWeek'])
+            ->latest('attendance_time')
+            ->get();
         if ($student->class_id) {
+            $attendedSessionIds = $attendanceRows->pluck('attendance_session_id')->filter()->unique()->values();
             $sessions = AttendanceSession::query()
                 ->whereHas('course', fn ($q) => $q->where('class_id', $student->class_id))
-                ->where(function ($q) {
-                    $q->ended()->orWhere('is_active', false);
+                ->where(function ($q) use ($attendedSessionIds) {
+                    $q->ended()
+                        ->orWhere('is_active', false)
+                        ->orWhereIn('id', $attendedSessionIds);
                 })
                 ->with(['course', 'attendanceWeek'])
                 ->orderByRaw('COALESCE(end_time, expires_at, created_at) DESC')
@@ -209,15 +217,24 @@ class StudentDashboardController extends Controller
                 ->get();
 
             $sessionIds = $sessions->pluck('id')->all();
-            $attendanceBySession = Attendance::query()
-                ->where('student_id', $student->id)
-                ->whereIn('attendance_session_id', $sessionIds)
-                ->with('course')
-                ->get()
+            $attendanceBySession = $attendanceRows
+                ->filter(fn ($row) => $row->attendance_session_id && in_array($row->attendance_session_id, $sessionIds, true))
                 ->keyBy('attendance_session_id');
         }
 
-        $history = $sessions->map(function (AttendanceSession $session) use ($attendanceBySession) {
+        if ($sessions->isEmpty() && $attendanceRows->isNotEmpty()) {
+            $history = $attendanceRows->map(function (Attendance $attendance) {
+                return [
+                    'session' => null,
+                    'course' => $attendance->course,
+                    'week' => $attendance->attendanceWeek?->week_number,
+                    'is_present' => true,
+                    'attendance' => $attendance,
+                    'time' => $attendance->attendance_time,
+                ];
+            });
+        } else {
+            $history = $sessions->map(function (AttendanceSession $session) use ($attendanceBySession) {
             $attendance = $attendanceBySession->get($session->id);
             $isPresent = $attendance !== null;
 
@@ -229,7 +246,8 @@ class StudentDashboardController extends Controller
                 'attendance' => $attendance,
                 'time' => $attendance?->attendance_time ?? $session->end_time ?? $session->expires_at ?? $session->created_at,
             ];
-        });
+            });
+        }
 
         $presentCount = $history->where('is_present', true)->count();
         $absentCount = $history->where('is_present', false)->count();
