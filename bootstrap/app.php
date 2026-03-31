@@ -16,6 +16,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Laravel defaults to route('login'), which this app does not define.
+        // API clients often omit Accept: application/json; without this, auth middleware
+        // tries to redirect and throws RouteNotFoundException instead of 401.
+        $middleware->redirectGuestsTo(function (Request $request) {
+            if ($request->is('api/*')) {
+                return null;
+            }
+
+            return route('admin.login');
+        });
+
         $middleware->alias([
             'admin.only' => \App\Http\Middleware\EnsureAdminOnly::class,
             'admin' => \App\Http\Middleware\EnsureAdminOrLecturer::class,
@@ -44,7 +55,7 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (AuthenticationException $e, Request $request) {
-            if ($request->is('api/v1/*')) {
+            if ($request->is('api/*')) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Unauthenticated',
