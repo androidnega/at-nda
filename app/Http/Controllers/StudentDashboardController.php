@@ -137,25 +137,6 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.profile');
         }
 
-        $attendances = Attendance::where('student_id', $student->id)
-            ->with(['course', 'attendanceWeek'])
-            ->orderByDesc('attendance_time')
-            ->limit(50)
-            ->get();
-
-        $byCourse = Attendance::where('student_id', $student->id)
-            ->join('courses', 'attendances.course_id', '=', 'courses.id')
-            ->select('courses.course_name', 'courses.course_code', DB::raw('COUNT(*) as count'))
-            ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
-            ->get();
-
-        $byWeek = Attendance::where('student_id', $student->id)
-            ->join('attendance_weeks', 'attendances.attendance_week_id', '=', 'attendance_weeks.id')
-            ->select('attendance_weeks.week_number', DB::raw('COUNT(*) as count'))
-            ->groupBy('attendance_weeks.week_number')
-            ->orderBy('attendance_weeks.week_number')
-            ->get();
-
         $totalPresent = Attendance::where('student_id', $student->id)->count();
         $totalWeeks = (int) DB::table('attendances')->where('student_id', $student->id)->distinct()->count('attendance_week_id');
 
@@ -165,9 +146,6 @@ class StudentDashboardController extends Controller
 
         return view('student.dashboard', compact(
             'student',
-            'attendances',
-            'byCourse',
-            'byWeek',
             'totalPresent',
             'totalWeeks',
             'liveAttendanceSessions'
@@ -254,6 +232,25 @@ class StudentDashboardController extends Controller
         $totalSessions = $history->count();
         $attendanceRate = $totalSessions > 0 ? round(($presentCount / $totalSessions) * 100, 1) : 0.0;
 
+        $attendances = Attendance::where('student_id', $student->id)
+            ->with(['course', 'attendanceWeek'])
+            ->orderByDesc('attendance_time')
+            ->limit(50)
+            ->get();
+
+        $byCourse = Attendance::where('student_id', $student->id)
+            ->join('courses', 'attendances.course_id', '=', 'courses.id')
+            ->select('courses.course_name', 'courses.course_code', DB::raw('COUNT(*) as count'))
+            ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
+            ->get();
+
+        $byWeek = Attendance::where('student_id', $student->id)
+            ->join('attendance_weeks', 'attendances.attendance_week_id', '=', 'attendance_weeks.id')
+            ->select('attendance_weeks.week_number', DB::raw('COUNT(*) as count'))
+            ->groupBy('attendance_weeks.week_number')
+            ->orderBy('attendance_weeks.week_number')
+            ->get();
+
         $courseStats = $history
             ->groupBy(fn (array $row) => $row['course']?->id ?? 0)
             ->map(function (Collection $rows) {
@@ -302,6 +299,9 @@ class StudentDashboardController extends Controller
             'absentCount',
             'totalSessions',
             'attendanceRate',
+            'attendances',
+            'byCourse',
+            'byWeek',
             'courseStats',
             'trend'
         ));

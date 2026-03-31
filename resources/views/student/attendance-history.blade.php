@@ -43,6 +43,24 @@
         </div>
     </div>
 
+    @if($byCourse->isNotEmpty())
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-6">
+        <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Attendance by course</h2>
+        <div class="h-56 sm:h-64">
+            <canvas id="courseChart"></canvas>
+        </div>
+    </div>
+    @endif
+
+    @if($byWeek->isNotEmpty())
+    <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-6">
+        <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Trend by week</h2>
+        <div class="h-56 sm:h-64">
+            <canvas id="weekChart"></canvas>
+        </div>
+    </div>
+    @endif
+
     @if($trend->isNotEmpty())
     <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
         <h2 class="font-semibold text-slate-800 mb-4 text-sm sm:text-base">Attendance trend</h2>
@@ -85,6 +103,25 @@
     @endif
 
     <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 class="font-semibold text-slate-800 text-sm sm:text-base">Recent attendance</h2>
+        </div>
+        <div class="divide-y divide-slate-100">
+            @forelse($attendances as $a)
+            <div class="p-4 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="font-medium text-slate-900 text-sm">{{ $a->course?->course_name ?? '—' }}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">Week {{ $a->attendanceWeek?->week_number ?? '—' }} · {{ $a->attendance_time?->format('M d, Y H:i') ?? '—' }}</p>
+                </div>
+                <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
+            </div>
+            @empty
+            <div class="p-10 text-center text-slate-500 text-sm">No attendance records yet</div>
+            @endforelse
+        </div>
+    </div>
+
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-100">
             <h2 class="font-semibold text-slate-800 text-sm sm:text-base">Attendance records</h2>
         </div>
@@ -114,3 +151,65 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+@if($byCourse->isNotEmpty() || $byWeek->isNotEmpty())
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+    const byCourse = @json($byCourse);
+    const byWeek = @json($byWeek);
+
+    if (byCourse.length > 0 && document.getElementById('courseChart')) {
+        new Chart(document.getElementById('courseChart'), {
+            type: 'bar',
+            data: {
+                labels: byCourse.map(c => (c.course_code ? c.course_name + ' (' + c.course_code + ')' : c.course_name)),
+                datasets: [{
+                    label: 'Present',
+                    data: byCourse.map(c => c.count),
+                    backgroundColor: 'rgba(234, 179, 8, 0.5)',
+                    borderColor: 'rgb(202, 138, 4)',
+                    borderWidth: 1,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                }
+            }
+        });
+    }
+
+    if (byWeek.length > 0 && document.getElementById('weekChart')) {
+        new Chart(document.getElementById('weekChart'), {
+            type: 'line',
+            data: {
+                labels: byWeek.map(w => 'Week ' + w.week_number),
+                datasets: [{
+                    label: 'Attendance',
+                    data: byWeek.map(w => w.count),
+                    borderColor: 'rgb(185, 28, 28)',
+                    backgroundColor: 'rgba(185, 28, 28, 0.12)',
+                    fill: true,
+                    tension: 0.35
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                }
+            }
+        });
+    }
+})();
+</script>
+@endif
+@endpush

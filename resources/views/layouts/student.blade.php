@@ -43,7 +43,7 @@
         }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen min-h-[100dvh] text-gray-900 antialiased font-sans pb-safe">
+<body class="bg-slate-50 min-h-screen min-h-[100dvh] text-gray-900 antialiased font-sans pb-safe overflow-x-hidden overscroll-y-contain">
     <div id="student-sidebar-overlay" class="fixed inset-0 z-40 bg-slate-900/30 lg:hidden hidden" aria-hidden="true"></div>
 
     <aside id="student-sidebar" class="fixed top-0 left-0 z-50 h-full w-[min(17rem,88vw)] max-w-sm bg-white border-r border-slate-200 flex flex-col -translate-x-full lg:translate-x-0">
