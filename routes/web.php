@@ -14,6 +14,7 @@ use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffAccountController;
 use App\Http\Controllers\StudentController;
+use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
@@ -48,6 +49,10 @@ Route::post('/clear-filter', function (\Illuminate\Http\Request $request) {
     $request->session()->forget(['filter_class_id', 'filter_index']);
     return redirect()->route('home');
 })->name('home.clear-filter');
+
+Route::get('/media/students/{student}/profile-image', [StudentImageController::class, 'show'])
+    ->name('media.students.profile-image')
+    ->scopeBindings();
 
 /*
 | Web-only student attendance (Blade + fetch). Canonical paths under /web/attendance.

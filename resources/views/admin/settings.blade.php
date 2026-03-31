@@ -22,6 +22,16 @@
         <div class="space-y-4">
             <h2 class="text-lg font-semibold text-gray-800">Face & Device Security</h2>
 
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
+                <div>
+                    <span class="font-medium text-gray-800">Require Face Verification on Web Attendance</span>
+                    <p class="text-sm text-gray-500 mt-0.5">When ON, students must pass face match before web attendance is marked</p>
+                </div>
+                <input type="hidden" name="enable_face_verification" value="0">
+                <input type="checkbox" name="enable_face_verification" value="1" {{ ($settings->enable_face_verification ?? true) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+            </label>
+
 
             <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
                 <div>

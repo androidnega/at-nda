@@ -154,7 +154,15 @@ class Student extends Model implements AuthenticatableContract
 
     public function profileImageUrl(): ?string
     {
-        return $this->profile_image ? asset('storage/' . $this->profile_image) : null;
+        if (! $this->profile_image) {
+            return null;
+        }
+
+        if (preg_match('/^https?:\/\//i', $this->profile_image)) {
+            return $this->profile_image;
+        }
+
+        return route('media.students.profile-image', ['student' => $this->id]) . '?v=' . $this->updated_at?->timestamp;
     }
 
     public function avatarInitials(): string

@@ -9,7 +9,10 @@
 @endpush
 
 @section('content')
-@php $sessionMode = $activeSession?->mode ?? 'location'; @endphp
+@php
+    $sessionMode = $activeSession?->mode ?? 'location';
+    $requireFaceVerification = (bool) (($settings->enable_face_verification ?? true) && $activeSession);
+@endphp
 <div class="max-w-lg mx-auto w-full space-y-4">
     <div class="bg-white rounded-xl border border-gray-200 p-6">
         <a href="{{ url('/') }}" class="inline-flex items-center text-gray-500 hover:text-gray-700 text-sm mb-4">
@@ -39,8 +42,10 @@
         @if($loggedInStudent ?? null)
         <p class="mt-2 text-xs text-slate-500">Signed in as <span class="font-mono font-medium text-slate-700">{{ $loggedInStudent->index_number }}</span></p>
         @endif
-        @if($activeSession)
-        <p class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Web check-in uses <strong>face verification</strong> against your profile photo (face-api.js). Use a clear face photo on your profile, and allow the camera in a <strong>secure context</strong> (HTTPS, or localhost — plain HTTP on a LAN IP may block the camera).</p>
+        @if($activeSession && $requireFaceVerification)
+        <p class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Web check-in uses <strong>face verification</strong> against your profile photo. Use a clear face photo on your profile, and allow the camera in a <strong>secure context</strong> (HTTPS, or localhost — plain HTTP on a LAN IP may block the camera).</p>
+        @elseif($activeSession)
+        <p class="mt-2 text-xs text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">Face verification is currently <strong>disabled</strong> for web check-in by admin settings.</p>
         @endif
 
         @if(!$activeSession)
@@ -218,7 +223,9 @@
 
 @push('scripts')
 @if($activeSession ?? null)
+@if($requireFaceVerification)
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+@endif
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 window.attendanceContinueClick = function() {};
@@ -228,6 +235,8 @@ function runAttendanceFlow() {
     const isLoggedIn = {!! json_encode(!empty($loggedInStudent)) !!};
     const loggedInIndex = {!! json_encode(optional($loggedInStudent)->index_number ?? '') !!};
     const sessionMode = {!! json_encode($activeSession?->mode ?? 'location') !!};
+    const requireFaceVerification = {!! json_encode((bool) ($settings->enable_face_verification ?? true)) !!};
+    const configuredFaceThreshold = {!! json_encode((float) ($settings->face_match_threshold ?? 0.5)) !!};
     const skipLocation = true;
     const sessionTokenInput = document.getElementById('session_token');
     const sessionPkInput = document.getElementById('session_pk');
@@ -272,6 +281,10 @@ function runAttendanceFlow() {
             var btnCancel = document.getElementById('btn-face-cancel');
             if (!panel || !video) {
                 resolve(false);
+                return;
+            }
+            if (!requireFaceVerification) {
+                resolve(true);
                 return;
             }
             if (typeof faceapi === 'undefined') {
@@ -338,7 +351,7 @@ function runAttendanceFlow() {
                                 return;
                             }
                             var dist = faceapi.euclideanDistance(refDet.descriptor, liveDet.descriptor);
-                            if (dist > 0.55) {
+                            if (dist > configuredFaceThreshold) {
                                 if (statusEl) statusEl.textContent = 'Face does not match your profile. Try again with similar lighting to your profile photo.';
                                 return;
                             }
@@ -752,20 +765,22 @@ function runAttendanceFlow() {
                 showStatus(data.message || 'Verification failed', 'error');
                 return;
             }
-            if (!data.profile_image_url) {
+            if (requireFaceVerification && !data.profile_image_url) {
                 document.getElementById('location-checking').classList.add('hidden');
                 showStatus('Add a profile photo in your account before marking attendance.', 'error');
                 return;
             }
             document.getElementById('location-checking').classList.add('hidden');
-            var s2hide = document.getElementById('step-2');
-            if (s2hide) s2hide.classList.add('hidden');
-            updateFlowStatus('Face verification');
-            const faceOk = await openFaceVerificationModal(data.profile_image_url);
-            if (!faceOk) {
-                updateFlowStatus('');
-                showStatus('Face verification was cancelled or did not match your profile.', 'error');
-                return;
+            if (requireFaceVerification) {
+                var s2hide = document.getElementById('step-2');
+                if (s2hide) s2hide.classList.add('hidden');
+                updateFlowStatus('Face verification');
+                const faceOk = await openFaceVerificationModal(data.profile_image_url);
+                if (!faceOk) {
+                    updateFlowStatus('');
+                    showStatus('Face verification was cancelled or did not match your profile.', 'error');
+                    return;
+                }
             }
             applyVerifySuccess(data, indexNumber);
         } catch (e) {
@@ -814,16 +829,18 @@ function runAttendanceFlow() {
                     showStatus(data.message || 'Verification failed', 'error');
                     return;
                 }
-                if (!data.profile_image_url) {
+                if (requireFaceVerification && !data.profile_image_url) {
                     showStatus('Add a profile photo in your account before marking attendance.', 'error');
                     return;
                 }
-                updateFlowStatus('Face verification');
-                const faceOk = await openFaceVerificationModal(data.profile_image_url);
-                if (!faceOk) {
-                    updateFlowStatus('');
-                    showStatus('Face verification was cancelled or did not match your profile.', 'error');
-                    return;
+                if (requireFaceVerification) {
+                    updateFlowStatus('Face verification');
+                    const faceOk = await openFaceVerificationModal(data.profile_image_url);
+                    if (!faceOk) {
+                        updateFlowStatus('');
+                        showStatus('Face verification was cancelled or did not match your profile.', 'error');
+                        return;
+                    }
                 }
                 updateFlowStatus('Opening camera to scan the session QR…');
                 openQrScanner();

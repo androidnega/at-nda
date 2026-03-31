@@ -58,7 +58,9 @@ class AttendanceController extends Controller
             return response()->json(['verified' => false, 'message' => 'Student not found'], 404);
         }
 
-        if (! $student->profile_image) {
+        $requireFaceVerification = (bool) ($settings->enable_face_verification ?? true);
+
+        if ($requireFaceVerification && ! $student->profile_image) {
             return response()->json([
                 'verified' => false,
                 'message' => 'Add a profile photo to your student account (use the camera on the profile page) before marking attendance.',
@@ -109,14 +111,14 @@ class AttendanceController extends Controller
             }
         }
 
-        $profileImageUrl = $student->profile_image
-            ? asset('storage/' . $student->profile_image)
-            : null;
+        $profileImageUrl = $student->profileImageUrl();
 
         return response()->json([
             'verified' => true,
             'student' => ['id' => $student->id, 'index_number' => $student->index_number],
             'profile_image_url' => $profileImageUrl,
+            'require_face_verification' => $requireFaceVerification,
+            'face_match_threshold' => (float) ($settings->face_match_threshold ?? 0.5),
         ]);
     }
 
@@ -152,7 +154,9 @@ class AttendanceController extends Controller
             return response()->json(['success' => false, 'message' => 'Student not found'], 404);
         }
 
-        if (! $student->profile_image) {
+        $requireFaceVerification = (bool) ($settings->enable_face_verification ?? true);
+
+        if ($requireFaceVerification && ! $student->profile_image) {
             return response()->json([
                 'success' => false,
                 'message' => 'Profile photo required. Update your profile with a camera photo before marking attendance.',
