@@ -11,21 +11,35 @@ class StudentImageController extends Controller
     public function show(Student $student): Response
     {
         $path = trim((string) $student->profile_image);
-        if ($path === '' || ! Storage::disk('public')->exists($path)) {
+        if ($path === '') {
             abort(404);
         }
 
-        $absolutePath = Storage::disk('public')->path($path);
+        if (preg_match('/^https?:\/\//i', $path)) {
+            return redirect()->away($path);
+        }
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($path)) {
+            abort(404);
+        }
+
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         $mime = match ($ext) {
             'jpg', 'jpeg' => 'image/jpeg',
             'png' => 'image/png',
             'webp' => 'image/webp',
             'gif' => 'image/gif',
-            default => (Storage::disk('public')->mimeType($path) ?: 'application/octet-stream'),
+            default => ($disk->mimeType($path) ?: 'application/octet-stream'),
         };
 
-        return response()->file($absolutePath, [
+        try {
+            $binary = $disk->get($path);
+        } catch (\Throwable $e) {
+            abort(404);
+        }
+
+        return response($binary, 200, [
             'Content-Type' => $mime,
             'Cache-Control' => 'public, max-age=86400',
         ]);

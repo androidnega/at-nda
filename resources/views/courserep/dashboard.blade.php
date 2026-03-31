@@ -330,6 +330,23 @@
         useCourseBtn.title = ok ? 'Use coordinates saved on this course' : 'This course has no saved latitude/longitude in the system';
     }
 
+    function tryFallbackToCourseLocation() {
+        if (!courseSelect) return false;
+        var opt = courseSelect.options[courseSelect.selectedIndex];
+        if (!opt || !courseSelect.value) return false;
+        var la = opt.getAttribute('data-default-lat');
+        var ln = opt.getAttribute('data-default-lng');
+        var r = opt.getAttribute('data-default-range');
+        var lat = parseFloat(la);
+        var lng = parseFloat(ln);
+        if (isNaN(lat) || isNaN(lng)) return false;
+        if (rangeInput && r !== null && r !== '' && !isNaN(parseInt(r, 10))) {
+            rangeInput.value = String(parseInt(r, 10));
+        }
+        setLocation(lat, lng, 'GPS unavailable — using saved course location instead.');
+        return true;
+    }
+
     function geoErrorMessage(err) {
         if (!err || err.code === undefined) return 'Could not read your location.';
         switch (err.code) {
@@ -348,6 +365,9 @@
     function reportGeoFailure(err) {
         if (locationStatus) {
             locationStatus.textContent = 'GPS did not return a fix. Use course location or manual coordinates below.';
+        }
+        if (tryFallbackToCourseLocation()) {
+            return;
         }
         showLocationError(geoErrorMessage(err));
     }
