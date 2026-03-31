@@ -9,7 +9,7 @@
 @endphp
 
 <div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-    <div>
+    <div class="order-2 sm:order-1">
         <h1 class="text-2xl sm:text-[1.65rem] font-bold text-slate-900 tracking-tight">Open attendance session</h1>
         <p class="text-slate-500 text-sm mt-1 max-w-xl leading-relaxed">Start a session so students can mark attendance. <span class="text-slate-600">Location</span> and <span class="text-slate-600">hybrid</span> need a map anchor; <span class="text-slate-600">QR</span> does not use GPS.</p>
     </div>
@@ -155,7 +155,7 @@
     @else
     <div></div>
     @endif
-    <div class="lg:sticky lg:top-6 self-start">
+    <div class="order-1 sm:order-2 lg:sticky lg:top-6 self-start">
         <div class="rounded-lg border border-slate-200 bg-white">
             <div class="border-b border-slate-200 px-4 py-3">
                 <div class="flex items-center gap-2.5">
