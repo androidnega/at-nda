@@ -2,7 +2,7 @@
 
 @section('title', 'Dashboard')
 
-@section('body_class', 'overflow-hidden select-none')
+@section('body_class', 'select-none overscroll-y-auto dashboard-fixed')
 
 @section('breadcrumb')
     @if($liveAttendanceSessions->isNotEmpty())
@@ -22,6 +22,27 @@
     @endif
 @endsection
 
+@push('styles')
+<style>
+    .dashboard-fixed {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .dashboard-fixed::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+    }
+    .no-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+    }
+</style>
+@endpush
+
 @push('scripts')
 <script>
 (function () {
@@ -32,8 +53,6 @@
     document.addEventListener('cut', blockCopy);
     document.addEventListener('dragstart', blockCopy);
     document.addEventListener('selectstart', blockCopy);
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
     document.body.style.userSelect = 'none';
     document.body.style.webkitUserSelect = 'none';
 })();
@@ -55,6 +74,7 @@
             <p class="text-xs text-slate-500 mt-1">Each open session is listed separately — mark each one before it closes.</p>
         </div>
 
+        <div class="max-h-[min(60vh,28rem)] overflow-y-auto no-scrollbar">
         <ul class="space-y-5 list-none p-0 m-0">
             @foreach($liveAttendanceSessions as $row)
                 @php
@@ -99,6 +119,7 @@
                 </li>
             @endforeach
         </ul>
+        </div>
     </div>
 
 @else

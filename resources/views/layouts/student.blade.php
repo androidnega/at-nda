@@ -36,6 +36,7 @@
         }
     </script>
     @include('partials.minimal-ui')
+    @stack('styles')
     <style>
         @supports (padding: env(safe-area-inset-bottom)) {
             .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
