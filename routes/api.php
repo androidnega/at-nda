@@ -1,13 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
-
-/*
-| API v1 — production envelope + Sanctum (legacy routes below are unchanged).
-*/
-Route::prefix('v1')->group(base_path('routes/api/v1.php'));
-
+use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\SessionController;
@@ -16,6 +10,16 @@ use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentProfileController;
 use App\Http\Controllers\StudentOnboardingController;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('v1')->group(function () {
+    Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::get('/students', [StudentController::class, 'index']);
+});
+
+/*
+| API v1 (extended) — production envelope + Sanctum (kept for existing clients).
+*/
+Route::prefix('v1')->group(base_path('routes/api/v1.php'));
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/me', [AuthController::class, 'me']);

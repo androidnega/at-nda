@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
 
 class SchoolClass extends Model
 {
@@ -49,7 +48,7 @@ class SchoolClass extends Model
             return null;
         }
 
-        return Storage::disk('public')->url($this->logo_path);
+        return route('media.classes.logo', ['schoolClass' => $this->id]) . '?v=' . $this->updated_at?->timestamp;
     }
 
     public function getDisplayNameAttribute(): string

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ClassController;
+use App\Http\Controllers\ClassLogoController;
 use App\Http\Controllers\CourseRepController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\StudentDashboardController;
@@ -72,6 +73,9 @@ Route::get('/run-migartions-auto', function () {
 
 Route::get('/media/students/{student}/profile-image', [StudentImageController::class, 'show'])
     ->name('media.students.profile-image')
+    ->scopeBindings();
+Route::get('/media/classes/{schoolClass}/logo', [ClassLogoController::class, 'show'])
+    ->name('media.classes.logo')
     ->scopeBindings();
 
 /*

@@ -70,11 +70,24 @@ class AttendancePdfController extends Controller
             $row = ['student' => $student, 'weeks' => []];
             foreach ($weeks as $week) {
                 $marked = Attendance::where('student_id', $student->id)
+                    ->where('course_id', $course->id)
                     ->where('attendance_week_id', $week->id)
                     ->exists();
                 $row['weeks'][$week->week_number] = $marked;
             }
             $attendanceByStudent[] = $row;
+        }
+
+        $lecturerWeekStatus = [];
+        $sessionsByWeek = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->whereIn('attendance_week_id', $weeks->pluck('id'))
+            ->orderByDesc('id')
+            ->get(['attendance_week_id', 'lecturer_status'])
+            ->groupBy('attendance_week_id');
+        foreach ($weeks as $week) {
+            $latest = $sessionsByWeek->get($week->id)?->first();
+            $lecturerWeekStatus[$week->week_number] = ($latest?->lecturer_status ?? 'absent') === 'present';
         }
 
         $title = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
@@ -95,6 +108,7 @@ class AttendancePdfController extends Controller
             'classLogoDataUri' => $classLogoDataUri,
             'venueDisplay' => $venueDisplay,
             'weeks' => $weeks,
+            'lecturerWeekStatus' => $lecturerWeekStatus,
             'attendanceByStudent' => $attendanceByStudent,
         ]);
 

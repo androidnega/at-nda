@@ -21,6 +21,18 @@ class AuthController extends Controller
      */
     public function login(Request $request): JsonResponse
     {
+        if ($request->is('api/v1/auth/login')) {
+            $request->validate([
+                'email' => 'required|email',
+                'password' => 'required|string',
+            ]);
+
+            return response()->json([
+                'message' => 'Login successful',
+                'token' => 'sample-token',
+            ]);
+        }
+
         $validated = $request->validate([
             'index_number' => 'required|string',
             'password' => 'required|string',

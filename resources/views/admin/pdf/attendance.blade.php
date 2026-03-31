@@ -22,7 +22,20 @@
             color: #ffffff;
             padding: 14px 16px 16px 16px;
             border-bottom: 4px solid #facc15;
-            position: relative;
+        }
+        .banner-flex {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .banner-flex td {
+            vertical-align: middle;
+        }
+        .banner-left {
+            width: 72px;
+            padding-right: 12px;
+        }
+        .banner-right {
+            text-align: left;
         }
         .banner h1 {
             margin: 0 0 4px 0;
@@ -48,9 +61,6 @@
             line-height: 1.45;
         }
         .logo {
-            position: absolute;
-            right: 14px;
-            top: 12px;
             width: 52px;
             height: 52px;
             border-radius: 6px;
@@ -134,16 +144,24 @@
 <body>
     <div class="sheet">
         <div class="banner">
-            @if(!empty($classLogoDataUri))
-                <img src="{{ $classLogoDataUri }}" alt="Class logo" class="logo">
-            @endif
-            <span class="tag">Attendance register</span>
-            <h1>{{ $title }}</h1>
-            <div class="org">
-                <div>{{ $institutionName }}</div>
-                <div>{{ $facultyName }}</div>
-                <div>{{ $departmentName }}</div>
-            </div>
+            <table class="banner-flex" cellspacing="0">
+                <tr>
+                    <td class="banner-left">
+                        @if(!empty($classLogoDataUri))
+                            <img src="{{ $classLogoDataUri }}" alt="Class logo" class="logo">
+                        @endif
+                    </td>
+                    <td class="banner-right">
+                        <span class="tag">Attendance register</span>
+                        <h1>{{ $title }}</h1>
+                        <div class="org">
+                            <div>{{ $institutionName }}</div>
+                            <div>{{ $facultyName }}</div>
+                            <div>{{ $departmentName }}</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </div>
 
         <table class="meta" cellspacing="0">
@@ -182,6 +200,19 @@
                     </tr>
                 </thead>
                 <tbody>
+                    <tr>
+                        <td><strong>LECTURER</strong> - {{ $lecturerDisplay }}</td>
+                        <td>Lecturer</td>
+                        @foreach($weeks as $w)
+                        <td class="week-col">
+                            @if(!empty($lecturerWeekStatus[$w->week_number]))
+                                <span class="check">&#10003;</span>
+                            @else
+                                <span class="miss">&times;</span>
+                            @endif
+                        </td>
+                        @endforeach
+                    </tr>
                     @foreach($attendanceByStudent as $row)
                     <tr>
                         <td>{{ $row['student']->index_number }}</td>
