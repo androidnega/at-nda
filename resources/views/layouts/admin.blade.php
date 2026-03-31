@@ -65,6 +65,10 @@
                     <i class="fas fa-layer-group w-5 text-center"></i>
                     <span>Classes</span>
                 </a>
+                <a href="{{ route('dashboard.universities.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.universities.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-school w-5 text-center"></i>
+                    <span>Schools</span>
+                </a>
                 <a href="{{ route('dashboard.semesters.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.semesters.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-calendar-alt w-5 text-center"></i>
                     <span>Semesters</span>

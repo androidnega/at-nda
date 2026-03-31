@@ -18,6 +18,7 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
 use App\Http\Controllers\RunMigrationsController;
+use App\Http\Controllers\UniversityController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
@@ -222,6 +223,7 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
             Route::delete('/admins/{user}', [StaffAccountController::class, 'destroyAdmin'])->name('admins.destroy');
         });
         Route::resource('lecturers', \App\Http\Controllers\LecturerController::class)->except(['show']);
+        Route::resource('universities', UniversityController::class)->except(['show']);
         Route::get('/classes', [ClassController::class, 'index'])->name('classes.index');
         Route::get('/classes/create', [ClassController::class, 'create'])->name('classes.create');
         Route::post('/classes', [ClassController::class, 'store'])->name('classes.store');

@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
+use App\Models\University;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -20,7 +21,7 @@ class AttendancePdfController extends Controller
     {
         $this->authorizePdfExport($request, $course);
 
-        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty', 'schoolClass.department']);
+        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty.university', 'schoolClass.department']);
 
         $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
 
@@ -42,7 +43,16 @@ class AttendancePdfController extends Controller
         if ($className === '') {
             $className = '—';
         }
-        $institutionName = (string) (config('app.institution_name') ?: config('app.name', 'Attendance System'));
+        $institutionName = trim((string) ($course->schoolClass?->faculty?->university?->name ?? ''));
+        if ($institutionName === '') {
+            $institutionName = (string) (University::query()->orderBy('id')->value('name') ?? '');
+        }
+        if ($institutionName === '') {
+            $institutionName = (string) config('app.institution_name', '');
+        }
+        if ($institutionName === '') {
+            $institutionName = '—';
+        }
         $facultyName = (string) ($course->schoolClass?->faculty?->name ?? '—');
         $departmentName = (string) ($course->schoolClass?->department?->name ?? '—');
 
@@ -90,7 +100,7 @@ class AttendancePdfController extends Controller
             $lecturerWeekStatus[$week->week_number] = ($latest?->lecturer_status ?? 'absent') === 'present';
         }
 
-        $title = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
+        $courseTitle = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
         $latestSession = AttendanceSession::query()
             ->where('course_id', $course->id)
             ->latest('id')
@@ -98,7 +108,7 @@ class AttendancePdfController extends Controller
 
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
-            'title' => $title,
+            'courseTitle' => $courseTitle,
             'institutionName' => $institutionName,
             'facultyName' => $facultyName,
             'departmentName' => $departmentName,

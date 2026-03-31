@@ -39,10 +39,16 @@
         }
         .banner h1 {
             margin: 0 0 4px 0;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: bold;
             letter-spacing: 0.02em;
             color: #ffffff;
+        }
+        .banner .course {
+            margin-top: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #fef9c3;
         }
         .banner .tag {
             display: inline-block;
@@ -153,9 +159,9 @@
                     </td>
                     <td class="banner-right">
                         <span class="tag">Attendance register</span>
-                        <h1>{{ $title }}</h1>
+                        <h1>{{ $institutionName }}</h1>
+                        <div class="course">{{ $courseTitle }}</div>
                         <div class="org">
-                            <div>{{ $institutionName }}</div>
                             <div>{{ $facultyName }}</div>
                             <div>{{ $departmentName }}</div>
                         </div>
