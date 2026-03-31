@@ -44,12 +44,6 @@
             letter-spacing: 0.02em;
             color: #ffffff;
         }
-        .banner .course {
-            margin-top: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            color: #fef9c3;
-        }
         .banner .tag {
             display: inline-block;
             font-size: 8px;
@@ -160,7 +154,6 @@
                     <td class="banner-right">
                         <span class="tag">Attendance register</span>
                         <h1>{{ $institutionName }}</h1>
-                        <div class="course">{{ $courseTitle }}</div>
                         <div class="org">
                             <div>{{ $facultyName }}</div>
                             <div>{{ $departmentName }}</div>
@@ -179,6 +172,10 @@
                         Lecturer {{ $lecturerStatus === 'absent' ? 'Absent' : 'Present' }}
                     </span>
                 </td>
+            </tr>
+            <tr>
+                <td class="label">Course</td>
+                <td class="value">{{ $courseTitle }}</td>
             </tr>
             <tr>
                 <td class="label">Class</td>
