@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -77,6 +78,15 @@ class Student extends Model implements AuthenticatableContract
 
     protected static function booted(): void
     {
+        static::creating(function (Student $student) {
+            // Treat newly added students as fresh onboarding candidates.
+            $student->first_name = null;
+            $student->middle_name = null;
+            $student->last_name = null;
+            $student->phone_number = null;
+            $student->profile_image = null;
+        });
+
         static::saving(function (Student $student) {
             if (!empty($student->index_number)) {
                 $student->index_number = strtoupper($student->index_number);
@@ -84,7 +94,7 @@ class Student extends Model implements AuthenticatableContract
         });
 
         static::deleting(function (Student $student) {
-            if (! empty($student->index_number)) {
+            if (! empty($student->index_number) && Schema::hasTable('deleted_student_indices')) {
                 DeletedStudentIndex::query()->create([
                     'index_number' => strtoupper(trim((string) $student->index_number)),
                     'deleted_at' => now(),
