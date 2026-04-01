@@ -2,11 +2,11 @@
     $lay = $layout ?? 'student';
     $missingFields = $missingFields ?? ['first_name', 'last_name', 'phone_number', 'profile_image'];
 @endphp
-@extends($lay === 'courserep' ? 'layouts.courserep' : 'layouts.student')
+@extends($lay === 'classrep' ? 'layouts.classrep' : 'layouts.student')
 
 @section('title', 'Welcome')
 
-@if($lay === 'courserep')
+@if($lay === 'classrep')
 @section('header')
     <span class="text-sm font-semibold text-gray-800 truncate">Welcome — tell us about you</span>
 @endsection
@@ -19,7 +19,7 @@
 @endif
 
 @section('content')
-<div class="w-full {{ ($lay ?? '') === 'courserep' ? 'max-w-6xl mx-auto' : 'max-w-lg sm:max-w-xl' }}">
+<div class="w-full {{ ($lay ?? '') === 'classrep' ? 'max-w-6xl mx-auto' : 'max-w-lg sm:max-w-xl' }}">
     <div class="rounded-2xl bg-white border border-slate-200 p-5 sm:p-7">
         <h1 class="text-xl font-bold text-slate-900">Welcome</h1>
         <p class="text-slate-500 text-sm mt-1">

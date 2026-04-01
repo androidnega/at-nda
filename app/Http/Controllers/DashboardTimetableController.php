@@ -53,7 +53,7 @@ class DashboardTimetableController extends Controller
             'byDay' => $byDay,
             'orderedDays' => $orderedDays,
             'weekProgress' => $weekProgress,
-            'layout' => $student->isRep() ? 'layouts.courserep' : 'layouts.student',
+            'layout' => $student->isRep() ? 'layouts.classrep' : 'layouts.student',
             'student' => $student,
         ]);
     }

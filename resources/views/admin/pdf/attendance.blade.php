@@ -133,6 +133,13 @@
         .miss {
             color: #a16207;
         }
+        .week-cancelled {
+            font-size: 8px;
+            font-weight: bold;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
         .footer-note {
             font-size: 8px;
             color: #78716c;
@@ -194,7 +201,7 @@
                         <th>Index No.</th>
                         <th>Program</th>
                         @foreach($weeks as $w)
-                        <th class="week-col">W{{ $w->week_number }}</th>
+                        <th class="week-col">W{{ $w->week_number }}@if($w->isCancelled())<br><span class="week-cancelled">Off</span>@endif</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -204,7 +211,7 @@
                         <td>—</td>
                         <td>{{ $lecturerDisplay }}</td>
                         @foreach($weeks as $w)
-                        <td class="week-col"><span style="color:#a8a29e;">—</span></td>
+                        <td class="week-col">@if($w->isCancelled())<span class="week-cancelled">Cancelled</span>@else<span style="color:#a8a29e;">—</span>@endif</td>
                         @endforeach
                     </tr>
                     @foreach($attendanceByStudent as $idx => $row)
@@ -214,8 +221,10 @@
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
                         <td class="week-col">
-                            @if(isset($row['weeks'][$w->week_number]))
-                                @if($row['weeks'][$w->week_number])
+                            @if($w->isCancelled())
+                                <span class="week-cancelled">Cancelled</span>
+                            @elseif(isset($row['weeks'][$w->week_number]))
+                                @if($row['weeks'][$w->week_number] === true)
                                     <span class="check">&#10003;</span>
                                 @else
                                     <span class="miss">&times;</span>

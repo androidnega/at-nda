@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\SessionLiveEvent;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceWeek;
 use App\Models\Course;
 use Carbon\Carbon;
 use App\Support\SessionQrPng;
@@ -20,7 +21,7 @@ use Illuminate\View\View;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class CourseRepController extends Controller
+class ClassRepController extends Controller
 {
     private function getStudent(Request $request): ?Student
     {
@@ -29,7 +30,7 @@ class CourseRepController extends Controller
         return Student::find($id);
     }
 
-    private function requireCourseRep(Request $request): Student|\Illuminate\Http\RedirectResponse
+    private function requireClassRep(Request $request): Student|\Illuminate\Http\RedirectResponse
     {
         $student = $this->getStudent($request);
         if (!$student) {
@@ -47,9 +48,8 @@ class CourseRepController extends Controller
         $course = Course::find($courseId);
         if (!$course?->class_id) return false;
         $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-        if ($cr) return $cr->isMainRep();
-        $legacy = $student->courseReps()->where('course_id', $courseId)->first();
-        return $legacy && $legacy->isMainRep();
+
+        return $cr?->isMainRep() ?? false;
     }
 
     private function getRepClassIds(Student $rep): \Illuminate\Support\Collection
@@ -65,7 +65,7 @@ class CourseRepController extends Controller
 
     public function overview(Request $request): View|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) {
             return $student;
         }
@@ -99,7 +99,7 @@ class CourseRepController extends Controller
             ->limit(6)
             ->get();
 
-        return view('courserep.overview', [
+        return view('classrep.overview', [
             'student' => $student,
             'studentsCount' => $studentsCount,
             'coursesCount' => $coursesCount,
@@ -107,13 +107,13 @@ class CourseRepController extends Controller
             'todayAttendanceMarks' => $todayAttendanceMarks,
             'weekAttendanceMarks' => $weekAttendanceMarks,
             'todayCourses' => $todayCourses,
-            'dashboardRole' => 'courserep',
+            'dashboardRole' => 'classrep',
         ]);
     }
 
     public function dashboard(Request $request): View|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
         $classIds = $this->getRepClassIds($student);
@@ -123,16 +123,16 @@ class CourseRepController extends Controller
             ->get()
             ->map(fn($c) => (object) [
                 'course' => $c,
-                'role' => $student->classReps()->where('class_id', $c->class_id)->first()?->role ?? $student->courseReps()->where('course_id', $c->id)->first()?->role ?? 'rep',
+                'role' => $student->classReps()->where('class_id', $c->class_id)->first()?->role ?? 'rep',
                 'canOpenSession' => $this->requireMainRep($student, $c->id),
             ]);
 
-        return view('courserep.dashboard', ['student' => $student, 'courses' => $courses, 'dashboardRole' => 'courserep']);
+        return view('classrep.dashboard', ['student' => $student, 'courses' => $courses, 'dashboardRole' => 'classrep']);
     }
 
     public function openSession(Request $request): RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
         $validated = $request->validate([
@@ -218,7 +218,7 @@ class CourseRepController extends Controller
      */
     public function closeSessionConfirm(Request $request, AttendanceSession $session): View|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) {
             return $student;
         }
@@ -234,12 +234,12 @@ class CourseRepController extends Controller
 
         $session->load('course');
 
-        return view('courserep.session-close-confirm', compact('session'));
+        return view('classrep.session-close-confirm', compact('session'));
     }
 
     public function closeSession(Request $request, AttendanceSession $session): RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
         $course = $session->course;
@@ -263,7 +263,7 @@ class CourseRepController extends Controller
 
     public function qr(AttendanceSession $session, Request $request)
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
         $course = $session->course;
@@ -279,7 +279,7 @@ class CourseRepController extends Controller
         $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload);
         $scannedCount = $session->attendances()->where('status', 'present')->count();
 
-        return view('courserep.qr-display', [
+        return view('classrep.qr-display', [
             'session' => $session,
             'qrUrl' => $qrUrl,
             'scannedCount' => $scannedCount,
@@ -291,7 +291,7 @@ class CourseRepController extends Controller
      */
     public function qrDownload(AttendanceSession $session, Request $request): StreamedResponse|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) {
             return $student;
         }
@@ -323,7 +323,7 @@ class CourseRepController extends Controller
      */
     public function qrStats(AttendanceSession $session, Request $request): JsonResponse|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) {
             return $student;
         }
@@ -346,7 +346,7 @@ class CourseRepController extends Controller
      */
     public function qrPayload(AttendanceSession $session, Request $request): JsonResponse|RedirectResponse
     {
-        $student = $this->requireCourseRep($request);
+        $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) {
             return $student;
         }
@@ -367,7 +367,7 @@ class CourseRepController extends Controller
 
     public function studentsIndex(Request $request): View|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) return $rep;
 
         $classIds = $this->getRepClassIds($rep);
@@ -392,12 +392,12 @@ class CourseRepController extends Controller
         $students = $query->get();
         $classes = SchoolClass::whereIn('id', $classIds)->orderBy('name')->get();
 
-        return view('courserep.students', ['students' => $students, 'classes' => $classes, 'dashboardRole' => 'courserep']);
+        return view('classrep.students', ['students' => $students, 'classes' => $classes, 'dashboardRole' => 'classrep']);
     }
 
     public function studentShow(Request $request, Student $student): View|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) return $rep;
 
         if (!$this->canAccessStudent($rep, $student)) {
@@ -409,7 +409,6 @@ class CourseRepController extends Controller
             'schoolClass.department',
             'department.faculty',
             'classReps.schoolClass',
-            'courseReps.course',
         ]);
 
         $coursesInClass = $student->schoolClass
@@ -453,15 +452,15 @@ class CourseRepController extends Controller
             ->limit(15)
             ->get();
 
-        $isRepStudent = $student->classReps->isNotEmpty() || $student->courseReps->isNotEmpty();
+        $isRepStudent = $student->classReps->isNotEmpty();
         $repAssignments = $isRepStudent
-            ? ['classReps' => $student->classReps, 'courseReps' => $student->courseReps]
+            ? ['classReps' => $student->classReps]
             : null;
 
         $hasPassword = filled($student->getRawOriginal('password') ?? null);
         $missingProfileFields = $student->missingBasicOnboardingFields();
 
-        return view('courserep.student-detail', [
+        return view('classrep.student-detail', [
             'student' => $student,
             'coursesCount' => $coursesCount,
             'attendanceRecordsCount' => $attendanceRecordsCount,
@@ -473,13 +472,13 @@ class CourseRepController extends Controller
             'isRepStudent' => $isRepStudent,
             'hasPassword' => $hasPassword,
             'missingProfileFields' => $missingProfileFields,
-            'dashboardRole' => 'courserep',
+            'dashboardRole' => 'classrep',
         ]);
     }
 
     public function classShow(Request $request): View|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) return $rep;
 
         $classIds = $this->getRepClassIds($rep);
@@ -489,7 +488,7 @@ class CourseRepController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('courserep.class', ['classes' => $classes]);
+        return view('classrep.class', ['classes' => $classes]);
     }
 
     /**
@@ -497,7 +496,7 @@ class CourseRepController extends Controller
      */
     public function attendanceIndex(Request $request): View|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) {
             return $rep;
         }
@@ -511,9 +510,9 @@ class CourseRepController extends Controller
             ->orderBy('course_name')
             ->get();
 
-        return view('courserep.attendance-index', [
+        return view('classrep.attendance-index', [
             'courses' => $courses,
-            'dashboardRole' => 'courserep',
+            'dashboardRole' => 'classrep',
         ]);
     }
 
@@ -522,7 +521,7 @@ class CourseRepController extends Controller
      */
     public function attendanceForCourse(Request $request, Course $course): View|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) {
             return $rep;
         }
@@ -557,12 +556,75 @@ class CourseRepController extends Controller
 
         $attendances = $query->paginate(30)->withQueryString();
 
-        return view('courserep.attendance-course', [
+        $attendanceWeeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+
+        return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
             'recentSessions' => $recentSessions,
-            'dashboardRole' => 'courserep',
+            'attendanceWeeks' => $attendanceWeeks,
+            'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Class rep: mark a teaching week as cancelled (no class expected).
+     */
+    public function cancelAttendanceWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        $classIds = $this->getRepClassIds($rep);
+        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+            abort(403);
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'note' => 'nullable|string|max:2000',
+        ]);
+
+        $attendanceWeek->update([
+            'cancelled_at' => now(),
+            'cancelled_by' => 'rep',
+            'cancellation_note' => $validated['note'] ?? null,
+        ]);
+
+        AttendanceSession::query()
+            ->where('attendance_week_id', $attendanceWeek->id)
+            ->where('is_active', true)
+            ->update(['is_active' => false]);
+
+        return back()->with('success', 'Week '.$attendanceWeek->week_number.' marked as cancelled for this course.');
+    }
+
+    public function uncancelAttendanceWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        $classIds = $this->getRepClassIds($rep);
+        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+            abort(403);
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $attendanceWeek->update([
+            'cancelled_at' => null,
+            'cancelled_by' => null,
+            'cancellation_note' => null,
+        ]);
+
+        return back()->with('success', 'Week '.$attendanceWeek->week_number.' cancellation cleared.');
     }
 
     /**
@@ -570,7 +632,7 @@ class CourseRepController extends Controller
      */
     public function exportAttendanceJson(Request $request, Course $course): JsonResponse|RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) {
             return $rep;
         }
@@ -630,7 +692,7 @@ class CourseRepController extends Controller
      */
     public function importAttendanceJson(Request $request, Course $course): RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) {
             return $rep;
         }
@@ -735,7 +797,7 @@ class CourseRepController extends Controller
 
     public function resetPassword(Request $request, Student $student): RedirectResponse
     {
-        $rep = $this->requireCourseRep($request);
+        $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) return $rep;
 
         if (!$this->canAccessStudent($rep, $student)) {

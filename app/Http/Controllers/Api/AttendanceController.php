@@ -126,7 +126,7 @@ class AttendanceController extends Controller
         }
 
         $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
-        $allowsMark = $session->isValid() || ($isCourseRep && $session->canBeMarkedByCourseRep());
+        $allowsMark = $session->isValid() || ($isCourseRep && $session->canBeMarkedByClassRep());
         if (! $allowsMark) {
             return response()->json(['status' => 'error', 'message' => 'Session closed or expired'], 422);
         }

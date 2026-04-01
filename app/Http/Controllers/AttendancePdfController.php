@@ -78,11 +78,15 @@ class AttendancePdfController extends Controller
         foreach ($students as $student) {
             $row = ['student' => $student, 'weeks' => []];
             foreach ($weeks as $week) {
-                $marked = Attendance::where('student_id', $student->id)
-                    ->where('course_id', $course->id)
-                    ->where('attendance_week_id', $week->id)
-                    ->exists();
-                $row['weeks'][$week->week_number] = $marked;
+                if ($week->isCancelled()) {
+                    $row['weeks'][$week->week_number] = 'cancelled';
+                } else {
+                    $marked = Attendance::where('student_id', $student->id)
+                        ->where('course_id', $course->id)
+                        ->where('attendance_week_id', $week->id)
+                        ->exists();
+                    $row['weeks'][$week->week_number] = $marked;
+                }
             }
             $attendanceByStudent[] = $row;
         }
@@ -115,7 +119,7 @@ class AttendancePdfController extends Controller
         $studentId = $request->session()->get('student_id');
         if ($studentId) {
             $student = Student::find($studentId);
-            if (! $student || (! $student->classReps()->exists() && ! $student->courseReps()->exists())) {
+            if (! $student || ! $student->classReps()->exists()) {
                 abort(403);
             }
             $classIds = $student->repManagedClassIds();

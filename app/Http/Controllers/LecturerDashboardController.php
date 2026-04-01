@@ -26,7 +26,7 @@ class LecturerDashboardController extends Controller
         }
 
         $courses = $lecturer->courses()
-            ->with(['schoolClass', 'attendanceWeeks'])
+            ->with(['schoolClass', 'attendanceWeeks' => fn ($q) => $q->orderBy('week_number')])
             ->get();
 
         return view('dashboard.lecturer', ['lecturer' => $lecturer, 'courses' => $courses, 'dashboardRole' => 'lecturer']);

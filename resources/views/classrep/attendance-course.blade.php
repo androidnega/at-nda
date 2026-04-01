@@ -1,4 +1,4 @@
-@extends('layouts.courserep')
+@extends('layouts.classrep')
 
 @section('title', $course->course_name . ' — Attendance')
 
@@ -47,6 +47,42 @@
 @endif
 @if(session('error'))
     <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">{{ session('error') }}</div>
+@endif
+
+@if(isset($attendanceWeeks) && $attendanceWeeks->isNotEmpty())
+<div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">
+    <p class="text-xs font-semibold text-gray-800">Teaching weeks</p>
+    <p class="text-[11px] text-gray-500 mt-1">If your class did not meet for a week, mark it as cancelled. Students see this on their dashboard and the attendance PDF shows it for that week.</p>
+    <ul class="mt-3 divide-y divide-gray-100 list-none p-0 m-0">
+        @foreach($attendanceWeeks as $week)
+        <li class="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+                <span class="text-sm font-medium text-gray-900">Week {{ $week->week_number }}</span>
+                @if($week->week_date)
+                    <span class="text-xs text-gray-500 ml-2">{{ $week->week_date->format('M j, Y') }}</span>
+                @endif
+                @if($week->isCancelled())
+                    <span class="ml-2 inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">Cancelled@if($week->cancelled_by) ({{ $week->cancelled_by }})@endif</span>
+                @endif
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @if($week->isCancelled())
+                    <form action="{{ route('dashboard.class-attendance.week.uncancel', [$course, $week]) }}" method="post" class="inline">
+                        @csrf
+                        <button type="submit" class="text-xs font-semibold text-primary hover:underline">Clear cancellation</button>
+                    </form>
+                @else
+                    <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        <input type="text" name="note" placeholder="Optional note" maxlength="2000" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 min-w-[8rem] max-w-full">
+                        <button type="submit" class="text-xs font-semibold rounded-lg bg-amber-700 text-white px-3 py-1.5 hover:bg-amber-800">Mark week cancelled</button>
+                    </form>
+                @endif
+            </div>
+        </li>
+        @endforeach
+    </ul>
+</div>
 @endif
 
 <div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">

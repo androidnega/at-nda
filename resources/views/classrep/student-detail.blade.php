@@ -1,4 +1,4 @@
-@extends('layouts.courserep')
+@extends('layouts.classrep')
 
 @section('title', $student->index_number . ' - Student')
 
@@ -158,27 +158,6 @@
                     <span class="font-medium text-gray-800">{{ $cr->schoolClass?->name ?? 'Class #' . $cr->class_id }}</span>
                     <span class="text-gray-400">·</span>
                     <span class="text-gray-600">{{ $cr->role === \App\Models\ClassRep::ROLE_ASSIST ? 'Assist' : 'Main rep' }}</span>
-                </li>
-                @endforeach
-            </ul>
-        </div>
-        @endif
-        @if($repAssignments['courseReps']->isNotEmpty())
-        <div>
-            <p class="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1.5">Course rep</p>
-            <ul class="space-y-1.5">
-                @foreach($repAssignments['courseReps'] as $cr)
-                <li>
-                    @if($cr->course)
-                    <a href="{{ route('dashboard.class-attendance.course', $cr->course) }}" class="font-medium text-primary hover:underline">
-                        {{ $cr->course->course_name }}
-                        @if($cr->course->course_code)
-                            <span class="text-gray-500 font-normal">({{ $cr->course->course_code }})</span>
-                        @endif
-                    </a>
-                    @else
-                    <span class="text-gray-600">Course #{{ $cr->course_id }}</span>
-                    @endif
                 </li>
                 @endforeach
             </ul>

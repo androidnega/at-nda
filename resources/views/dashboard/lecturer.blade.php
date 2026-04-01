@@ -58,6 +58,40 @@
         <div class="px-5 py-3 bg-gray-50/50 border-t border-gray-100 text-xs text-gray-500">
             Assigned class: <span class="font-medium text-gray-700">{{ $course->schoolClass?->name ?? '—' }}</span>
         </div>
+        @if($course->attendanceWeeks->isNotEmpty())
+        <div class="px-5 py-4 border-t border-gray-100 bg-white">
+            <p class="text-xs font-semibold text-gray-700 mb-2">Teaching weeks</p>
+            <ul class="space-y-2 list-none p-0 m-0">
+                @foreach($course->attendanceWeeks->sortBy('week_number') as $week)
+                <li class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs border-b border-gray-50 last:border-0 pb-2 last:pb-0">
+                    <div>
+                        <span class="font-medium text-gray-800">W{{ $week->week_number }}</span>
+                        @if($week->week_date)
+                            <span class="text-gray-500 ml-1">{{ $week->week_date->format('M j, Y') }}</span>
+                        @endif
+                        @if($week->isCancelled())
+                            <span class="ml-2 text-amber-800 font-semibold">Cancelled</span>
+                        @endif
+                    </div>
+                    <div class="flex items-center gap-2">
+                        @if($week->isCancelled())
+                            <form action="{{ route('lecturer.courses.week.uncancel', [$course, $week]) }}" method="post" class="inline">
+                                @csrf
+                                <button type="submit" class="text-primary font-semibold hover:underline">Restore</button>
+                            </form>
+                        @else
+                            <form action="{{ route('lecturer.courses.week.cancel', [$course, $week]) }}" method="post" class="flex flex-wrap items-center gap-2">
+                                @csrf
+                                <input type="text" name="note" placeholder="Note" class="border border-gray-200 rounded px-2 py-1 text-xs w-32 max-w-full">
+                                <button type="submit" class="rounded-md bg-amber-700 text-white px-2 py-1 text-xs font-semibold hover:bg-amber-800">Cancel week</button>
+                            </form>
+                        @endif
+                    </div>
+                </li>
+                @endforeach
+            </ul>
+        </div>
+        @endif
     </div>
     @empty
     <div class="col-span-full bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">

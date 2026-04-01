@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Course;
-use App\Models\CourseRep;
+use App\Models\ClassRep;
 use App\Models\Lecturer;
 use App\Models\SchoolClass;
 use App\Models\Student;
@@ -65,7 +65,7 @@ class DatabaseSeeder extends Seeder
         $repStudent = Student::firstOrCreate(
             ['index_number' => 'REP'],
             [
-                'first_name' => 'Course',
+                'first_name' => 'Class',
                 'last_name' => 'Rep',
                 'class_id' => $class->id,
                 'password' => Hash::make('rep'),
@@ -75,9 +75,9 @@ class DatabaseSeeder extends Seeder
             $repStudent->update(['password' => Hash::make('rep')]);
         }
 
-        CourseRep::firstOrCreate(
-            ['student_id' => $repStudent->id, 'course_id' => $course->id],
-            ['role' => CourseRep::ROLE_REP]
+        ClassRep::firstOrCreate(
+            ['student_id' => $repStudent->id, 'class_id' => $class->id],
+            ['role' => ClassRep::ROLE_REP]
         );
 
         $this->call(ActiveSessionDevSeeder::class);

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\Faculty;
@@ -144,11 +145,23 @@ class StudentDashboardController extends Controller
             ->filter(fn (array $row) => ! $row['already_marked'])
             ->values();
 
+        $cancelledWeeks = collect();
+        if ($student->class_id) {
+            $cancelledWeeks = AttendanceWeek::query()
+                ->whereIn('course_id', Course::query()->where('class_id', $student->class_id)->select('id'))
+                ->whereNotNull('cancelled_at')
+                ->with(['course:id,course_name,course_code'])
+                ->orderByDesc('week_date')
+                ->limit(30)
+                ->get();
+        }
+
         return view('student.dashboard', compact(
             'student',
             'totalPresent',
             'totalWeeks',
-            'liveAttendanceSessions'
+            'liveAttendanceSessions',
+            'cancelledWeeks'
         ));
     }
 
@@ -339,7 +352,7 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.onboarding');
         }
 
-        $profileLayout = $student->isRep() ? 'courserep' : 'student';
+        $profileLayout = $student->isRep() ? 'classrep' : 'student';
 
         return view('student.profile', compact('student', 'faculties', 'prefillFacultyId', 'prefillDepartmentId', 'profileLayout'));
     }
@@ -369,7 +382,7 @@ class StudentDashboardController extends Controller
             );
         }
 
-        $layout = $student->isRep() ? 'courserep' : 'student';
+        $layout = $student->isRep() ? 'classrep' : 'student';
         $missingFields = $student->missingBasicOnboardingFields($requirePhoto);
 
         return view('student.onboarding', compact('student', 'layout', 'missingFields'));
@@ -497,6 +510,10 @@ class StudentDashboardController extends Controller
             ->where('is_active', true)
             ->where(function ($q) {
                 $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->where(function ($q) {
+                $q->whereNull('attendance_week_id')
+                    ->orWhereHas('attendanceWeek', fn ($w) => $w->whereNull('cancelled_at'));
             })
             ->with(['course.lecturer', 'course.venueRelation', 'attendanceWeek'])
             ->orderBy('expires_at')

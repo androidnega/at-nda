@@ -1,9 +1,9 @@
 @php $pl = $profileLayout ?? 'student'; @endphp
-@extends($pl === 'courserep' ? 'layouts.courserep' : 'layouts.student')
+@extends($pl === 'classrep' ? 'layouts.classrep' : 'layouts.student')
 
 @section('title', 'Profile')
 
-@if($pl === 'courserep')
+@if($pl === 'classrep')
 @section('header')
     <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-gray-500">
         <a href="{{ route('dashboard.dashboard') }}" class="hover:text-primary transition-colors">Dashboard</a>
@@ -22,7 +22,7 @@
 @endif
 
 @section('content')
-<div class="w-full {{ $pl === 'courserep' ? 'max-w-6xl mx-auto' : 'max-w-lg sm:max-w-xl' }}">
+<div class="w-full {{ $pl === 'classrep' ? 'max-w-6xl mx-auto' : 'max-w-lg sm:max-w-xl' }}">
     <div class="rounded-2xl bg-white border border-slate-200 p-5 sm:p-7">
         <h1 class="text-xl font-bold text-slate-900">{{ $student->hasCompletedProfile() ? 'Your profile' : 'Complete your profile' }}</h1>
         <p class="text-slate-500 text-sm mt-1">Name, department, phone and photo stay in sync with the mobile app</p>

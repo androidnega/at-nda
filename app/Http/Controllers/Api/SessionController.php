@@ -208,7 +208,7 @@ class SessionController extends Controller
     }
 
     /**
-     * Same rule as web CourseRepController::requireMainRep.
+     * Same rule as web ClassRepController::requireMainRep.
      */
     private function isMainRepForCourse(Student $student, int $courseId): bool
     {
@@ -217,12 +217,8 @@ class SessionController extends Controller
             return false;
         }
         $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-        if ($cr) {
-            return $cr->isMainRep();
-        }
-        $legacy = $student->courseReps()->where('course_id', $courseId)->first();
 
-        return $legacy && $legacy->isMainRep();
+        return $cr?->isMainRep() ?? false;
     }
 
     /**

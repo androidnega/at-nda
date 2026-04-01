@@ -1,4 +1,4 @@
-@extends('layouts.courserep')
+@extends('layouts.classrep')
 
 @section('title', 'Close session')
 

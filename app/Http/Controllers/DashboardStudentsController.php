@@ -20,7 +20,7 @@ class DashboardStudentsController extends Controller
                 return redirect()->route('dashboard.dashboard')->with('error', 'You do not have access to this page.');
             }
 
-            return app(CourseRepController::class)->studentsIndex($request);
+            return app(ClassRepController::class)->studentsIndex($request);
         }
 
         return redirect()->route('home')->with('info', 'Please sign in to continue.');
@@ -37,7 +37,7 @@ class DashboardStudentsController extends Controller
                 return redirect()->route('dashboard.dashboard')->with('error', 'You do not have access to this page.');
             }
 
-            return app(CourseRepController::class)->studentShow($request, $student);
+            return app(ClassRepController::class)->studentShow($request, $student);
         }
 
         return redirect()->route('home')->with('info', 'Please sign in to continue.');
@@ -54,7 +54,7 @@ class DashboardStudentsController extends Controller
                 return redirect()->route('dashboard.dashboard')->with('error', 'You do not have access to this page.');
             }
 
-            return app(CourseRepController::class)->resetPassword($request, $student);
+            return app(ClassRepController::class)->resetPassword($request, $student);
         }
 
         return redirect()->route('home')->with('info', 'Please sign in to continue.');

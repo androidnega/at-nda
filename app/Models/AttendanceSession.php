@@ -86,10 +86,10 @@ class AttendanceSession extends Model
     }
 
     /**
-     * Whether a course rep may still record attendance for this session after it has stopped being
+     * Whether a class rep may still record attendance for this session after it has stopped being
      * "live" (ended or deactivated), within a configurable lookback from session start.
      */
-    public function canBeMarkedByCourseRep(): bool
+    public function canBeMarkedByClassRep(): bool
     {
         if ($this->isValid()) {
             return true;
@@ -104,11 +104,17 @@ class AttendanceSession extends Model
         return $start->greaterThanOrEqualTo(now()->subDays($days));
     }
 
+    /** @deprecated Use {@see canBeMarkedByClassRep} */
+    public function canBeMarkedByCourseRep(): bool
+    {
+        return $this->canBeMarkedByClassRep();
+    }
+
     /**
      * Resolve the session used for marking: current active session, or token/id match.
-     * Course reps may mark on a recently ended session (see {@see canBeMarkedByCourseRep}).
+     * Class reps may mark on a recently ended session (see {@see canBeMarkedByClassRep}).
      */
-    public static function resolveForMarking(Course $course, ?string $sessionToken, ?int $sessionId, bool $isCourseRep): ?self
+    public static function resolveForMarking(Course $course, ?string $sessionToken, ?int $sessionId, bool $isClassRep): ?self
     {
         $session = null;
 
@@ -134,7 +140,7 @@ class AttendanceSession extends Model
             return $session;
         }
 
-        if ($isCourseRep && $session->canBeMarkedByCourseRep()) {
+        if ($isClassRep && $session->canBeMarkedByClassRep()) {
             return $session;
         }
 

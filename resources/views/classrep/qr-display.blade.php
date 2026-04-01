@@ -1,4 +1,4 @@
-@extends('layouts.courserep')
+@extends('layouts.classrep')
 
 @section('title', 'Session QR — ' . $session->course->course_name)
 

@@ -33,7 +33,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->ip());
         });
 
-        View::composer('layouts.courserep', function ($view) {
+        View::composer('layouts.classrep', function ($view) {
             $sid = session('student_id');
             $view->with('repStudent', $sid ? Student::query()->with(['schoolClass', 'department'])->find($sid) : null);
         });

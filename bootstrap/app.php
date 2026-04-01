@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
         channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
+    ->withCommands([
+        \App\Console\Commands\MigrateSqliteToMysql::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Laravel defaults to route('login'), which this app does not define.
         // API clients often omit Accept: application/json; without this, auth middleware
@@ -30,7 +33,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin.only' => \App\Http\Middleware\EnsureAdminOnly::class,
             'admin' => \App\Http\Middleware\EnsureAdminOrLecturer::class,
-            'courserep' => \App\Http\Middleware\EnsureCourseRep::class,
+            'classrep' => \App\Http\Middleware\EnsureClassRep::class,
+            'courserep' => \App\Http\Middleware\EnsureClassRep::class,
+            'lecturer' => \App\Http\Middleware\EnsureLecturer::class,
             'student.attendance' => \App\Http\Middleware\EnsureNotAdminOrLecturer::class,
             'student.auth' => \App\Http\Middleware\EnsureStudentAuthenticated::class,
             'api.https' => \App\Http\Middleware\ForceHttpsForApi::class,

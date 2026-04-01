@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Centralized redirects for student vs staff vs course-rep access.
+ * Centralized redirects for student vs staff vs class-rep access.
  */
 class RoleAccess
 {
@@ -49,7 +49,7 @@ class RoleAccess
         return null;
     }
 
-    public static function requireCourseRep(Request $request): ?Response
+    public static function requireClassRep(Request $request): ?Response
     {
         if ($r = self::denyStaffForStudentRoutes($request)) {
             return $r;
@@ -59,10 +59,16 @@ class RoleAccess
         }
 
         $student = Student::find($request->session()->get('student_id'));
-        if (!$student || ($student->classReps()->count() === 0 && $student->courseReps()->count() === 0)) {
+        if (! $student || $student->classReps()->count() === 0) {
             return redirect()->route('dashboard.dashboard')->with('error', 'That area isn’t available for your account.');
         }
 
         return null;
+    }
+
+    /** @deprecated Use {@see requireClassRep} */
+    public static function requireCourseRep(Request $request): ?Response
+    {
+        return self::requireClassRep($request);
     }
 }

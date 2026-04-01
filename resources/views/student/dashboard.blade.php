@@ -161,8 +161,32 @@
             <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalWeeks }}</p>
         </div>
     </div>
+
 </div>
 
+@endif
+
+@if(isset($cancelledWeeks) && $cancelledWeeks->isNotEmpty())
+<div class="max-w-lg mx-auto w-full mt-5 md:max-w-none">
+    <div class="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 sm:p-5">
+        <p class="text-xs font-semibold uppercase tracking-wide text-amber-800">Cancelled week(s)</p>
+        <p class="text-xs text-amber-800/80 mt-1">Your class rep or lecturer marked these teaching weeks as cancelled — no attendance was expected.</p>
+        <ul class="mt-3 space-y-2 text-sm text-amber-950 list-none p-0 m-0">
+            @foreach($cancelledWeeks as $cw)
+            <li class="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-amber-200/60 pb-2 last:border-0 last:pb-0">
+                <span class="font-semibold">{{ $cw->course?->course_name ?? 'Course' }}</span>
+                @if($cw->course?->course_code)
+                    <span class="font-mono text-xs text-amber-800/90">{{ $cw->course->course_code }}</span>
+                @endif
+                <span class="text-amber-900">· Week {{ $cw->week_number }}</span>
+                @if($cw->week_date)
+                    <span class="text-xs text-amber-800">· {{ $cw->week_date->format('M j, Y') }}</span>
+                @endif
+            </li>
+            @endforeach
+        </ul>
+    </div>
+</div>
 @endif
 @endsection
 

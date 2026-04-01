@@ -21,7 +21,7 @@ class EnsureAdminOrLecturerOrCourseRep
 
         if ($request->session()->has('student_id')) {
             $student = Student::find($request->session()->get('student_id'));
-            if ($student && ($student->classReps()->exists() || $student->courseReps()->exists())) {
+            if ($student && $student->classReps()->exists()) {
                 return $next($request);
             }
         }

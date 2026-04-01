@@ -3,7 +3,8 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ClassController;
 use App\Http\Controllers\ClassLogoController;
-use App\Http\Controllers\CourseRepController;
+use App\Http\Controllers\ClassRepController;
+use App\Http\Controllers\LecturerAttendanceWeekController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\StudentDashboardController;
 use App\Http\Controllers\AttendancePdfController;
@@ -144,6 +145,11 @@ Route::post('/lecturer/logout', [\App\Http\Controllers\LecturerAuthController::c
 Route::get('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePasswordForm'])->name('lecturer.password.change.form');
 Route::post('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePassword'])->name('lecturer.password.change.post');
 
+Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(function () {
+    Route::post('courses/{course}/weeks/{attendanceWeek}/cancel', [LecturerAttendanceWeekController::class, 'cancel'])->name('courses.week.cancel');
+    Route::post('courses/{course}/weeks/{attendanceWeek}/uncancel', [LecturerAttendanceWeekController::class, 'uncancel'])->name('courses.week.uncancel');
+});
+
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
 Route::post('/onboarding/complete', [StudentOnboardingController::class, 'complete'])->name('onboarding.complete');
 
@@ -156,21 +162,23 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
 
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
-    Route::middleware('courserep')->group(function () {
-        Route::get('/session', [CourseRepController::class, 'dashboard'])->name('session');
-        Route::get('/my-class', [CourseRepController::class, 'classShow'])->name('my-class');
-        Route::get('/class-attendance', [CourseRepController::class, 'attendanceIndex'])->name('class-attendance.index');
-        Route::get('/class-attendance/course/{course}', [CourseRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
+    Route::middleware('classrep')->group(function () {
+        Route::get('/session', [ClassRepController::class, 'dashboard'])->name('session');
+        Route::get('/my-class', [ClassRepController::class, 'classShow'])->name('my-class');
+        Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');
+        Route::get('/class-attendance/course/{course}', [ClassRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
         Route::get('/class-attendance/course/{course}/pdf', [AttendancePdfController::class, 'export'])->name('class-attendance.course.pdf');
-        Route::get('/class-attendance/course/{course}/export.json', [CourseRepController::class, 'exportAttendanceJson'])->name('class-attendance.course.export-json');
-        Route::post('/class-attendance/course/{course}/import.json', [CourseRepController::class, 'importAttendanceJson'])->name('class-attendance.course.import-json');
-        Route::post('/live-sessions', [CourseRepController::class, 'openSession'])->name('live-sessions.store');
-        Route::get('/live-sessions/{session}/close', [CourseRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
-        Route::post('/live-sessions/{session}/close', [CourseRepController::class, 'closeSession'])->name('live-sessions.close');
-        Route::get('/live-sessions/{session}/qr', [CourseRepController::class, 'qr'])->name('live-sessions.qr')->scopeBindings();
-        Route::get('/live-sessions/{session}/qr-stats', [CourseRepController::class, 'qrStats'])->name('live-sessions.qr-stats')->scopeBindings();
-        Route::get('/live-sessions/{session}/qr-payload', [CourseRepController::class, 'qrPayload'])->name('live-sessions.qr-payload')->scopeBindings();
-        Route::get('/live-sessions/{session}/qr-download', [CourseRepController::class, 'qrDownload'])->name('live-sessions.qr-download')->scopeBindings();
+        Route::get('/class-attendance/course/{course}/export.json', [ClassRepController::class, 'exportAttendanceJson'])->name('class-attendance.course.export-json');
+        Route::post('/class-attendance/course/{course}/import.json', [ClassRepController::class, 'importAttendanceJson'])->name('class-attendance.course.import-json');
+        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
+        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
+        Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');
+        Route::get('/live-sessions/{session}/close', [ClassRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
+        Route::post('/live-sessions/{session}/close', [ClassRepController::class, 'closeSession'])->name('live-sessions.close');
+        Route::get('/live-sessions/{session}/qr', [ClassRepController::class, 'qr'])->name('live-sessions.qr')->scopeBindings();
+        Route::get('/live-sessions/{session}/qr-stats', [ClassRepController::class, 'qrStats'])->name('live-sessions.qr-stats')->scopeBindings();
+        Route::get('/live-sessions/{session}/qr-payload', [ClassRepController::class, 'qrPayload'])->name('live-sessions.qr-payload')->scopeBindings();
+        Route::get('/live-sessions/{session}/qr-download', [ClassRepController::class, 'qrDownload'])->name('live-sessions.qr-download')->scopeBindings();
     });
 
     Route::permanentRedirect('reps', '/dashboard');

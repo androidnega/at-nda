@@ -7,11 +7,11 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class EnsureCourseRep
+class EnsureClassRep
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($r = RoleAccess::requireCourseRep($request)) {
+        if ($r = RoleAccess::requireClassRep($request)) {
             return $r;
         }
 

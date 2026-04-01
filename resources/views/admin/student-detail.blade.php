@@ -190,28 +190,6 @@
     </div>
 </div>
 
-@if($student->courseReps->isNotEmpty())
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-    <div class="px-5 py-4 border-b border-gray-100">
-        <h2 class="font-semibold text-gray-900">Course rep assignments</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Courses this student can run sessions for.</p>
-    </div>
-    <ul class="divide-y divide-gray-100">
-        @foreach($student->courseReps as $cr)
-        <li class="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-                <span class="font-medium text-gray-900">{{ $cr->course?->course_name ?? '—' }}</span>
-                @if($cr->course?->course_code)
-                    <span class="text-sm text-gray-500 font-mono ml-2">{{ $cr->course->course_code }}</span>
-                @endif
-            </div>
-            <span class="px-2 py-0.5 rounded text-xs font-medium shrink-0 {{ $cr->isMainRep() ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700' }}">{{ $cr->isMainRep() ? 'Rep' : 'Assist' }}</span>
-        </li>
-        @endforeach
-    </ul>
-</div>
-@endif
-
 @if($student->classReps->isNotEmpty())
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
     <div class="px-5 py-4 border-b border-gray-100">

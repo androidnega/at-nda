@@ -21,8 +21,8 @@ class DashboardController extends Controller
         }
         if ($request->session()->has('student_id')) {
             $student = Student::find($request->session()->get('student_id'));
-            if ($student && ($student->classReps()->exists() || $student->courseReps()->exists())) {
-                return app(CourseRepController::class)->overview($request);
+            if ($student && $student->classReps()->exists()) {
+                return app(ClassRepController::class)->overview($request);
             }
             return app(StudentDashboardController::class)->dashboard($request);
         }

@@ -386,31 +386,25 @@ class Student extends Model implements AuthenticatableContract
         return $this->classReps()->exists();
     }
 
+    /** @deprecated Use {@see isClassRep()} */
     public function isCourseRep(): bool
     {
-        if ($this->relationLoaded('courseReps')) {
-            return $this->courseReps->isNotEmpty();
-        }
-
-        return $this->courseReps()->exists();
+        return $this->isClassRep();
     }
 
     public function isRep(): bool
     {
-        return $this->classReps()->exists() || $this->courseReps()->exists();
+        return $this->isClassRep();
     }
 
     /**
-     * Class IDs this student may manage as a rep (empty if not a rep).
+     * Class IDs this student may manage as a class rep (empty if not a rep).
      *
      * @return \Illuminate\Support\Collection<int, int>
      */
     public function repManagedClassIds(): \Illuminate\Support\Collection
     {
-        $fromClass = $this->classReps()->pluck('class_id')->unique();
-        $fromCourse = $this->courseReps()->with('course')->get()->pluck('course.class_id')->filter()->unique();
-
-        return $fromClass->merge($fromCourse)->unique()->filter();
+        return $this->classReps()->pluck('class_id')->unique()->filter();
     }
 
     /**
@@ -493,10 +487,23 @@ class Student extends Model implements AuthenticatableContract
         ];
     }
 
-    /** True if this student is assigned as a course rep for the given course (can run session / attendance rules). */
+    /**
+     * True if this student is a class rep for the class that owns the course (sessions / attendance rules).
+     */
+    public function isClassRepForCourse(int $courseId): bool
+    {
+        $course = Course::query()->select('id', 'class_id')->find($courseId);
+        if (! $course?->class_id) {
+            return false;
+        }
+
+        return $this->classReps()->where('class_id', $course->class_id)->exists();
+    }
+
+    /** @deprecated Use {@see isClassRepForCourse} */
     public function isCourseRepForCourse(int $courseId): bool
     {
-        return $this->courseReps()->where('course_id', $courseId)->exists();
+        return $this->isClassRepForCourse($courseId);
     }
 
     public function deviceToken(): HasOne
