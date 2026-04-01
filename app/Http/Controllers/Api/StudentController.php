@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\StudentResource;
 use App\Models\Course;
 use App\Models\DeletedStudentIndex;
 use App\Models\Student;
@@ -175,22 +176,12 @@ class StudentController extends Controller
     public function index(Request $request): JsonResponse
     {
         if ($request->is('api/v1/students')) {
-            $students = Student::all()->map(function (Student $student) {
-                $name = trim(($student->first_name ?? '').' '.($student->last_name ?? ''));
-                if ($name === '') {
-                    $name = $student->getDisplayNameOrIndex();
-                }
-
-                return [
-                    'id' => $student->id,
-                    'name' => $name,
-                    'index_number' => $student->index_number,
-                ];
-            });
+            $students = Student::all();
 
             return response()->json([
                 'status' => true,
-                'data' => $students,
+                'message' => 'Students fetched successfully',
+                'data' => StudentResource::collection($students),
             ]);
         }
 

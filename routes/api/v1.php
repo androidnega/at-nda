@@ -44,6 +44,13 @@ Route::middleware('api.https')->group(function () {
     Route::middleware(['auth:sanctum', 'throttle:api-v1'])->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
+        Route::get('test-auth', function (\Illuminate\Http\Request $request) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Success',
+                'data' => $request->user(),
+            ]);
+        });
         Route::get('profile', [ProfileController::class, 'show']);
         Route::get('sessions', [SessionController::class, 'index']);
         Route::get('sessions/active', [SessionController::class, 'active']);
