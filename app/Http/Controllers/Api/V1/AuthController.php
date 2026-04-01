@@ -25,7 +25,7 @@ class AuthController extends Controller
         $indexNumber = strtoupper(trim($validated['index_number']));
         $password = $validated['password'];
 
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
+        $student = Student::findByIndex($indexNumber);
         if (! $student) {
             $removed = DeletedStudentIndex::query()
                 ->where('index_number', $indexNumber)
@@ -37,7 +37,7 @@ class AuthController extends Controller
             ]);
 
             return ApiEnvelope::errorResponse(
-                $removed ? 'This account is no longer in the system' : 'Index not found',
+                $removed ? 'This account is no longer in the system' : 'Student not found',
                 404,
                 $removed ? ['code' => 'student_removed'] : ['code' => 'student_not_found'],
                 [
@@ -59,7 +59,7 @@ class AuthController extends Controller
         } elseif (! $this->validatePassword($password, $student->password)) {
             Log::warning('api.v1.login.failed', ['reason' => 'bad_password', 'student_id' => $student->id]);
 
-            return ApiEnvelope::errorResponse('Wrong password', 401);
+            return ApiEnvelope::errorResponse('Invalid credentials', 401);
         }
 
         $student->tokens()->where('name', 'mobile')->delete();

@@ -175,7 +175,18 @@ class StudentController extends Controller
     public function index(Request $request): JsonResponse
     {
         if ($request->is('api/v1/students')) {
-            $students = Student::all();
+            $students = Student::all()->map(function (Student $student) {
+                $name = trim(($student->first_name ?? '').' '.($student->last_name ?? ''));
+                if ($name === '') {
+                    $name = $student->getDisplayNameOrIndex();
+                }
+
+                return [
+                    'id' => $student->id,
+                    'name' => $name,
+                    'index_number' => $student->index_number,
+                ];
+            });
 
             return response()->json([
                 'status' => true,
