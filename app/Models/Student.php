@@ -35,8 +35,12 @@ class Student extends Model implements AuthenticatableContract
      *
      * @return list<string>
      */
-    public function missingBasicOnboardingFields(): array
+    public function missingBasicOnboardingFields(?bool $requireProfileImage = null): array
     {
+        if ($requireProfileImage === null) {
+            $requireProfileImage = SystemSetting::get()->require_profile_image_on_onboarding ?? true;
+        }
+
         $missing = [];
         if (trim((string) ($this->first_name ?? '')) === '') {
             $missing[] = 'first_name';
@@ -44,10 +48,10 @@ class Student extends Model implements AuthenticatableContract
         if (trim((string) ($this->last_name ?? '')) === '') {
             $missing[] = 'last_name';
         }
-        if (trim((string) ($this->phone_number ?? '')) === '') {
+        if ($requireProfileImage && trim((string) ($this->phone_number ?? '')) === '') {
             $missing[] = 'phone_number';
         }
-        if (trim((string) ($this->profile_image ?? '')) === '') {
+        if ($requireProfileImage && trim((string) ($this->profile_image ?? '')) === '') {
             $missing[] = 'profile_image';
         }
 
@@ -57,9 +61,9 @@ class Student extends Model implements AuthenticatableContract
     /**
      * First-time web onboarding: phone + legal name (before faculty/department).
      */
-    public function needsBasicOnboarding(): bool
+    public function needsBasicOnboarding(?bool $requireProfileImage = null): bool
     {
-        return count($this->missingBasicOnboardingFields()) > 0;
+        return count($this->missingBasicOnboardingFields($requireProfileImage)) > 0;
     }
 
     public function hasCompletedProfile(): bool
@@ -330,9 +334,13 @@ class Student extends Model implements AuthenticatableContract
         return '—';
     }
 
-    public function isOnboarded(?bool $requireFace = null): bool
+    public function isOnboarded(?bool $requireProfileImage = null): bool
     {
-        $base = !empty($this->phone_number) && !empty($this->profile_image);
+        if ($requireProfileImage === null) {
+            $requireProfileImage = SystemSetting::get()->require_profile_image_on_onboarding ?? true;
+        }
+
+        $base = !empty($this->phone_number) && (! $requireProfileImage || !empty($this->profile_image));
         if (!$base) {
             return false;
         }

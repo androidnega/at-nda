@@ -24,6 +24,7 @@ class SettingsController extends Controller
             'enable_ip_binding' => 'nullable|boolean',
             'enable_qr' => 'nullable|boolean',
             'require_password_on_first_login' => 'nullable|boolean',
+            'require_profile_image_on_onboarding' => 'nullable|boolean',
             'allow_multiple_index_on_device' => 'nullable|boolean',
             'face_match_threshold' => 'nullable|numeric|min:0.2|max:1.0',
         ]);
@@ -34,6 +35,7 @@ class SettingsController extends Controller
             'enable_ip_binding' => $request->boolean('enable_ip_binding'),
             'enable_qr' => $request->boolean('enable_qr'),
             'require_password_on_first_login' => $request->boolean('require_password_on_first_login'),
+            'require_profile_image_on_onboarding' => $request->boolean('require_profile_image_on_onboarding'),
             'allow_multiple_index_on_device' => $request->boolean('allow_multiple_index_on_device'),
             'face_match_threshold' => (float) ($validated['face_match_threshold'] ?? 0.5),
         ]);

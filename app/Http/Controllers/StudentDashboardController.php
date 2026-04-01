@@ -358,7 +358,10 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
-        if (!$student->needsBasicOnboarding()) {
+        $settings = SystemSetting::get();
+        $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
+
+        if (!$student->needsBasicOnboarding($requirePhoto)) {
             return redirect()->route(
                 $student->hasCompletedProfile()
                     ? 'dashboard.dashboard'
@@ -367,7 +370,7 @@ class StudentDashboardController extends Controller
         }
 
         $layout = $student->isRep() ? 'courserep' : 'student';
-        $missingFields = $student->missingBasicOnboardingFields();
+        $missingFields = $student->missingBasicOnboardingFields($requirePhoto);
 
         return view('student.onboarding', compact('student', 'layout', 'missingFields'));
     }
@@ -386,7 +389,9 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
-        $missing = $student->missingBasicOnboardingFields();
+        $settings = SystemSetting::get();
+        $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
+        $missing = $student->missingBasicOnboardingFields($requirePhoto);
         if ($missing === []) {
             return redirect()->route(
                 $student->hasCompletedProfile()
@@ -545,6 +550,9 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
+        $settings = SystemSetting::get();
+        $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'middle_name' => 'nullable|string|max:255',
@@ -552,9 +560,9 @@ class StudentDashboardController extends Controller
             'faculty_id' => 'required|exists:faculties,id',
             'department_id' => 'required|exists:departments,id',
             'phone_number' => 'nullable|string|max:30',
-            'profile_photo' => $student->profile_image
-                ? ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
-                : ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'profile_photo' => ($requirePhoto && !$student->profile_image)
+                ? ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
+                : ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ]);
 
         $department = \App\Models\Department::find($validated['department_id']);

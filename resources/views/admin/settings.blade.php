@@ -65,6 +65,16 @@
 
             <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
                 <div>
+                    <span class="font-medium text-gray-800">Require Profile Photo During Onboarding</span>
+                    <p class="text-sm text-gray-500 mt-0.5">When OFF, students can access after name + phone without uploading a picture</p>
+                </div>
+                <input type="hidden" name="require_profile_image_on_onboarding" value="0">
+                <input type="checkbox" name="require_profile_image_on_onboarding" value="1" {{ ($settings->require_profile_image_on_onboarding ?? true) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+            </label>
+
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
+                <div>
                     <span class="font-medium text-gray-800">Allow Multiple Index on Same Device</span>
                     <p class="text-sm text-gray-500 mt-0.5">Let students switch index numbers on the same device</p>
                 </div>

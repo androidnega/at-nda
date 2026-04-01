@@ -12,6 +12,7 @@ class SystemSetting extends Model
         'allow_multiple_index_on_device',
         'enable_qr',
         'require_password_on_first_login',
+        'require_profile_image_on_onboarding',
         'face_match_threshold',
         'attendance_data_version',
         'last_attendance_reset_at',
@@ -23,6 +24,7 @@ class SystemSetting extends Model
         'allow_multiple_index_on_device' => 'boolean',
         'enable_qr' => 'boolean',
         'require_password_on_first_login' => 'boolean',
+        'require_profile_image_on_onboarding' => 'boolean',
         'face_match_threshold' => 'float',
         'last_attendance_reset_at' => 'datetime',
     ];
@@ -37,6 +39,7 @@ class SystemSetting extends Model
                 'allow_multiple_index_on_device' => false,
                 'enable_qr' => true,
                 'require_password_on_first_login' => true,
+                'require_profile_image_on_onboarding' => true,
                 'face_match_threshold' => 0.5,
                 'attendance_data_version' => 0,
             ]);
