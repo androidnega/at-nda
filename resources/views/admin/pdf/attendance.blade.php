@@ -166,12 +166,7 @@
         <table class="meta" cellspacing="0">
             <tr>
                 <td class="label">Lecturer</td>
-                <td class="value">
-                    {{ $lecturerDisplay }}
-                    <span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:bold;{{ $lecturerStatus === 'absent' ? 'background:#ffe4e6;color:#be123c;' : 'background:#dcfce7;color:#166534;' }}">
-                        Lecturer {{ $lecturerStatus === 'absent' ? 'Absent' : 'Present' }}
-                    </span>
-                </td>
+                <td class="value">{{ $lecturerDisplay }}</td>
             </tr>
             <tr>
                 <td class="label">Course</td>
@@ -195,6 +190,7 @@
             <table class="grid">
                 <thead>
                     <tr>
+                        <th style="width:32px;">#</th>
                         <th>Index No.</th>
                         <th>Program</th>
                         @foreach($weeks as $w)
@@ -204,20 +200,16 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>LECTURER</strong> - {{ $lecturerDisplay }}</td>
-                        <td>Lecturer</td>
+                        <td class="week-col" style="font-weight:bold;">1</td>
+                        <td>—</td>
+                        <td>{{ $lecturerDisplay }}</td>
                         @foreach($weeks as $w)
-                        <td class="week-col">
-                            @if(!empty($lecturerWeekStatus[$w->week_number]))
-                                <span class="check">&#10003;</span>
-                            @else
-                                <span class="miss">&times;</span>
-                            @endif
-                        </td>
+                        <td class="week-col"><span style="color:#a8a29e;">—</span></td>
                         @endforeach
                     </tr>
-                    @foreach($attendanceByStudent as $row)
+                    @foreach($attendanceByStudent as $idx => $row)
                     <tr>
+                        <td class="week-col" style="font-weight:bold;">{{ $idx + 2 }}</td>
                         <td>{{ $row['student']->index_number }}</td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)

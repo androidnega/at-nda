@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
-use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\University;
@@ -88,23 +87,7 @@ class AttendancePdfController extends Controller
             $attendanceByStudent[] = $row;
         }
 
-        $lecturerWeekStatus = [];
-        $sessionsByWeek = AttendanceSession::query()
-            ->where('course_id', $course->id)
-            ->whereIn('attendance_week_id', $weeks->pluck('id'))
-            ->orderByDesc('id')
-            ->get(['attendance_week_id', 'lecturer_status'])
-            ->groupBy('attendance_week_id');
-        foreach ($weeks as $week) {
-            $latest = $sessionsByWeek->get($week->id)?->first();
-            $lecturerWeekStatus[$week->week_number] = ($latest?->lecturer_status ?? 'absent') === 'present';
-        }
-
         $courseTitle = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
-        $latestSession = AttendanceSession::query()
-            ->where('course_id', $course->id)
-            ->latest('id')
-            ->first(['lecturer_status']);
 
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
@@ -113,12 +96,10 @@ class AttendancePdfController extends Controller
             'facultyName' => $facultyName,
             'departmentName' => $departmentName,
             'lecturerDisplay' => $lecturerDisplay,
-            'lecturerStatus' => $latestSession?->lecturer_status ?? 'present',
             'className' => $className,
             'classLogoDataUri' => $classLogoDataUri,
             'venueDisplay' => $venueDisplay,
             'weeks' => $weeks,
-            'lecturerWeekStatus' => $lecturerWeekStatus,
             'attendanceByStudent' => $attendanceByStudent,
         ]);
 

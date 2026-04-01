@@ -751,6 +751,14 @@ function runAttendanceFlow() {
             body.latitude = lat;
             body.longitude = lng;
         }
+        var sessionTokenInput = document.getElementById('session_token');
+        var sessionPkInput = document.getElementById('session_pk');
+        if (sessionTokenInput && sessionTokenInput.value) {
+            body.session_token = sessionTokenInput.value;
+        }
+        if (sessionPkInput && sessionPkInput.value) {
+            body.session_id = parseInt(sessionPkInput.value, 10);
+        }
         const r = await fetch('{{ route("web.attendance.verify") }}', {
             method: 'POST',
             headers: {

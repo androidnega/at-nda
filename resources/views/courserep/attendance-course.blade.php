@@ -33,8 +33,31 @@
                 <i class="fas fa-file-pdf"></i>
                 PDF preview
             </a>
+            <a href="{{ route('dashboard.class-attendance.course.export-json', $course) }}"
+               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                <i class="fas fa-file-code"></i>
+                Download JSON
+            </a>
         </div>
     </div>
+</div>
+
+@if(session('success'))
+    <div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{{ session('success') }}</div>
+@endif
+@if(session('error'))
+    <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">{{ session('error') }}</div>
+@endif
+
+<div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">
+    <p class="text-xs font-semibold text-gray-800">Restore attendance (JSON)</p>
+    <p class="text-[11px] text-gray-500 mt-1">Upload a backup downloaded from this page to recreate marks if they were lost.</p>
+    <form action="{{ route('dashboard.class-attendance.course.import-json', $course) }}" method="post" enctype="multipart/form-data" class="mt-3 flex flex-wrap items-center gap-2">
+        @csrf
+        <input type="file" name="backup" accept=".json,application/json" required
+            class="text-xs border border-gray-200 rounded-lg file:mr-2 file:py-1.5 file:px-2 file:text-xs file:rounded-md file:border-0 file:bg-gray-100">
+        <button type="submit" class="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/90">Upload JSON</button>
+    </form>
 </div>
 
 <form method="GET" action="{{ route('dashboard.class-attendance.course', $course) }}" id="attendance-filters-form" class="mb-4 space-y-3">

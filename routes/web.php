@@ -162,6 +162,8 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::get('/class-attendance', [CourseRepController::class, 'attendanceIndex'])->name('class-attendance.index');
         Route::get('/class-attendance/course/{course}', [CourseRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
         Route::get('/class-attendance/course/{course}/pdf', [AttendancePdfController::class, 'export'])->name('class-attendance.course.pdf');
+        Route::get('/class-attendance/course/{course}/export.json', [CourseRepController::class, 'exportAttendanceJson'])->name('class-attendance.course.export-json');
+        Route::post('/class-attendance/course/{course}/import.json', [CourseRepController::class, 'importAttendanceJson'])->name('class-attendance.course.import-json');
         Route::post('/live-sessions', [CourseRepController::class, 'openSession'])->name('live-sessions.store');
         Route::get('/live-sessions/{session}/close', [CourseRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
         Route::post('/live-sessions/{session}/close', [CourseRepController::class, 'closeSession'])->name('live-sessions.close');

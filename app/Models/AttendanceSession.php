@@ -86,6 +86,62 @@ class AttendanceSession extends Model
     }
 
     /**
+     * Whether a course rep may still record attendance for this session after it has stopped being
+     * "live" (ended or deactivated), within a configurable lookback from session start.
+     */
+    public function canBeMarkedByCourseRep(): bool
+    {
+        if ($this->isValid()) {
+            return true;
+        }
+
+        $days = (int) config('app.attendance_rep_supplemental_days', 14);
+        $start = $this->start_time ?? $this->created_at;
+        if ($start === null) {
+            return false;
+        }
+
+        return $start->greaterThanOrEqualTo(now()->subDays($days));
+    }
+
+    /**
+     * Resolve the session used for marking: current active session, or token/id match.
+     * Course reps may mark on a recently ended session (see {@see canBeMarkedByCourseRep}).
+     */
+    public static function resolveForMarking(Course $course, ?string $sessionToken, ?int $sessionId, bool $isCourseRep): ?self
+    {
+        $session = null;
+
+        if ($sessionId !== null && $sessionId > 0) {
+            $session = static::query()->with('course')->find($sessionId);
+            if (! $session || (int) $session->course_id !== (int) $course->id) {
+                return null;
+            }
+        } elseif ($sessionToken !== null && trim($sessionToken) !== '') {
+            $session = static::findByQrOrSessionToken(trim($sessionToken));
+            if (! $session || (int) $session->course_id !== (int) $course->id) {
+                return null;
+            }
+        } else {
+            $session = $course->activeSession();
+        }
+
+        if (! $session) {
+            return null;
+        }
+
+        if ($session->isValid()) {
+            return $session;
+        }
+
+        if ($isCourseRep && $session->canBeMarkedByCourseRep()) {
+            return $session;
+        }
+
+        return null;
+    }
+
+    /**
      * Active session rows within the current time window.
      * Prefers start_time/end_time; falls back to created_at/expires_at for legacy rows.
      */

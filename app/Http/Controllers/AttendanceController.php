@@ -57,6 +57,8 @@ class AttendanceController extends Controller
             'course_id' => 'required|exists:courses,id',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
+            'session_token' => 'nullable|string',
+            'session_id' => 'nullable|integer',
         ]);
 
         $settings = SystemSetting::get();
@@ -89,14 +91,23 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
-        $session = $course->activeSession();
-        if (!$session || !$session->isValid()) {
+        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
+        $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
+        $session = AttendanceSession::resolveForMarking(
+            $course,
+            $validated['session_token'] ?? null,
+            $sessionId > 0 ? $sessionId : null,
+            $isCourseRep
+        );
+        if (! $session) {
             return response()->json(['verified' => false, 'message' => 'Session closed or expired'], 422);
         }
 
+        $supplementalRepMark = $isCourseRep && ! $session->isValid();
+
         // Venue is anchored when the session opens; students are not required to send coordinates.
         // Optional lat/lng still validate against the session geofence when both are provided.
-        if ($session->requiresLocation()) {
+        if (! $supplementalRepMark && $session->requiresLocation()) {
             if (!$session->hasLocation()) {
                 return response()->json(['verified' => false, 'message' => 'Session has no location set'], 422);
             }
@@ -185,23 +196,31 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
-        $session = $this->resolveSession($course, $validated['session_token'] ?? null);
+        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
+        $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
+        $session = AttendanceSession::resolveForMarking(
+            $course,
+            $validated['session_token'] ?? null,
+            $sessionId > 0 ? $sessionId : null,
+            $isCourseRep
+        );
 
-        if (!$session || !$session->isValid()) {
+        if (! $session) {
             return response()->json(['success' => false, 'message' => 'Session closed or expired'], 422);
         }
 
-        $mode = $session->mode;
-        $isCourseRep = $student->isCourseRepForCourse($course->id);
+        $supplementalRepMark = $isCourseRep && ! $session->isValid();
 
-        if ($mode === 'qr') {
+        $mode = $session->mode;
+
+        if (! $supplementalRepMark && $mode === 'qr') {
             if (!$isCourseRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated);
                 if ($qrErr !== null) {
                     return $qrErr;
                 }
             }
-        } elseif ($mode === 'hybrid') {
+        } elseif (! $supplementalRepMark && $mode === 'hybrid') {
             if (!$session->hasLocation()) {
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
@@ -227,7 +246,7 @@ class AttendanceController extends Controller
                     return $qrErr;
                 }
             }
-        } elseif ($mode === 'location') {
+        } elseif (! $supplementalRepMark && $mode === 'location') {
             if (!$session->hasLocation()) {
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
@@ -247,7 +266,7 @@ class AttendanceController extends Controller
                     ], 422);
                 }
             }
-        } elseif ($mode === 'wifi') {
+        } elseif (! $supplementalRepMark && $mode === 'wifi') {
             $expected = trim((string) ($session->allowed_wifi_ssid ?? ''));
             if ($expected === '') {
                 return response()->json(['success' => false, 'message' => 'Wi‑Fi session not configured'], 422);
@@ -341,11 +360,6 @@ class AttendanceController extends Controller
         }
 
         return null;
-    }
-
-    private function resolveSession(Course $course, ?string $sessionToken): ?AttendanceSession
-    {
-        return AttendanceSession::forCourseFromToken($course, $sessionToken);
     }
 
     private function distance(float $lat1, float $lng1, float $lat2, float $lng2): float

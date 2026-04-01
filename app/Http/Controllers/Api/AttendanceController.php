@@ -114,20 +114,24 @@ class AttendanceController extends Controller
             ], 422);
         }
 
-        $session = $this->resolveSession($validated, $course, $sessionToken);
+        $session = $this->resolveSession($validated, $course, $sessionToken, $student);
 
-        if (!$session) {
+        if (! $session) {
             return response()->json(['message' => 'Session not found'], 404);
         }
 
-        if (!$session->isValid()) {
+        $course = $session->course ?? Course::find($session->course_id);
+        if (! $course) {
+            return response()->json(['message' => 'Course not found'], 404);
+        }
+
+        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
+        $allowsMark = $session->isValid() || ($isCourseRep && $session->canBeMarkedByCourseRep());
+        if (! $allowsMark) {
             return response()->json(['status' => 'error', 'message' => 'Session closed or expired'], 422);
         }
 
-        $course = $session->course ?? Course::find($session->course_id);
-        if (!$course) {
-            return response()->json(['message' => 'Course not found'], 404);
-        }
+        $supplementalRepMark = ! $session->isValid();
 
         if ($student->class_id && $course->class_id && (int) $student->class_id !== (int) $course->class_id) {
             return response()->json(['status' => 'error', 'message' => 'Course not for your class'], 403);
@@ -142,8 +146,6 @@ class AttendanceController extends Controller
         } elseif (isset($validated['horizontal_accuracy'])) {
             $accuracyMeters = (float) $validated['horizontal_accuracy'];
         }
-
-        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
 
         if ($session->requiresQrProof() && !($settings->enable_qr ?? true)) {
             return response()->json(['status' => 'error', 'message' => 'QR attendance is disabled'], 422);
@@ -165,23 +167,24 @@ class AttendanceController extends Controller
             }
         }
 
-        $geofenceResponse = $this->validateSessionGeofence($session, $course, $latitude, $longitude, $accuracyMeters);
-        if ($geofenceResponse !== null) {
-            return $geofenceResponse;
-        }
+        if (! $supplementalRepMark) {
+            $geofenceResponse = $this->validateSessionGeofence($session, $course, $latitude, $longitude, $accuracyMeters);
+            if ($geofenceResponse !== null) {
+                return $geofenceResponse;
+            }
 
-        $wifiResponse = $this->validateWifiSsidForSession($session, $validated['wifi_ssid'] ?? null);
-        if ($wifiResponse !== null) {
-            return $wifiResponse;
+            $wifiResponse = $this->validateWifiSsidForSession($session, $validated['wifi_ssid'] ?? null);
+            if ($wifiResponse !== null) {
+                return $wifiResponse;
+            }
         }
-
 
         $attendanceTime = isset($validated['timestamp'])
             ? Carbon::parse($validated['timestamp'])
             : now();
 
         $windowMinutes = $course->attendance_window_minutes ?? 60;
-        if ($attendanceTime->diffInMinutes(now()) > $windowMinutes) {
+        if (! $supplementalRepMark && $attendanceTime->diffInMinutes(now()) > $windowMinutes) {
             return response()->json(['status' => 'error', 'message' => 'Attendance time outside allowed window'], 422);
         }
 
@@ -455,13 +458,13 @@ class AttendanceController extends Controller
         return $R * $c;
     }
 
-    private function resolveSession(array $validated, ?Course $course, ?string $sessionToken): ?AttendanceSession
+    private function resolveSession(array $validated, ?Course $course, ?string $sessionToken, Student $student): ?AttendanceSession
     {
         $rawSessionId = $validated['session_id'] ?? null;
 
         if ($rawSessionId !== null && $rawSessionId !== '' && ctype_digit((string) $rawSessionId)) {
             $session = AttendanceSession::with('course')->find((int) $rawSessionId);
-            if ($session && $course && $session->course_id !== $course->id) {
+            if ($session && $course && (int) $session->course_id !== (int) $course->id) {
                 return null;
             }
 
@@ -476,11 +479,9 @@ class AttendanceController extends Controller
         }
 
         if ($course) {
-            if ($sessionToken) {
-                return AttendanceSession::forCourseFromToken($course, $sessionToken);
-            }
+            $isRep = $student->isCourseRepForCourse((int) $course->id);
 
-            return $course->activeSession();
+            return AttendanceSession::resolveForMarking($course, $sessionToken, null, $isRep);
         }
 
         return null;

@@ -47,22 +47,30 @@ class AttendanceOfflineSyncService
                 continue;
             }
 
-            $session = AttendanceSession::forCourseFromToken($course, $record['session_token'] ?? null);
-            if (! $session || ! $session->isValid()) {
+            $isRep = $student->isCourseRepForCourse((int) $course->id);
+            $session = AttendanceSession::resolveForMarking(
+                $course,
+                isset($record['session_token']) ? (string) $record['session_token'] : null,
+                null,
+                $isRep
+            );
+            if (! $session) {
                 $failed++;
 
                 continue;
             }
+
+            $supplementalRepMark = $isRep && ! $session->isValid();
 
             $attendanceTime = Carbon::parse($record['attendance_time']);
             $windowMinutes = $course->attendance_window_minutes ?? 60;
-            if ($attendanceTime->diffInMinutes(now()) > $windowMinutes) {
+            if (! $supplementalRepMark && $attendanceTime->diffInMinutes(now()) > $windowMinutes) {
                 $failed++;
 
                 continue;
             }
 
-            if (in_array($session->mode, ['location', 'hybrid'], true)) {
+            if (! $supplementalRepMark && in_array($session->mode, ['location', 'hybrid'], true)) {
                 if (! $session->hasLocation()) {
                     $failed++;
 
@@ -85,7 +93,7 @@ class AttendanceOfflineSyncService
                 }
             }
 
-            if ($session->mode === 'wifi') {
+            if (! $supplementalRepMark && $session->mode === 'wifi') {
                 $expected = trim((string) ($session->allowed_wifi_ssid ?? ''));
                 if ($expected === '') {
                     $failed++;

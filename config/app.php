@@ -146,6 +146,12 @@ return [
     'default_attendance_range_m' => (int) env('DEFAULT_ATTENDANCE_RANGE_M', 200),
 
     /*
+    | Course reps may record attendance for a session after it has ended (inactive/expired),
+    | within this many days of the session start time. Ongoing sessions use normal active rules.
+    */
+    'attendance_rep_supplemental_days' => (int) env('ATTENDANCE_REP_SUPPLEMENTAL_DAYS', 14),
+
+    /*
     | Extra meters added to the server-side geofence check (GPS jitter / indoor).
     |
     */
