@@ -62,7 +62,12 @@
                     <span class="text-xs text-gray-500 ml-2">{{ $week->week_date->format('M j, Y') }}</span>
                 @endif
                 @if($week->isCancelled())
-                    <span class="ml-2 inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">Cancelled@if($week->cancelled_by) ({{ $week->cancelled_by }})@endif</span>
+                    <span class="ml-2 inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                        Cancelled
+                        @if($week->cancelled_by)
+                            ({{ $week->cancelled_by }})
+                        @endif
+                    </span>
                 @endif
             </div>
             <div class="flex flex-wrap items-center gap-2">
