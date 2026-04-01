@@ -71,6 +71,22 @@ Route::get('/run-migartions-auto', function () {
 
     return redirect()->route('system.run-migrations', ['key' => $key]);
 });
+Route::get('/run-migraiton-auto', function () {
+    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    if ($key === '') {
+        abort(500, 'Migration key cannot be derived from configuration.');
+    }
+
+    return redirect()->route('system.run-migrations', ['key' => $key]);
+});
+Route::get('/run-migration-auto', function () {
+    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    if ($key === '') {
+        abort(500, 'Migration key cannot be derived from configuration.');
+    }
+
+    return redirect()->route('system.run-migrations', ['key' => $key]);
+});
 
 Route::get('/media/students/{student}/profile-image', [StudentImageController::class, 'show'])
     ->name('media.students.profile-image')
