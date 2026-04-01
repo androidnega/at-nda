@@ -13,6 +13,29 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class StudentController extends Controller
 {
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'index_number' => 'required|string|max:64|unique:students,index_number',
+            'class_id' => 'required|exists:classes,id',
+            'first_name' => 'nullable|string|max:255',
+            'middle_name' => 'nullable|string|max:255',
+            'last_name' => 'nullable|string|max:255',
+        ]);
+
+        Student::create([
+            'index_number' => strtoupper(trim($validated['index_number'])),
+            'class_id' => (int) $validated['class_id'],
+            'first_name' => $validated['first_name'] ?? null,
+            'middle_name' => $validated['middle_name'] ?? null,
+            'last_name' => $validated['last_name'] ?? null,
+            'password' => null,
+        ]);
+
+        return redirect()->route('dashboard.students.index')
+            ->with('success', 'Student added successfully. Student must complete onboarding on first access.');
+    }
+
     public function index(Request $request): View
     {
         $query = Student::with(['schoolClass', 'courseReps.course']);

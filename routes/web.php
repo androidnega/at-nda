@@ -224,6 +224,7 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::post('/students/{student}/assign-rep', [StudentController::class, 'assignRep'])->name('students.assign-rep')->scopeBindings();
         Route::post('/students/{student}/remove-rep', [StudentController::class, 'removeRep'])->name('students.remove-rep')->scopeBindings();
         Route::middleware('admin.only')->delete('/students/{student}', [StudentController::class, 'destroy'])->name('students.destroy')->scopeBindings();
+        Route::middleware('admin.only')->post('/students', [StudentController::class, 'store'])->name('students.store');
         Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');

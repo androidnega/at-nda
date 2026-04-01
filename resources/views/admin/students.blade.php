@@ -6,18 +6,72 @@
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
     <div>
         <h1 class="text-2xl font-bold">Students</h1>
-        <p class="text-gray-600 text-sm">Import · Assign reps</p>
+        <p class="text-gray-600 text-sm">Add individually · Import · Assign reps</p>
     </div>
-    <form action="{{ route('dashboard.students.import') }}" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-2">
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+    <form action="{{ route('dashboard.students.store') }}" method="POST" class="bg-white rounded-xl border border-gray-100 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
         @csrf
+        <div class="md:col-span-2">
+            <p class="text-sm font-semibold text-gray-800">Add Student Individually</p>
+            <p class="text-xs text-gray-500">Student will be treated as new and complete onboarding on first access.</p>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Index Number</label>
+            <input type="text" name="index_number" value="{{ old('index_number') }}" required
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Class</label>
+            <select name="class_id" required class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
+                <option value="">Select class</option>
+                @foreach($classes ?? [] as $c)
+                    <option value="{{ $c->id }}" {{ (string) old('class_id') === (string) $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">First Name (optional)</label>
+            <input type="text" name="first_name" value="{{ old('first_name') }}"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Last Name (optional)</label>
+            <input type="text" name="last_name" value="{{ old('last_name') }}"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="md:col-span-2">
+            <button type="submit" class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90 text-sm font-medium">Add Student</button>
+        </div>
+    </form>
+
+    <form action="{{ route('dashboard.students.import') }}" method="POST" enctype="multipart/form-data" class="bg-white rounded-xl border border-gray-100 p-4 flex flex-col gap-3">
+        @csrf
+        <div>
+            <p class="text-sm font-semibold text-gray-800">Bulk Import Students</p>
+            <p class="text-xs text-gray-500">Upload Excel/CSV with student rows.</p>
+        </div>
         <input type="file" name="file" accept=".xlsx,.xls,.csv" required
             class="text-sm file:mr-2 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700">
-        <button type="submit" class="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-800 text-sm font-medium">Import</button>
+        <div>
+            <button type="submit" class="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-800 text-sm font-medium">Import</button>
+        </div>
     </form>
 </div>
 
 @if (session('success'))
     <div class="mb-4 p-3 bg-emerald-50 text-emerald-800 rounded-lg text-sm">{{ session('success') }}</div>
+@endif
+@if ($errors->any())
+    <div class="mb-4 p-3 bg-red-50 text-red-800 rounded-lg text-sm">
+        <p class="font-semibold mb-1">Please fix these fields:</p>
+        <ul class="list-disc list-inside">
+            @foreach($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
+    </div>
 @endif
 
 <div class="mb-4 flex flex-wrap gap-2 items-center">
