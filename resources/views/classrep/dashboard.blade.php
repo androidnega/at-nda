@@ -8,6 +8,17 @@
     $labelBase = 'block text-xs font-medium text-slate-600 mb-1';
 @endphp
 
+<style>
+    @keyframes floatInUp {
+        0% { opacity: 0; transform: translateY(8px) scale(0.99); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .float-in-up {
+        animation: floatInUp 420ms cubic-bezier(.2,.8,.2,1) both;
+    }
+</style>
+
 <div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
     <div class="order-2 sm:order-1">
         <h1 class="text-2xl sm:text-[1.65rem] font-bold text-slate-900 tracking-tight">Open attendance session</h1>
@@ -56,7 +67,9 @@
                                 data-default-range="{{ $c->attendance_range_m !== null ? e($c->attendance_range_m) : '' }}"
                                 {{ old('course_id') == $c->id ? 'selected' : '' }}
                             >
-                                {{ $c->course_name }}{{ $c->course_code ? ' (' . $c->course_code . ')' : '' }} — {{ $c->getScheduleLabel() }}
+                                {{ $c->course_name }}{{ $c->course_code ? ' (' . $c->course_code . ')' : '' }}
+                                {{ $c->schoolClass?->faculty?->university?->name ? ' — ' . $c->schoolClass?->faculty?->university?->name : '' }}
+                                — {{ $c->getScheduleLabel() }}
                             </option>
                             @endforeach
                         </select>
@@ -171,13 +184,22 @@
                     @if($activeSession)
                         @php $hasActive = true; $expiresIso = $activeSession->expires_at?->toIso8601String(); @endphp
                         <div
-                            class="rounded-md border border-slate-200 p-3"
+                            class="rounded-md border border-slate-200 p-3 float-in-up"
                             data-session-countdown
                             data-expires="{{ $expiresIso }}"
+                            @if(isset($loop))
+                                style="animation-delay: {{ $loop->index * 0.06 }}s"
+                            @endif
                         >
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="min-w-0 flex-1">
                                     <p class="font-semibold text-slate-900 text-sm leading-snug line-clamp-2">{{ $course->course_name }}</p>
+                                    @php
+                                        $uniName = $course->schoolClass?->faculty?->university?->name;
+                                    @endphp
+                                    @if($uniName)
+                                        <p class="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{{ $uniName }}</p>
+                                    @endif
                                     <div class="flex flex-wrap items-center gap-2 mt-2">
                                         <span class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                                             Week {{ $activeSession->attendanceWeek?->week_number ?? '—' }}

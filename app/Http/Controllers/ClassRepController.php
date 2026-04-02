@@ -120,7 +120,10 @@ class ClassRepController extends Controller
         if ($student instanceof RedirectResponse) return $student;
 
         $classIds = $this->getRepClassIds($student);
-        $courses = Course::with(['schoolClass', 'attendanceSessions' => fn($q) => $q->where('is_active', true)])
+        $courses = Course::with([
+            'schoolClass.faculty.university',
+            'attendanceSessions' => fn($q) => $q->where('is_active', true),
+        ])
             ->whereIn('class_id', $classIds)
             ->orderBy('course_name')
             ->get()
