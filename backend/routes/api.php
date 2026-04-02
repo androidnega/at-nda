@@ -24,6 +24,7 @@ Route::prefix('v1')->group(function () {
 Route::prefix('v1')->group(base_path('routes/api/v1.php'));
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/logout', [AuthController::class, 'logout']);
 Route::post('/me', [AuthController::class, 'me']);
 
 Route::post('/student/profile', [StudentProfileController::class, 'update']);

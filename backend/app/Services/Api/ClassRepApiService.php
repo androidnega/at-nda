@@ -15,14 +15,48 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * Centralized class-rep API rules (web parity). Used by legacy /rep/* and REST /class-rep/* routes.
  */
 class ClassRepApiService
 {
+    /**
+     * Resolve student from Authorization: Bearer <Sanctum token> (mobile ability).
+     */
+    private function studentFromBearer(Request $request): Student|JsonResponse|null
+    {
+        $bearer = $request->bearerToken();
+        if ($bearer === null || $bearer === '') {
+            return null;
+        }
+
+        $pat = PersonalAccessToken::findToken($bearer);
+        if (! $pat || ! $pat->tokenable instanceof Student) {
+            return response()->json(['message' => 'Invalid or expired token'], 401);
+        }
+
+        /** @var Student $student */
+        $student = $pat->tokenable;
+
+        return $student->load(['classReps', 'courseReps.course']);
+    }
+
     public function authenticate(Request $request): Student|JsonResponse
     {
+        $fromBearer = $this->studentFromBearer($request);
+        if ($fromBearer instanceof JsonResponse) {
+            return $fromBearer;
+        }
+        if ($fromBearer instanceof Student) {
+            if (! $fromBearer->isClassRep()) {
+                return response()->json(['message' => 'This account is not a class rep'], 403);
+            }
+
+            return $fromBearer;
+        }
+
         $validated = $request->validate([
             'index_number' => 'required|string',
             'password' => 'required|string',
@@ -48,6 +82,10 @@ class ClassRepApiService
      */
     public function authenticateFlexible(Request $request): Student|JsonResponse
     {
+        if ($request->bearerToken()) {
+            return $this->authenticate($request);
+        }
+
         $index = $request->input('index_number') ?? $request->query('index_number');
         $password = $request->input('password') ?? $request->query('password');
         if ($index === null || $index === '' || $password === null || $password === '') {

@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -83,6 +84,26 @@ class AuthController extends Controller
     }
 
     /**
+     * Revoke the current Sanctum token (Bearer). POST /api/logout
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $bearer = $request->bearerToken();
+        if (! $bearer) {
+            return response()->json(['message' => 'No token provided'], 401);
+        }
+
+        $pat = PersonalAccessToken::findToken($bearer);
+        if (! $pat) {
+            return response()->json(['message' => 'Invalid or expired token'], 401);
+        }
+
+        $pat->delete();
+
+        return response()->json(['success' => true, 'message' => 'Logged out']);
+    }
+
+    /**
      * Validate password. Supports both hashed (bcrypt) and plain text.
      * If DB password starts with $2y$ or $2a$ → use Hash::check
      * Otherwise → plain text comparison (legacy)
@@ -99,17 +120,21 @@ class AuthController extends Controller
     }
 
     /**
-     * Wraps profile for Flutter: { user: {...}, token: null } plus legacy top-level fields.
-     * Bearer auth not used yet — token is null until Sanctum/API tokens are added.
+     * Wraps profile for Flutter: { user: {...}, token, token_type } plus legacy top-level fields.
+     * Sanctum personal access token (same ability name as /api/v1/auth/login).
      */
     private function loginSuccessPayload(Student $student): array
     {
         $user = StudentApiPayload::forUser($student);
 
+        $student->tokens()->where('name', 'mobile')->delete();
+        $token = $student->createToken('mobile', ['*'])->plainTextToken;
+
         return array_merge($user, [
             'user' => $user,
             'student' => $user,
-            'token' => null,
+            'token' => $token,
+            'token_type' => 'Bearer',
         ]);
     }
 }
