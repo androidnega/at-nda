@@ -21,7 +21,7 @@ import 'attendance_history_page.dart';
 import 'attendance_page.dart';
 import 'attendance_stats_page.dart';
 import 'login_page.dart';
-import 'rep_session_page.dart';
+import 'rep_home_page.dart';
 import 'sync_status_page.dart';
 
 /// Attendance-focused home: primary session + actions; everything else in the drawer.
@@ -430,7 +430,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               .push<void>(
                 MaterialPageRoute<void>(
                   builder: (_) =>
-                      SelectionArea(child: const RepSessionPage()),
+                      SelectionArea(child: const RepHomePage()),
                 ),
               )
               .then((_) => _load());
@@ -453,7 +453,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                     ),
                     Text(
-                      'Open attendance & show QR for your class',
+                      'Rep dashboard — sessions, QR & class tools',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -992,16 +992,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             if (s?.isClassRep == true)
               ListTile(
-                leading: Icon(Icons.groups_rounded, color: colorScheme.primary),
-                title: const Text('Class rep'),
-                subtitle: const Text('Open attendance & QR'),
+                leading: Icon(Icons.dashboard_customize_outlined,
+                    color: colorScheme.primary),
+                title: const Text('Class rep dashboard'),
+                subtitle: const Text('Sessions, QR & tools'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.of(context)
                       .push(
                         MaterialPageRoute<void>(
                           builder: (_) =>
-                              SelectionArea(child: const RepSessionPage()),
+                              SelectionArea(child: const RepHomePage()),
                         ),
                       )
                       .then((_) => _load());

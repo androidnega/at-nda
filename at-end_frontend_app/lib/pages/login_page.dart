@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -150,11 +152,13 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Merges `student`, top-level, and `user` so `is_class_rep` / `rep_roles` are never dropped.
+  /// Merges `student`, `user`, top-level so `is_class_rep` / `rep_roles` are never dropped.
   Map<String, dynamic>? _studentMapFromLoginBody(Map<String, dynamic> body) {
     Map<String, dynamic>? primary;
     if (body['student'] is Map) {
       primary = Map<String, dynamic>.from(body['student'] as Map);
+    } else if (body['user'] is Map) {
+      primary = Map<String, dynamic>.from(body['user'] as Map);
     } else {
       final idx = body['index_number'];
       if (idx != null && idx.toString().trim().isNotEmpty) {
@@ -179,6 +183,43 @@ class _LoginPageState extends State<LoginPage> {
     return primary;
   }
 
+  /// If login JSON omitted rep flags, `POST /api/rep/courses` confirms access and persists `is_class_rep`.
+  Future<Student> _enrichRepFromApi(Student s) async {
+    if (!await hasInternetConnectivity()) return s;
+    final pwd = await OfflineService.getApiSessionPassword();
+    if (pwd == null || pwd.isEmpty) return s;
+    try {
+      final res = await ApiService.repCourses(
+        indexNumber: s.indexNumber,
+        password: pwd,
+      );
+      if (res.statusCode != 200) return s;
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) return s;
+      final data = Map<String, dynamic>.from(decoded);
+      final icr = data['is_class_rep'];
+      final explicit = icr == true ||
+          icr == 1 ||
+          (icr != null && icr.toString().toLowerCase() == 'true');
+      final courses = data['courses'];
+      final hasCourses = courses is List && courses.isNotEmpty;
+      if (!explicit && !hasCourses) return s;
+      if (s.isClassRep) return s;
+      final updated = s.copyWith(isClassRep: true);
+      await OfflineService.setCurrentStudent(updated);
+      return updated;
+    } catch (_) {
+      return s;
+    }
+  }
+
+  Future<void> _goToPostLoginHome(Student student) async {
+    final forNav = await _enrichRepFromApi(student);
+    if (!mounted) return;
+    final route = forNav.isClassRep ? '/rep-home' : '/home';
+    Navigator.of(context).pushReplacementNamed(route);
+  }
+
   /// Laravel API login. Save student locally on success.
   /// Accepts 200 JSON either as `{ student: {...} }` or flat `{ index_number, name, ... }`
   /// (no `success` field required — ApiService throws on non-200).
@@ -199,9 +240,6 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // ignore: avoid_print
-    print('LOGIN SUCCESS: $studentData');
-
     // Match what Laravel received (trimmed password only).
     final passwordForStorage = password.trim();
 
@@ -220,7 +258,7 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => _error = null);
 
-    Navigator.of(context).pushReplacementNamed('/home');
+    await _goToPostLoginHome(student);
   }
 
   /// Offline: load student from SQLite (or [users] fallback) and verify password hash.
@@ -244,7 +282,7 @@ class _LoginPageState extends State<LoginPage> {
     await PushService.registerAfterLogin(stored.indexNumber);
     if (!mounted) return;
     setState(() => _error = null);
-    Navigator.of(context).pushReplacementNamed('/home');
+    await _goToPostLoginHome(stored);
   }
 
   /// Local-only: any index + password (when localAuthOnly=true).
@@ -294,7 +332,8 @@ class _LoginPageState extends State<LoginPage> {
     await PushService.registerAfterLogin(student.indexNumber);
 
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/home');
+    final route = student.isClassRep ? '/rep-home' : '/home';
+    Navigator.of(context).pushReplacementNamed(route);
   }
 
   @override

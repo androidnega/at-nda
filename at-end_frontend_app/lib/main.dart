@@ -5,6 +5,7 @@ import 'pages/attendance_page.dart';
 import 'pages/home_page.dart';
 import 'pages/login_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/rep_home_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'services/theme_service.dart';
@@ -34,6 +35,7 @@ class AttendanceApp extends StatelessWidget {
           routes: {
             '/': (_) => SelectionArea(child: const LoginPage()),
             '/home': (_) => SelectionArea(child: const HomePage()),
+            '/rep-home': (_) => SelectionArea(child: const RepHomePage()),
             '/attendance': (_) => SelectionArea(child: const AttendancePage()),
             '/profile': (_) => SelectionArea(child: const ProfilePage()),
             '/settings': (_) => SelectionArea(child: const SettingsPage()),
