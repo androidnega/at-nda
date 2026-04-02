@@ -42,6 +42,8 @@ class StudentImageController extends Controller
         return response($binary, 200, [
             'Content-Type' => $mime,
             'Cache-Control' => 'public, max-age=86400',
+            // Flutter web loads avatars via fetch/CORS; config/cors.php includes media/* as well.
+            'Access-Control-Allow-Origin' => '*',
         ]);
     }
 }

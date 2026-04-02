@@ -4,6 +4,7 @@ import '../models/student.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
 import '../utils/greeting_util.dart';
+import '../utils/app_selectable_scope.dart';
 import '../widgets/profile_avatar.dart';
 import 'login_page.dart';
 import 'rep_session_page.dart';
@@ -31,7 +32,7 @@ class _RepHomePageState extends State<RepHomePage> {
     if (s == null) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
-          builder: (_) => SelectionArea(child: const LoginPage()),
+          builder: (_) => appSelectableScope(const LoginPage()),
         ),
         (_) => false,
       );
@@ -54,7 +55,7 @@ class _RepHomePageState extends State<RepHomePage> {
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
-        builder: (_) => SelectionArea(child: const LoginPage()),
+        builder: (_) => appSelectableScope(const LoginPage()),
       ),
       (_) => false,
     );
@@ -129,7 +130,7 @@ class _RepHomePageState extends State<RepHomePage> {
                   Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          SelectionArea(child: const RepSessionPage()),
+                          appSelectableScope(const RepSessionPage()),
                     ),
                   );
                 },
@@ -227,7 +228,7 @@ class _RepHomePageState extends State<RepHomePage> {
                   Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          SelectionArea(child: const RepSessionPage()),
+                          appSelectableScope(const RepSessionPage()),
                     ),
                   );
                 },

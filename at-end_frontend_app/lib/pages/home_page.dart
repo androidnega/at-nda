@@ -14,6 +14,7 @@ import '../services/session_cache_prefs.dart';
 import '../services/sync_service.dart';
 import '../utils/absence_warning_format.dart';
 import '../utils/connectivity_util.dart';
+import '../utils/app_selectable_scope.dart';
 import '../utils/constants.dart';
 import '../utils/greeting_util.dart';
 import '../widgets/profile_avatar.dart';
@@ -340,7 +341,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await OfflineService.clearCurrentStudent();
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => SelectionArea(child: const LoginPage())),
+        MaterialPageRoute(builder: (_) => appSelectableScope(const LoginPage())),
         (_) => false,
       );
     }
@@ -408,8 +409,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     Navigator.of(context)
         .push<bool>(
           MaterialPageRoute(
-            builder: (_) => SelectionArea(
-              child: AttendancePage(session: session),
+            builder: (_) => appSelectableScope(
+              AttendancePage(session: session),
             ),
           ),
         )
@@ -430,7 +431,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               .push<void>(
                 MaterialPageRoute<void>(
                   builder: (_) =>
-                      SelectionArea(child: const RepHomePage()),
+                      appSelectableScope(const RepHomePage()),
                 ),
               )
               .then((_) => _load());
@@ -1002,7 +1003,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       .push(
                         MaterialPageRoute<void>(
                           builder: (_) =>
-                              SelectionArea(child: const RepHomePage()),
+                              appSelectableScope(const RepHomePage()),
                         ),
                       )
                       .then((_) => _load());
@@ -1062,7 +1063,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _openStats() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SelectionArea(child: const AttendanceStatsPage()),
+        builder: (_) => appSelectableScope(const AttendanceStatsPage()),
       ),
     );
     if (mounted) _load();
@@ -1071,7 +1072,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _openOfflineQueue() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SelectionArea(child: const SyncStatusPage()),
+        builder: (_) => appSelectableScope(const SyncStatusPage()),
       ),
     );
     if (mounted) _load();
@@ -1113,7 +1114,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _openAttendanceHistory() {
     Navigator.of(context)
         .push(MaterialPageRoute(
-            builder: (_) => SelectionArea(child: const AttendanceHistoryPage())))
+            builder: (_) => appSelectableScope(const AttendanceHistoryPage())))
         .then((_) => _load());
   }
 }

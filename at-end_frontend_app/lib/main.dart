@@ -10,6 +10,7 @@ import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'services/theme_service.dart';
 import 'theme/app_theme.dart';
+import 'utils/app_selectable_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,15 +34,14 @@ class AttendanceApp extends StatelessWidget {
           themeMode: mode,
           initialRoute: '/',
           routes: {
-            '/': (_) => SelectionArea(child: const LoginPage()),
-            '/home': (_) => SelectionArea(child: const HomePage()),
-            '/rep-home': (_) => SelectionArea(child: const RepHomePage()),
-            '/attendance': (_) => SelectionArea(child: const AttendancePage()),
-            '/profile': (_) => SelectionArea(child: const ProfilePage()),
-            '/settings': (_) => SelectionArea(child: const SettingsPage()),
-            '/rep-sessions': (_) =>
-                SelectionArea(child: const RepSessionPage()),
-            '/api-test': (_) => SelectionArea(child: const ApiTestPage()),
+            '/': (_) => appSelectableScope(const LoginPage()),
+            '/home': (_) => appSelectableScope(const HomePage()),
+            '/rep-home': (_) => appSelectableScope(const RepHomePage()),
+            '/attendance': (_) => appSelectableScope(const AttendancePage()),
+            '/profile': (_) => appSelectableScope(const ProfilePage()),
+            '/settings': (_) => appSelectableScope(const SettingsPage()),
+            '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
+            '/api-test': (_) => appSelectableScope(const ApiTestPage()),
           },
         );
       },
