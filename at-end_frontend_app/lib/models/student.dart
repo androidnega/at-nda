@@ -76,10 +76,35 @@ class Student {
     return null;
   }
 
-  /// Builds a loadable network URL for [NetworkImage] (relative paths, `students/…` disk paths, http→https).
+  /// Builds a loadable network URL for [NetworkImage].
+  ///
+  /// When [serverId] is set, prefers `GET /api/students/{id}/profile-image` so Flutter web
+  /// receives CORS headers (`api/*`). Plain `/media/...` is often served by nginx/static
+  /// and omits `Access-Control-Allow-Origin`.
   String? resolvedNetworkProfileUrl(Uri apiBaseUri) {
     final origin = apiBaseUri.origin;
     final p = profileImage.trim();
+    if (p.isEmpty && serverId == null) return null;
+
+    String apiProfileImageUrl() {
+      final base = apiBaseUri.toString().replaceAll(RegExp(r'/+$'), '');
+      return '$base/students/$serverId/profile-image';
+    }
+
+    if (serverId != null) {
+      if (p.startsWith('http://') || p.startsWith('https://')) {
+        try {
+          final u = Uri.parse(p);
+          if (u.host != apiBaseUri.host) {
+            return p;
+          }
+        } catch (_) {
+          return profilePictureUrl;
+        }
+      }
+      return apiProfileImageUrl();
+    }
+
     if (p.isEmpty) return null;
 
     if (p.startsWith('https://')) return p;
@@ -99,10 +124,6 @@ class Student {
     }
     if (p.startsWith('/')) {
       return '$origin$p';
-    }
-    final looksLikeStoragePath = p.startsWith('students/') || p.contains('students/');
-    if (looksLikeStoragePath && serverId != null) {
-      return '$origin/media/students/$serverId/profile-image';
     }
     return profilePictureUrl;
   }

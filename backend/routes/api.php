@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentProfileController;
+use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
 use Illuminate\Support\Facades\Route;
 
@@ -33,6 +34,9 @@ Route::get('/departments', [FacultyController::class, 'departments']);
 
 Route::get('/students/removed', [StudentController::class, 'removed']);
 Route::get('/students/status', [StudentController::class, 'status']);
+// Same binary as web /media/... but under /api/* so HandleCors applies (Flutter web).
+Route::get('/students/{student}/profile-image', [StudentImageController::class, 'show'])
+    ->whereNumber('student');
 Route::get('/students', [StudentController::class, 'index']);
 Route::match(['get', 'post'], '/students/lookup', [StudentController::class, 'lookup']);
 Route::get('/sessions/active', [SessionController::class, 'active']);
