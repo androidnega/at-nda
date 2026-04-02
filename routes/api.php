@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClassRepApiController;
 use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\AttendanceRecordsController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\SessionController;
@@ -61,6 +62,11 @@ Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
 Route::get('/attendance/sync', [AttendanceController::class, 'sync']);
 Route::post('/attendance/sync', [AttendanceController::class, 'syncPush']);
 Route::get('/attendance/missed-warnings', [AttendanceController::class, 'missedWarnings']);
+
+Route::get('/attendance/{session}/records', [AttendanceRecordsController::class, 'records'])->whereNumber('session');
+Route::get('/attendance/{session}/export/csv', [AttendanceRecordsController::class, 'exportCsv'])->whereNumber('session');
+Route::get('/attendance/{session}/export/excel', [AttendanceRecordsController::class, 'exportExcel'])->whereNumber('session');
+Route::get('/attendance/{session}/export/pdf', [AttendanceRecordsController::class, 'exportPdf'])->whereNumber('session');
 
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check']);
 Route::post('/onboarding/complete', [StudentOnboardingController::class, 'complete']);
