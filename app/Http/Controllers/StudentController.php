@@ -38,7 +38,8 @@ class StudentController extends Controller
 
     public function index(Request $request): View
     {
-        $query = Student::with(['schoolClass', 'courseReps.course']);
+        // Course reps are off-system; only eager-load class reps.
+        $query = Student::with(['schoolClass']);
         $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
         if ($lecturerClassIds !== null) {
             $query->whereIn('class_id', $lecturerClassIds);
@@ -65,7 +66,7 @@ class StudentController extends Controller
             $query->where('index_number', 'like', strtoupper($program) . '%');
         }
 
-        $students = $query->with(['classReps.schoolClass', 'courseReps'])->latest()->paginate(30)->withQueryString();
+        $students = $query->with(['classReps.schoolClass'])->latest()->paginate(30)->withQueryString();
         $classesQuery = \App\Models\SchoolClass::orderBy('name');
         if ($lecturerClassIds !== null) {
             $classesQuery->whereIn('id', $lecturerClassIds);
@@ -144,7 +145,6 @@ class StudentController extends Controller
             'schoolClass.department',
             'schoolClass.semester',
             'classReps.schoolClass',
-            'courseReps.course',
             'deviceToken',
         ]);
         $coursesCount = $student->schoolClass ? $student->schoolClass->courses()->count() : 0;

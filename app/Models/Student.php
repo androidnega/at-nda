@@ -394,11 +394,8 @@ class Student extends Model implements AuthenticatableContract
         } elseif ($this->classReps()->exists()) {
             return true;
         }
-
-        // Legacy per-course reps (course_reps) still used in some DBs; same mobile tools as class reps.
-        return $this->courseReps()
-            ->whereHas('course', fn ($q) => $q->whereNotNull('class_id'))
-            ->exists();
+        // Course reps are no longer supported. Only class reps are valid.
+        return false;
     }
 
     /** @deprecated Use {@see isClassRep()} */
@@ -420,12 +417,11 @@ class Student extends Model implements AuthenticatableContract
     public function repManagedClassIds(): \Illuminate\Support\Collection
     {
         $fromClass = $this->classReps()->pluck('class_id');
-        $fromCourses = $this->courseReps()
-            ->join('courses', 'course_reps.course_id', '=', 'courses.id')
-            ->whereNotNull('courses.class_id')
-            ->pluck('courses.class_id');
-
-        return $fromClass->merge($fromCourses)->unique()->filter()->values();
+        return $fromClass
+            ->merge(collect())
+            ->unique()
+            ->filter()
+            ->values();
     }
 
     /**
@@ -435,7 +431,8 @@ class Student extends Model implements AuthenticatableContract
      */
     public function apiRepRoleRows(): array
     {
-        $this->loadMissing(['classReps', 'courseReps.course']);
+        // Course reps are no longer supported. Only class reps contribute to rep roles.
+        $this->loadMissing(['classReps']);
         $rows = [];
         $seen = [];
         foreach ($this->classReps as $cr) {
@@ -445,17 +442,6 @@ class Student extends Model implements AuthenticatableContract
             }
             $seen[$cid] = true;
             $rows[] = ['class_id' => $cid, 'role' => (string) $cr->role];
-        }
-        foreach ($this->courseReps as $cr) {
-            $cid = (int) ($cr->course?->class_id ?? 0);
-            if ($cid <= 0 || isset($seen[$cid])) {
-                continue;
-            }
-            $seen[$cid] = true;
-            $rows[] = [
-                'class_id' => $cid,
-                'role' => (string) ($cr->role ?: CourseRep::ROLE_REP),
-            ];
         }
 
         return $rows;
@@ -551,11 +537,9 @@ class Student extends Model implements AuthenticatableContract
             return false;
         }
 
-        if ($this->classReps()->where('class_id', $course->class_id)->exists()) {
-            return true;
-        }
-
-        return $this->courseReps()->where('course_id', $courseId)->exists();
+        return $this->classReps()
+            ->where('class_id', $course->class_id)
+            ->exists();
     }
 
     /** @deprecated Use {@see isClassRepForCourse} */

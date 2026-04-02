@@ -40,7 +40,8 @@ class ClassRepApiService
         /** @var Student $student */
         $student = $pat->tokenable;
 
-        return $student->load(['classReps', 'courseReps.course']);
+        // Course reps are off-system; only load class reps to avoid missing table queries.
+        return $student->load(['classReps']);
     }
 
     public function authenticate(Request $request): Student|JsonResponse
@@ -63,7 +64,7 @@ class ClassRepApiService
         ]);
 
         $indexUpper = strtoupper(trim($validated['index_number']));
-        $student = Student::with(['classReps', 'courseReps.course'])
+        $student = Student::with(['classReps'])
             ->whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])
             ->first();
         if (! $student || ! $this->validateApiPassword($validated['password'], $student->password)) {
@@ -118,12 +119,8 @@ class ClassRepApiService
             return false;
         }
         $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-        if ($cr) {
-            return $cr->isMainRep();
-        }
-        $courseRep = $student->courseReps()->where('course_id', $courseId)->first();
 
-        return $courseRep?->isMainRep() ?? false;
+        return $cr?->isMainRep() ?? false;
     }
 
     /**
@@ -154,9 +151,8 @@ class ClassRepApiService
         $items = [];
         foreach ($courses as $course) {
             $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-            $courseRep = $cr ? null : $student->courseReps()->where('course_id', $course->id)->first();
-            $role = $cr?->role ?? $courseRep?->role ?? 'rep';
-            $canOpen = $cr ? $cr->isMainRep() : ($courseRep?->isMainRep() ?? false);
+            $role = $cr?->role ?? 'rep';
+            $canOpen = $cr ? $cr->isMainRep() : false;
 
             $activeSession = null;
             foreach ($course->attendanceSessions as $s) {
