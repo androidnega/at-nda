@@ -32,9 +32,11 @@ class ClassRepApiController extends Controller
 
         $classIds = $student->repManagedClassIds();
         if ($classIds->isEmpty()) {
+            // Still a class rep in DB; may have no valid class_id on pivot rows yet.
             return response()->json([
-                'is_class_rep' => false,
+                'is_class_rep' => true,
                 'courses' => [],
+                'message' => 'Rep role has no linked class courses yet. Ask admin to verify class rep assignment.',
             ]);
         }
 
