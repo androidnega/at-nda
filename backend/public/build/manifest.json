@@ -1,0 +1,33 @@
+{
+  "_chunk-Bni-sYT0.js": {
+    "file": "assets/chunk-Bni-sYT0.js",
+    "name": "chunk"
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-8T7HAVJE.css",
+    "name": "app",
+    "names": [
+      "app.css"
+    ],
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-DGeFRrAL.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true,
+    "imports": [
+      "_chunk-Bni-sYT0.js"
+    ]
+  },
+  "resources/js/realtime.js": {
+    "file": "assets/realtime-CTWO59Xf.js",
+    "name": "realtime",
+    "src": "resources/js/realtime.js",
+    "isEntry": true,
+    "imports": [
+      "_chunk-Bni-sYT0.js"
+    ]
+  }
+}
