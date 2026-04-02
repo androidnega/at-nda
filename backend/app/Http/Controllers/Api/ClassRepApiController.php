@@ -52,8 +52,9 @@ class ClassRepApiController extends Controller
         $items = [];
         foreach ($courses as $course) {
             $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-            $role = $cr?->role ?? 'rep';
-            $canOpen = $cr?->isMainRep() ?? false;
+            $courseRep = $cr ? null : $student->courseReps()->where('course_id', $course->id)->first();
+            $role = $cr?->role ?? $courseRep?->role ?? 'rep';
+            $canOpen = $cr ? $cr->isMainRep() : ($courseRep?->isMainRep() ?? false);
 
             $activeSession = null;
             foreach ($course->attendanceSessions as $s) {
@@ -265,7 +266,11 @@ class ClassRepApiController extends Controller
             return false;
         }
         $cr = $student->classReps()->where('class_id', $course->class_id)->first();
+        if ($cr) {
+            return $cr->isMainRep();
+        }
+        $courseRep = $student->courseReps()->where('course_id', $courseId)->first();
 
-        return $cr?->isMainRep() ?? false;
+        return $courseRep?->isMainRep() ?? false;
     }
 }

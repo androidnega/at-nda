@@ -59,7 +59,7 @@ class RoleAccess
         }
 
         $student = Student::find($request->session()->get('student_id'));
-        if (! $student || $student->classReps()->count() === 0) {
+        if (! $student || ! $student->isClassRep()) {
             return redirect()->route('dashboard.dashboard')->with('error', 'That area isn’t available for your account.');
         }
 

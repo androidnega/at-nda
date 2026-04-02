@@ -48,8 +48,12 @@ class ClassRepController extends Controller
         $course = Course::find($courseId);
         if (!$course?->class_id) return false;
         $cr = $student->classReps()->where('class_id', $course->class_id)->first();
+        if ($cr) {
+            return $cr->isMainRep();
+        }
+        $courseRep = $student->courseReps()->where('course_id', $courseId)->first();
 
-        return $cr?->isMainRep() ?? false;
+        return $courseRep?->isMainRep() ?? false;
     }
 
     private function getRepClassIds(Student $rep): \Illuminate\Support\Collection
@@ -123,7 +127,9 @@ class ClassRepController extends Controller
             ->get()
             ->map(fn($c) => (object) [
                 'course' => $c,
-                'role' => $student->classReps()->where('class_id', $c->class_id)->first()?->role ?? 'rep',
+                'role' => $student->classReps()->where('class_id', $c->class_id)->first()?->role
+                    ?? $student->courseReps()->where('course_id', $c->id)->first()?->role
+                    ?? 'rep',
                 'canOpenSession' => $this->requireMainRep($student, $c->id),
             ]);
 

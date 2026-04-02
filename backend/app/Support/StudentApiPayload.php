@@ -41,14 +41,9 @@ class StudentApiPayload
             $name = (string) ($student->index_number ?? '');
         }
 
-        $student->loadMissing('classReps');
+        $student->loadMissing(['classReps', 'courseReps.course']);
         $isClassRep = $student->isClassRep();
-        $repRoles = $isClassRep
-            ? $student->classReps->map(fn ($cr) => [
-                'class_id' => (int) $cr->class_id,
-                'role' => $cr->role,
-            ])->values()->all()
-            : [];
+        $repRoles = $isClassRep ? $student->apiRepRoleRows() : [];
 
         return array_merge([
             'id' => $student->id,

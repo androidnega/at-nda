@@ -388,10 +388,17 @@ class Student extends Model implements AuthenticatableContract
     public function isClassRep(): bool
     {
         if ($this->relationLoaded('classReps')) {
-            return $this->classReps->isNotEmpty();
+            if ($this->classReps->isNotEmpty()) {
+                return true;
+            }
+        } elseif ($this->classReps()->exists()) {
+            return true;
         }
 
-        return $this->classReps()->exists();
+        // Legacy per-course reps (course_reps) still used in some DBs; same mobile tools as class reps.
+        return $this->courseReps()
+            ->whereHas('course', fn ($q) => $q->whereNotNull('class_id'))
+            ->exists();
     }
 
     /** @deprecated Use {@see isClassRep()} */
@@ -412,7 +419,46 @@ class Student extends Model implements AuthenticatableContract
      */
     public function repManagedClassIds(): \Illuminate\Support\Collection
     {
-        return $this->classReps()->pluck('class_id')->unique()->filter();
+        $fromClass = $this->classReps()->pluck('class_id');
+        $fromCourses = $this->courseReps()
+            ->join('courses', 'course_reps.course_id', '=', 'courses.id')
+            ->whereNotNull('courses.class_id')
+            ->pluck('courses.class_id');
+
+        return $fromClass->merge($fromCourses)->unique()->filter()->values();
+    }
+
+    /**
+     * Distinct class rep roles for API login / profile (class_reps + legacy course_reps).
+     *
+     * @return list<array{class_id: int, role: string}>
+     */
+    public function apiRepRoleRows(): array
+    {
+        $this->loadMissing(['classReps', 'courseReps.course']);
+        $rows = [];
+        $seen = [];
+        foreach ($this->classReps as $cr) {
+            $cid = (int) $cr->class_id;
+            if ($cid <= 0 || isset($seen[$cid])) {
+                continue;
+            }
+            $seen[$cid] = true;
+            $rows[] = ['class_id' => $cid, 'role' => (string) $cr->role];
+        }
+        foreach ($this->courseReps as $cr) {
+            $cid = (int) ($cr->course?->class_id ?? 0);
+            if ($cid <= 0 || isset($seen[$cid])) {
+                continue;
+            }
+            $seen[$cid] = true;
+            $rows[] = [
+                'class_id' => $cid,
+                'role' => (string) ($cr->role ?: CourseRep::ROLE_REP),
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -505,7 +551,11 @@ class Student extends Model implements AuthenticatableContract
             return false;
         }
 
-        return $this->classReps()->where('class_id', $course->class_id)->exists();
+        if ($this->classReps()->where('class_id', $course->class_id)->exists()) {
+            return true;
+        }
+
+        return $this->courseReps()->where('course_id', $courseId)->exists();
     }
 
     /** @deprecated Use {@see isClassRepForCourse} */
