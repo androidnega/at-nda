@@ -45,6 +45,9 @@ class Student {
   final bool isClassRep;
   final List<RepRoleEntry> repRoles;
 
+  /// Laravel `primary_role`: `class_rep` or `student` (navigation; mirrors [isClassRep] when omitted).
+  String get primaryRole => isClassRep ? 'class_rep' : 'student';
+
   Student({
     this.serverId,
     required this.indexNumber,

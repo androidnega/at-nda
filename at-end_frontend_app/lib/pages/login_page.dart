@@ -174,6 +174,9 @@ class _LoginPageState extends State<LoginPage> {
       if (src.containsKey('rep_roles')) {
         primary!['rep_roles'] = src['rep_roles'];
       }
+      if (src.containsKey('primary_role')) {
+        primary!['primary_role'] = src['primary_role'];
+      }
     }
 
     copyRepKeys(body);

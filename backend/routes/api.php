@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClassRepApiController;
+use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
@@ -40,6 +41,15 @@ Route::get('/students/{student}/profile-image', [StudentImageController::class, 
 Route::get('/students', [StudentController::class, 'index']);
 Route::match(['get', 'post'], '/students/lookup', [StudentController::class, 'lookup']);
 Route::get('/sessions/active', [SessionController::class, 'active']);
+
+Route::match(['get', 'post'], '/class-rep/dashboard', [ClassRepRestController::class, 'dashboard']);
+Route::match(['get', 'post'], '/class-rep/students', [ClassRepRestController::class, 'students']);
+Route::post('/class-rep/sessions/open', [ClassRepRestController::class, 'openSession']);
+Route::post('/class-rep/sessions/close', [ClassRepRestController::class, 'closeSession']);
+
+Route::post('/attendance/open', [ClassRepRestController::class, 'openSession']);
+Route::post('/attendance/close', [ClassRepRestController::class, 'closeSession']);
+
 Route::post('/rep/courses', [ClassRepApiController::class, 'courses']);
 Route::post('/rep/sessions/open', [ClassRepApiController::class, 'openSession']);
 Route::post('/rep/sessions/{session}/close', [ClassRepApiController::class, 'closeSession'])->whereNumber('session');

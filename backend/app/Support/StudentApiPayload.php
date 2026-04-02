@@ -64,6 +64,7 @@ class StudentApiPayload
             'updated_at' => $student->updated_at?->toIso8601String(),
             'weekly_timetable' => $student->weeklyTimetableSummary(),
             'is_class_rep' => $isClassRep,
+            'primary_role' => $isClassRep ? 'class_rep' : 'student',
             'rep_roles' => $repRoles,
         ], self::attendanceSyncMeta());
     }

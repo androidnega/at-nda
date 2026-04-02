@@ -5,40 +5,35 @@ namespace App\Support;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Strict JSON contract for /api/v1/* (legacy /api/* remains unchanged).
+ * Standard API JSON envelope for class-rep REST routes (does not alter legacy /rep/* bodies).
  */
-class ApiEnvelope
+final class ApiEnvelope
 {
     /**
-     * @param  array<string, mixed>|null  $meta
+     * @param  array<string, mixed>  $data
      */
-    public static function success(mixed $data = null, string $message = 'Request successful', ?array $meta = null): array
+    public static function success(array $data, string $message = 'OK', int $status = 200): JsonResponse
     {
-        return [
-            'status' => true,
+        return response()->json([
+            'success' => true,
             'message' => $message,
             'data' => $data,
-            'errors' => null,
-            'meta' => $meta,
-        ];
+        ], $status);
     }
 
     /**
-     * @param  array<string, mixed>|\Illuminate\Support\MessageBag|string|null  $errors
+     * @param  array<string, mixed>|null  $data
      */
-    public static function errorResponse(
-        string $message,
-        int $httpStatus = 400,
-        mixed $errors = null,
-        mixed $data = null,
-        ?array $meta = null
-    ): JsonResponse {
-        return response()->json([
-            'status' => false,
+    public static function error(string $message, int $status = 400, ?array $data = null): JsonResponse
+    {
+        $body = [
+            'success' => false,
             'message' => $message,
-            'data' => $data,
-            'errors' => $errors,
-            'meta' => $meta,
-        ], $httpStatus);
+        ];
+        if ($data !== null) {
+            $body['data'] = $data;
+        }
+
+        return response()->json($body, $status);
     }
 }

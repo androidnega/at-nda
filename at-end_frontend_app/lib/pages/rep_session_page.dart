@@ -337,32 +337,39 @@ class _RepSessionPageState extends State<RepSessionPage> {
     wifiCtrl.dispose();
 
     try {
-      final res = await ApiService.repOpenSession(body);
+      final res = await ApiService.classRepOpenSession(body);
       final data = jsonDecode(res.body);
+      Map<String, dynamic>? sessionMap;
+      String? title;
+      var ok = false;
       if (res.statusCode >= 200 &&
           res.statusCode < 300 &&
           data is Map &&
           data['success'] == true) {
-        if (mounted) {
-          final opened = data['session'];
-          await _showSessionQrDialog(
-            context,
-            title: data['message']?.toString() ?? 'Session opened',
-            sessionMap: opened is Map
-                ? Map<String, dynamic>.from(opened)
-                : null,
-          );
-          _refresh();
+        ok = true;
+        title = data['message']?.toString();
+        final inner = data['data'];
+        if (inner is Map) {
+          final opened = inner['session'];
+          if (opened is Map) {
+            sessionMap = Map<String, dynamic>.from(opened);
+          }
         }
-      } else {
+      }
+      if (ok && mounted) {
+        await _showSessionQrDialog(
+          context,
+          title: title ?? 'Session opened',
+          sessionMap: sessionMap,
+        );
+        _refresh();
+      } else if (!ok && mounted) {
         final msg = data is Map && data['message'] != null
             ? data['message'].toString()
             : ApiService.messageFromHttpResponse(res);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg.isEmpty ? 'Could not open session' : msg)),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg.isEmpty ? 'Could not open session' : msg)),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -437,17 +444,22 @@ class _RepSessionPageState extends State<RepSessionPage> {
     if (ok != true || !mounted) return;
 
     try {
-      final res = await ApiService.repCloseSession(
+      final res = await ApiService.classRepCloseSession(
         sessionId: id,
         indexNumber: student.indexNumber,
         password: pwd,
       );
       final data = jsonDecode(res.body);
-      final msg = data is Map && data['message'] != null
-          ? data['message'].toString()
-          : (ApiService.isSuccessfulHttp(res.statusCode)
-              ? 'Session closed.'
-              : 'Could not close (${res.statusCode})');
+      String msg;
+      if (data is Map && data['success'] == true) {
+        msg = data['message']?.toString() ?? 'Session closed.';
+      } else if (data is Map && data['message'] != null) {
+        msg = data['message'].toString();
+      } else {
+        msg = ApiService.isSuccessfulHttp(res.statusCode)
+            ? 'Session closed.'
+            : 'Could not close (${res.statusCode})';
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         _refresh();

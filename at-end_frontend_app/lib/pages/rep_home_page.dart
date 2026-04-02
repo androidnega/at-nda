@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../models/student.dart';
+import '../services/api_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
+import '../utils/connectivity_util.dart';
 import '../utils/greeting_util.dart';
 import '../utils/app_selectable_scope.dart';
 import '../widgets/profile_avatar.dart';
@@ -19,6 +23,11 @@ class RepHomePage extends StatefulWidget {
 
 class _RepHomePageState extends State<RepHomePage> {
   Student? _student;
+  bool _dashLoading = false;
+  String? _dashError;
+  bool _hasActiveSession = false;
+  int _activeSessionsCount = 0;
+  int _studentsInClassesCount = 0;
 
   @override
   void initState() {
@@ -39,6 +48,61 @@ class _RepHomePageState extends State<RepHomePage> {
       return;
     }
     setState(() => _student = s);
+    await _loadDashboard(s);
+  }
+
+  Future<void> _loadDashboard(Student s) async {
+    final pwd = await OfflineService.getApiSessionPassword();
+    if (pwd == null || pwd.isEmpty) return;
+    if (!await hasInternetConnectivity()) return;
+
+    setState(() {
+      _dashLoading = true;
+      _dashError = null;
+    });
+    try {
+      final res = await ApiService.classRepDashboard(
+        indexNumber: s.indexNumber,
+        password: pwd,
+      );
+      final raw = jsonDecode(res.body);
+      if (res.statusCode == 200 &&
+          raw is Map &&
+          raw['success'] == true &&
+          raw['data'] is Map) {
+        final d = Map<String, dynamic>.from(raw['data'] as Map);
+        if (!mounted) return;
+        setState(() {
+          _dashLoading = false;
+          _dashError = null;
+          _hasActiveSession = d['has_active_session'] == true;
+          _activeSessionsCount = _parseInt(d['active_sessions_count']) ?? 0;
+          _studentsInClassesCount =
+              _parseInt(d['students_in_classes_count']) ?? 0;
+        });
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _dashLoading = false;
+          _dashError = ApiService.messageFromHttpResponse(res).isEmpty
+              ? 'Could not refresh dashboard.'
+              : ApiService.messageFromHttpResponse(res);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _dashLoading = false;
+          _dashError = null;
+        });
+      }
+    }
+  }
+
+  int? _parseInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.round();
+    return int.tryParse(v?.toString() ?? '');
   }
 
   String _greetingName(Student s) {
@@ -98,6 +162,10 @@ class _RepHomePageState extends State<RepHomePage> {
         title: const Text('Class rep'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _dashLoading ? null : () => _loadDashboard(s),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
@@ -127,12 +195,27 @@ class _RepHomePageState extends State<RepHomePage> {
                 title: const Text('Manage sessions'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          appSelectableScope(const RepSessionPage()),
-                    ),
-                  );
+                  Navigator.of(context)
+                      .push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              appSelectableScope(const RepSessionPage()),
+                        ),
+                      )
+                      .then((_) {
+                    if (mounted && _student != null) {
+                      _loadDashboard(_student!);
+                    }
+                  });
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: const Text('Class roster'),
+                subtitle: const Text('Students in your rep classes'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/class-rep/students');
                 },
               ),
               ListTile(
@@ -214,6 +297,71 @@ class _RepHomePageState extends State<RepHomePage> {
                   side: BorderSide(color: colorScheme.outlineVariant),
                 ),
               ),
+              if (_dashLoading) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+              ],
+              if (_dashError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _dashError!,
+                  style: TextStyle(
+                    color: colorScheme.error,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+              if (!_dashLoading && _dashError == null) ...[
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Attendance status',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              _hasActiveSession
+                                  ? Icons.circle
+                                  : Icons.circle_outlined,
+                              size: 14,
+                              color: _hasActiveSession
+                                  ? colorScheme.primary
+                                  : colorScheme.outline,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _hasActiveSession
+                                    ? '$_activeSessionsCount active session(s)'
+                                    : 'No active sessions',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_studentsInClassesCount > 0) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '$_studentsInClassesCount student(s) in your classes',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 28),
               Text(
                 'Open or close live attendance for your class, show the session QR, and help classmates check in.',
@@ -225,16 +373,33 @@ class _RepHomePageState extends State<RepHomePage> {
               const SizedBox(height: 28),
               FilledButton.icon(
                 onPressed: () {
-                  Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          appSelectableScope(const RepSessionPage()),
-                    ),
-                  );
+                  Navigator.of(context)
+                      .push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              appSelectableScope(const RepSessionPage()),
+                        ),
+                      )
+                      .then((_) {
+                    if (mounted && _student != null) {
+                      _loadDashboard(_student!);
+                    }
+                  });
                 },
                 icon: const Icon(Icons.event_available_rounded),
                 label: const Text('Manage class sessions'),
                 style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/class-rep/students');
+                },
+                icon: const Icon(Icons.groups_outlined),
+                label: const Text('View class roster'),
+                style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),

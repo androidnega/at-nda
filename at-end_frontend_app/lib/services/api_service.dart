@@ -412,4 +412,42 @@ class ApiService {
         'index_number': indexNumber.trim().toUpperCase(),
         'password': password.trim(),
       });
+
+  // --- Class rep REST (DTO envelope: { success, message, data }) — same rules as /rep/* ---
+
+  /// `POST /api/class-rep/dashboard`
+  static Future<http.Response> classRepDashboard({
+    required String indexNumber,
+    required String password,
+  }) =>
+      post('class-rep/dashboard', {
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+      });
+
+  /// `POST /api/class-rep/students`
+  static Future<http.Response> classRepStudents({
+    required String indexNumber,
+    required String password,
+  }) =>
+      post('class-rep/students', {
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+      });
+
+  /// `POST /api/class-rep/sessions/open` (or `/api/attendance/open`) — response uses envelope.
+  static Future<http.Response> classRepOpenSession(Map<String, dynamic> body) =>
+      post('class-rep/sessions/open', body);
+
+  /// `POST /api/class-rep/sessions/close` (or `/api/attendance/close`).
+  static Future<http.Response> classRepCloseSession({
+    required int sessionId,
+    required String indexNumber,
+    required String password,
+  }) =>
+      post('class-rep/sessions/close', {
+        'session_id': sessionId,
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+      });
 }

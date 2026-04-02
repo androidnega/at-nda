@@ -5,6 +5,7 @@ import 'pages/attendance_page.dart';
 import 'pages/home_page.dart';
 import 'pages/login_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/class_rep_students_page.dart';
 import 'pages/rep_home_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
@@ -37,6 +38,8 @@ class AttendanceApp extends StatelessWidget {
             '/': (_) => appSelectableScope(const LoginPage()),
             '/home': (_) => appSelectableScope(const HomePage()),
             '/rep-home': (_) => appSelectableScope(const RepHomePage()),
+            '/class-rep/students': (_) =>
+                appSelectableScope(const ClassRepStudentsPage()),
             '/attendance': (_) => appSelectableScope(const AttendancePage()),
             '/profile': (_) => appSelectableScope(const ProfilePage()),
             '/settings': (_) => appSelectableScope(const SettingsPage()),
