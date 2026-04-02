@@ -1,0 +1,4 @@
+# Flutter web dev server - bind to all interfaces for LAN access
+server:
+  host: "0.0.0.0"
+  port: 8082

@@ -35,8 +35,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       _error = null;
     });
     final student = await OfflineService.getCurrentStudent();
-    final pwd = await OfflineService.getApiSessionPassword();
-    if (student == null || pwd == null || pwd.isEmpty) {
+    if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -47,9 +46,10 @@ class _RepSessionPageState extends State<RepSessionPage> {
       return;
     }
     try {
+      final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.repCourses(
         indexNumber: student.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       if (res.statusCode == 403) {
         if (mounted) {
@@ -114,8 +114,10 @@ class _RepSessionPageState extends State<RepSessionPage> {
 
   Future<void> _openSession(RepCourse course) async {
     final student = await OfflineService.getCurrentStudent();
+    if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
+      return;
+    }
     final pwd = await OfflineService.getApiSessionPassword();
-    if (student == null || pwd == null || pwd.isEmpty) return;
 
     String mode = 'qr';
     String lecturerStatus = 'present';
@@ -320,7 +322,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
 
     final body = <String, dynamic>{
       'index_number': student.indexNumber.trim().toUpperCase(),
-      'password': pwd.trim(),
+      'password': (pwd ?? '').trim(),
       'course_id': course.courseId,
       'mode': mode,
       'lecturer_status': lecturerStatus,
@@ -421,8 +423,10 @@ class _RepSessionPageState extends State<RepSessionPage> {
     final id = course.activeSessionId;
     if (id == null) return;
     final student = await OfflineService.getCurrentStudent();
+    if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
+      return;
+    }
     final pwd = await OfflineService.getApiSessionPassword();
-    if (student == null || pwd == null || pwd.isEmpty) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -447,7 +451,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       final res = await ApiService.classRepCloseSession(
         sessionId: id,
         indexNumber: student.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       final data = jsonDecode(res.body);
       String msg;

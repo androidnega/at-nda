@@ -81,9 +81,12 @@ class Student {
 
   /// Builds a loadable network URL for [NetworkImage].
   ///
-  /// When [serverId] is set, prefers `GET /api/students/{id}/profile-image` so Flutter web
-  /// receives CORS headers (`api/*`). Plain `/media/...` is often served by nginx/static
-  /// and omits `Access-Control-Allow-Origin`.
+  /// When the API sends a full `https://.../media/...` URL, that value is used as-is.
+  /// Some servers do not expose `GET /api/students/{id}/profile-image`; rewriting to it
+  /// breaks avatars while `/media/...` still returns 200.
+  ///
+  /// If there is no absolute URL but [serverId] is set, falls back to
+  /// `GET /api/students/{id}/profile-image` (CORS-friendly when the route exists).
   String? resolvedNetworkProfileUrl(Uri apiBaseUri) {
     final origin = apiBaseUri.origin;
     final p = profileImage.trim();
@@ -94,17 +97,22 @@ class Student {
       return '$base/students/$serverId/profile-image';
     }
 
-    if (serverId != null) {
-      if (p.startsWith('http://') || p.startsWith('https://')) {
-        try {
-          final u = Uri.parse(p);
-          if (u.host != apiBaseUri.host) {
-            return p;
-          }
-        } catch (_) {
-          return profilePictureUrl;
+    if (p.startsWith('http://') || p.startsWith('https://')) {
+      try {
+        final u = Uri.parse(p);
+        if (apiBaseUri.host.isNotEmpty &&
+            u.host == apiBaseUri.host &&
+            apiBaseUri.scheme == 'https' &&
+            u.scheme == 'http') {
+          return p.replaceFirst(RegExp(r'^http://'), 'https://');
         }
+        return p;
+      } catch (_) {
+        return profilePictureUrl;
       }
+    }
+
+    if (serverId != null) {
       return apiProfileImageUrl();
     }
 

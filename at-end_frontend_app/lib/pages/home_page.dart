@@ -178,12 +178,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _syncClassRepFlagFromApi() async {
     final s = _student;
     if (s == null) return;
-    final pwd = await OfflineService.getApiSessionPassword();
-    if (pwd == null || pwd.isEmpty) return;
+    if (!await OfflineService.hasPasswordOrApiToken()) return;
     try {
+      final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.repCourses(
         indexNumber: s.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       if (res.statusCode != 200) return;
       final raw = jsonDecode(res.body);

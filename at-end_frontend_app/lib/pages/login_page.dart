@@ -108,6 +108,10 @@ class _LoginPageState extends State<LoginPage> {
           .timeout(const Duration(seconds: 3));
       if (student != null && mounted) {
         _indexController.text = student.indexNumber;
+        final t = await OfflineService.getApiSessionToken();
+        if (t != null && t.isNotEmpty) {
+          ApiService.setSessionBearerToken(t);
+        }
       }
     } catch (_) {}
     if (mounted) setState(() => _checkingStored = false);
@@ -152,6 +156,19 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Non-empty Sanctum token from legacy login, or null if absent / JSON null.
+  String? _parseLoginToken(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is String) {
+      final s = raw.trim();
+      if (s.isEmpty || s == 'null') return null;
+      return s;
+    }
+    final s = raw.toString().trim();
+    if (s.isEmpty || s == 'null') return null;
+    return s;
+  }
+
   /// Merges `student`, `user`, top-level so `is_class_rep` / `rep_roles` are never dropped.
   Map<String, dynamic>? _studentMapFromLoginBody(Map<String, dynamic> body) {
     Map<String, dynamic>? primary;
@@ -189,12 +206,12 @@ class _LoginPageState extends State<LoginPage> {
   /// If login JSON omitted rep flags, `POST /api/rep/courses` confirms access and persists `is_class_rep`.
   Future<Student> _enrichRepFromApi(Student s) async {
     if (!await hasInternetConnectivity()) return s;
-    final pwd = await OfflineService.getApiSessionPassword();
-    if (pwd == null || pwd.isEmpty) return s;
+    if (!await OfflineService.hasPasswordOrApiToken()) return s;
     try {
+      final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.repCourses(
         indexNumber: s.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       if (res.statusCode != 200) return s;
       final decoded = jsonDecode(res.body);
@@ -250,6 +267,15 @@ class _LoginPageState extends State<LoginPage> {
     await OfflineService.setCurrentStudent(student);
     await OfflineService.setPasswordHash(PasswordUtil.hash(passwordForStorage));
     await OfflineService.setApiSessionPassword(passwordForStorage);
+    var tokenStr = _parseLoginToken(body['token']);
+    tokenStr ??= await ApiService.loginV1SanctumToken(cleanIndex, passwordForStorage);
+    if (tokenStr != null && tokenStr.isNotEmpty) {
+      await OfflineService.setApiSessionToken(tokenStr);
+      ApiService.setSessionBearerToken(tokenStr);
+    } else {
+      await OfflineService.setApiSessionToken(null);
+      ApiService.clearSessionBearerToken();
+    }
     AppState.studentIndex = student.indexNumber;
 
     try {
@@ -279,6 +305,10 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     AppState.studentIndex = stored.indexNumber;
+    final t = await OfflineService.getApiSessionToken();
+    if (t != null && t.isNotEmpty) {
+      ApiService.setSessionBearerToken(t);
+    }
     try {
       await SyncService.syncAttendance();
     } catch (_) {}
@@ -322,6 +352,8 @@ class _LoginPageState extends State<LoginPage> {
 
     await OfflineService.setCurrentStudent(student);
     await OfflineService.setApiSessionPassword(null);
+    await OfflineService.setApiSessionToken(null);
+    ApiService.clearSessionBearerToken();
     if (!sameUser || hash == null || hash.isEmpty) {
       await OfflineService.setPasswordHash(PasswordUtil.hash(password));
     }

@@ -21,6 +21,45 @@ class ApiService {
   /// Default timeout for POST/JSON calls (avoids infinite “Verifying…”).
   static const Duration httpTimeout = Duration(seconds: 30);
 
+  /// Laravel Sanctum token from `POST /api/login` (or v1); sent as `Authorization: Bearer`.
+  static String? _sessionBearerToken;
+
+  static void setSessionBearerToken(String? token) {
+    final t = token?.trim();
+    _sessionBearerToken = (t == null || t.isEmpty) ? null : t;
+  }
+
+  static void clearSessionBearerToken() {
+    _sessionBearerToken = null;
+  }
+
+  static Map<String, String> _requestHeaders({bool jsonBody = false}) {
+    final h = <String, String>{};
+    if (jsonBody) {
+      h['Content-Type'] = 'application/json';
+    }
+    final t = _sessionBearerToken;
+    if (t != null && t.isNotEmpty) {
+      h['Authorization'] = 'Bearer $t';
+    }
+    return h;
+  }
+
+  /// Revokes the current token on the server (`POST /api/logout`). Ignores errors.
+  static Future<void> logoutRemote() async {
+    try {
+      final t = _sessionBearerToken;
+      if (t == null || t.isEmpty) return;
+      await http
+          .post(
+            Uri.parse('${Constants.baseUrl}/logout'),
+            headers: _requestHeaders(jsonBody: true),
+            body: '{}',
+          )
+          .timeout(httpTimeout);
+    } catch (_) {}
+  }
+
   /// Set from GET /api/settings — include [face_descriptor] in attendance when true.
   static bool faceVerificationEnabled = false;
 
@@ -135,7 +174,10 @@ class ApiService {
   }
 
   static Future<http.Response> get(String endpoint) async {
-    return await http.get(Uri.parse('${Constants.baseUrl}/$endpoint'));
+    return await http.get(
+      Uri.parse('${Constants.baseUrl}/$endpoint'),
+      headers: _requestHeaders(),
+    );
   }
 
   /// Fetch all students (for validation, fallback when API login unavailable).
@@ -206,6 +248,35 @@ class ApiService {
     throw Exception(msg);
   }
 
+  /// When legacy `POST /api/login` returns no token, some servers still expose Sanctum on v1.
+  /// `POST /api/v1/auth/login` — returns `{ "data": { "token": "..." } }` on success.
+  static Future<String?> loginV1SanctumToken(String index, String password) async {
+    final uri = Uri.parse('${Constants.baseUrl}/v1/auth/login');
+    try {
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'index_number': index.trim().toUpperCase(),
+              'password': password.trim(),
+            }),
+          )
+          .timeout(httpTimeout);
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) return null;
+      final data = decoded['data'];
+      if (data is! Map) return null;
+      final t = data['token'];
+      if (t is String && t.isNotEmpty) return t;
+    } catch (_) {}
+    return null;
+  }
+
   /// GET /api/sessions/active — expects `{ "sessions": [ {...}, ... ] }`.
   /// Legacy: top-level JSON array `[ {...}, ... ]` is also accepted.
   /// Does not throw; on failure returns [] and sets [lastActiveSessionErrorMessage].
@@ -221,7 +292,7 @@ class ApiService {
 
     late final http.Response response;
     try {
-      response = await http.get(uri);
+      response = await http.get(uri, headers: _requestHeaders());
     } catch (e, st) {
       lastActiveSessionHttpStatus = -1;
       lastActiveSessionRawBody = '<< network error: $e >>';
@@ -353,7 +424,7 @@ class ApiService {
     return await http
         .post(
           Uri.parse('${Constants.baseUrl}/$endpoint'),
-          headers: {'Content-Type': 'application/json'},
+          headers: _requestHeaders(jsonBody: true),
           body: jsonEncode(body),
         )
         .timeout(httpTimeout);

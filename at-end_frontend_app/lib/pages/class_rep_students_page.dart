@@ -32,8 +32,7 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
       _error = null;
     });
     final student = await OfflineService.getCurrentStudent();
-    final pwd = await OfflineService.getApiSessionPassword();
-    if (student == null || pwd == null || pwd.isEmpty) {
+    if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -44,9 +43,10 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
       return;
     }
     try {
+      final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.classRepStudents(
         indexNumber: student.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       final raw = jsonDecode(res.body);
       if (res.statusCode == 401 || res.statusCode == 403) {

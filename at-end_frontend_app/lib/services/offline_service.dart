@@ -8,12 +8,14 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/attendance_record.dart';
 import '../models/student.dart';
+import 'api_service.dart';
 
 /// Local storage: SQLite on mobile, SharedPreferences on web (sqflite doesn't support web).
 class OfflineService {
   static Database? _db;
   static const String _studentKey = 'current_student';
   static const String _apiPasswordKey = 'laravel_api_session_password';
+  static const String _apiTokenKey = 'laravel_api_bearer_token';
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
@@ -309,6 +311,43 @@ class OfflineService {
     return _secureStorage.read(key: _apiPasswordKey);
   }
 
+  /// Sanctum Bearer token from `POST /api/login` (persisted for API calls after restart).
+  static Future<void> setApiSessionToken(String? token) async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      if (token == null || token.isEmpty) {
+        await prefs.remove('${_studentKey}_api_token');
+      } else {
+        await prefs.setString('${_studentKey}_api_token', token);
+      }
+      return;
+    }
+    if (token == null || token.isEmpty) {
+      await _secureStorage.delete(key: _apiTokenKey);
+    } else {
+      await _secureStorage.write(key: _apiTokenKey, value: token);
+    }
+  }
+
+  static Future<String?> getApiSessionToken() async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('${_studentKey}_api_token');
+    }
+    return _secureStorage.read(key: _apiTokenKey);
+  }
+
+  /// Loads a stored Sanctum token into [ApiService] and returns whether either
+  /// password or token is available for API calls.
+  static Future<bool> hasPasswordOrApiToken() async {
+    final t = await getApiSessionToken();
+    if (t != null && t.isNotEmpty) {
+      ApiService.setSessionBearerToken(t);
+    }
+    final p = await getApiSessionPassword();
+    return (p != null && p.isNotEmpty) || (t != null && t.isNotEmpty);
+  }
+
   static Future<void> setCurrentStudent(Student student) async {
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
@@ -350,7 +389,14 @@ class OfflineService {
   }
 
   static Future<void> clearCurrentStudent() async {
+    final storedToken = await getApiSessionToken();
+    if (storedToken != null && storedToken.isNotEmpty) {
+      ApiService.setSessionBearerToken(storedToken);
+    }
+    await ApiService.logoutRemote();
     await setApiSessionPassword(null);
+    await setApiSessionToken(null);
+    ApiService.clearSessionBearerToken();
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_studentKey);

@@ -52,8 +52,7 @@ class _RepHomePageState extends State<RepHomePage> {
   }
 
   Future<void> _loadDashboard(Student s) async {
-    final pwd = await OfflineService.getApiSessionPassword();
-    if (pwd == null || pwd.isEmpty) return;
+    if (!await OfflineService.hasPasswordOrApiToken()) return;
     if (!await hasInternetConnectivity()) return;
 
     setState(() {
@@ -61,9 +60,10 @@ class _RepHomePageState extends State<RepHomePage> {
       _dashError = null;
     });
     try {
+      final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.classRepDashboard(
         indexNumber: s.indexNumber,
-        password: pwd,
+        password: pwd ?? '',
       );
       final raw = jsonDecode(res.body);
       if (res.statusCode == 200 &&
