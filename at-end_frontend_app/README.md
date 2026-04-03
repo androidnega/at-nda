@@ -61,9 +61,6 @@ lib/
 - `POST /api/onboarding` – profile photo + face descriptor
 - `GET /api/session/active` – active session config (lat, lng, range_meters, face_verification, qr_enabled)
 
-## Cursor AI tasks
+## Developer
 
-- Implement TFLite face model load and descriptor extraction in `face_service.dart`
-- Add camera capture for profile photo in onboarding
-- Connect to Laravel API endpoints and adjust payloads as needed
-- Add connectivity_plus for network detection and auto-sync triggers
+Manuel

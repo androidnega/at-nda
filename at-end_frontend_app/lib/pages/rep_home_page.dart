@@ -27,6 +27,8 @@ class RepHomePage extends StatefulWidget {
 
 class _RepHomePageState extends State<RepHomePage> {
   Timer? _pollTimer;
+  /// Ticks every second while an active session has an end time (countdown UI).
+  Timer? _countdownTimer;
   Student? _student;
   bool _dashLoading = false;
   String? _dashError;
@@ -36,6 +38,9 @@ class _RepHomePageState extends State<RepHomePage> {
   int _attendanceTodayCount = 0;
   int _activeSessionStudents = 0;
   int _activeSessionPresent = 0;
+  /// Session object from `GET /api/class/active-session` (id, end_time, course_name, …).
+  Map<String, dynamic>? _activeSessionDetail;
+  DateTime? _sessionEndsAt;
 
   @override
   void initState() {
@@ -126,13 +131,145 @@ class _RepHomePageState extends State<RepHomePage> {
       if (res.statusCode != 200) return;
       final body = jsonDecode(res.body);
       if (body is! Map) return;
+      Map<String, dynamic>? sessionDetail;
+      DateTime? endsAt;
+      if (body['session'] is Map) {
+        sessionDetail = Map<String, dynamic>.from(body['session'] as Map);
+        final endRaw = sessionDetail['end_time'];
+        if (endRaw != null) {
+          try {
+            endsAt = DateTime.parse(endRaw.toString());
+          } catch (_) {}
+        }
+      }
       if (!mounted) return;
+      final active = body['has_active_session'] == true;
       setState(() {
-        _hasActiveSession = body['has_active_session'] == true;
+        _hasActiveSession = active;
         _activeSessionStudents = _toInt(body['total_students']) ?? _studentsInClassesCount;
         _activeSessionPresent = _toInt(body['total_present']) ?? 0;
+        if (active) {
+          _activeSessionDetail = sessionDetail;
+          _sessionEndsAt = endsAt;
+        } else {
+          _activeSessionDetail = null;
+          _sessionEndsAt = null;
+        }
       });
+      _syncCountdownTimer();
     } catch (_) {}
+  }
+
+  void _syncCountdownTimer() {
+    _countdownTimer?.cancel();
+    if (!_hasActiveSession || _sessionEndsAt == null) return;
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final end = _sessionEndsAt;
+      if (end != null && DateTime.now().isAfter(end)) {
+        _countdownTimer?.cancel();
+        final st = _student;
+        if (st != null) _loadDashboard(st);
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  String _formatCountdown(Duration remaining) {
+    if (remaining.isNegative) return '00:00';
+    final h = remaining.inHours;
+    final m = remaining.inMinutes.remainder(60);
+    final s = remaining.inSeconds.remainder(60);
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:'
+          '${m.toString().padLeft(2, '0')}:'
+          '${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _extendActiveSession() async {
+    final session = _activeSessionDetail;
+    final student = _student;
+    if (session == null || student == null) return;
+    final sessionId = _toInt(session['id']);
+    if (sessionId == null || sessionId <= 0) return;
+    final pwd = await OfflineService.getApiSessionPassword();
+    if (pwd == null || pwd.isEmpty || !mounted) return;
+
+    var additionalMinutes = 30;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setLocal) {
+          return AlertDialog(
+            title: const Text('Extend marking time'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Add extra minutes to this session:'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  initialValue: additionalMinutes,
+                  items: [15, 30, 45, 60, 90]
+                      .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setLocal(() => additionalMinutes = v);
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Extend'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      final res = await ApiService.classRepExtendSession(
+        sessionId: sessionId,
+        indexNumber: student.indexNumber,
+        password: pwd,
+        additionalMinutes: additionalMinutes,
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode >= 200 &&
+          res.statusCode < 300 &&
+          data is Map &&
+          data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Session extended.')),
+          );
+          await _loadDashboard(student);
+        }
+      } else if (mounted) {
+        final msg = data is Map
+            ? (data['message']?.toString() ?? '')
+            : ApiService.messageFromHttpResponse(res);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg.isEmpty ? 'Could not extend session' : msg)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   void _startPolling() {
@@ -280,6 +417,7 @@ class _RepHomePageState extends State<RepHomePage> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _countdownTimer?.cancel();
     super.dispose();
   }
 
@@ -356,17 +494,6 @@ class _RepHomePageState extends State<RepHomePage> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      if (_hasActiveSession)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          decoration: DashboardSurfaces.cardDecoration(context, radius: 12),
-                          child: Text(
-                            'Session active: $_activeSessionPresent / ${_activeSessionStudents > 0 ? _activeSessionStudents : _studentsInClassesCount} present',
-                            style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      if (_hasActiveSession) const SizedBox(height: 10),
                     ],
                   ),
                 ),
@@ -421,9 +548,185 @@ class _RepHomePageState extends State<RepHomePage> {
                   ),
                 ),
               ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+                sliver: SliverToBoxAdapter(
+                  child: _buildActiveSessionLiveCard(context),
+                ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildActiveSessionLiveCard(BuildContext context) {
+    if (!_hasActiveSession || _activeSessionDetail == null) {
+      return const SizedBox.shrink();
+    }
+    final cs = Theme.of(context).colorScheme;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final session = _activeSessionDetail!;
+    final courseName = session['course_name']?.toString() ?? 'Active session';
+    final courseCode = session['course_code']?.toString().trim() ?? '';
+    final titleLine =
+        courseCode.isNotEmpty ? '$courseName · $courseCode' : courseName;
+    final total = _activeSessionStudents > 0
+        ? _activeSessionStudents
+        : _studentsInClassesCount;
+    final present = _activeSessionPresent;
+
+    String timeLabel;
+    if (_sessionEndsAt != null) {
+      final rem = _sessionEndsAt!.difference(DateTime.now());
+      timeLabel = _formatCountdown(rem);
+    } else {
+      timeLabel = '—';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primaryContainer.withValues(alpha: isLight ? 0.65 : 0.28),
+            cs.surfaceContainerHighest.withValues(alpha: isLight ? 0.9 : 0.45),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
+        boxShadow: isLight
+            ? [
+                BoxShadow(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: cs.error.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.circle, size: 9, color: cs.error),
+                    const SizedBox(width: 6),
+                    Text(
+                      'LIVE',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.9,
+                        color: cs.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Marking window',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: isLight
+                          ? const Color(0xFF475569)
+                          : cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            titleLine,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: isLight ? const Color(0xFF0F172A) : cs.onSurface,
+                  height: 1.25,
+                ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                timeLabel,
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: cs.primary,
+                      letterSpacing: -1,
+                      fontSize: 36,
+                    ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _sessionEndsAt != null
+                      ? 'remaining until session ends'
+                      : 'End time not set — refresh if needed',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isLight ? const Color(0xFF64748B) : cs.onSurfaceVariant,
+                        height: 1.3,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.how_to_reg_rounded, size: 22, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                '$present',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: isLight ? const Color(0xFF0F172A) : cs.onSurface,
+                    ),
+              ),
+              Text(
+                ' live now',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: isLight ? const Color(0xFF334155) : cs.onSurfaceVariant,
+                    ),
+              ),
+              Text(
+                ' · $total in class',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      color: isLight ? const Color(0xFF64748B) : cs.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _dashLoading ? null : _extendActiveSession,
+              icon: const Icon(Icons.more_time_rounded, size: 20),
+              label: const Text('Extend'),
+            ),
+          ),
+        ],
       ),
     );
   }
