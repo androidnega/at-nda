@@ -14,6 +14,7 @@ import '../services/api_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/session_cache_prefs.dart';
+import '../services/student_profile_refresh.dart';
 import '../services/sync_service.dart';
 import '../utils/absence_warning_format.dart';
 import '../utils/connectivity_util.dart';
@@ -21,6 +22,7 @@ import '../utils/app_selectable_scope.dart';
 import '../utils/constants.dart';
 import '../utils/greeting_util.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
 import 'attendance_page.dart';
@@ -232,6 +234,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _student = await OfflineService.getCurrentStudent();
     } catch (_) {
       _student = null;
+    }
+
+    if (online && _student != null) {
+      final refreshed = await refreshStudentProfileFromApi(_student!);
+      if (refreshed != null && mounted) {
+        _student = refreshed;
+      }
     }
 
     if (online && _student != null) {
@@ -993,11 +1002,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _buildDrawer(BuildContext context) {
     final s = _student;
     final colorScheme = Theme.of(context).colorScheme;
-    final firstLast = s == null
-        ? ''
-        : '${s.firstName ?? ''} ${s.lastName ?? ''}'.trim().isEmpty
-            ? s.displayFirstLastName
-            : '${s.firstName ?? ''} ${s.lastName ?? ''}'.trim();
+    final headerColor =
+        colorScheme.primaryContainer.withValues(alpha: 0.45);
 
     return Drawer(
       child: AppDrawerShell(
@@ -1005,34 +1011,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              UserAccountsDrawerHeader(
-                margin: EdgeInsets.zero,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer.withValues(alpha: 0.45),
-                ),
-                currentAccountPicture: s != null
-                    ? ProfileAvatar(student: s, radius: 26)
-                    : CircleAvatar(
-                        backgroundColor: colorScheme.primary.withValues(alpha: 0.3),
-                        child: Icon(Icons.person, color: colorScheme.primary, size: 26),
-                      ),
-                accountName: Text(
-                  s?.indexNumber ?? '—',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: colorScheme.onSurface,
+              if (s != null)
+                StudentDrawerHeader(
+                  student: s,
+                  decorationColor: headerColor,
+                )
+              else
+                Material(
+                  color: headerColor,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor:
+                              colorScheme.primary.withValues(alpha: 0.3),
+                          radius: 28,
+                          child: Icon(
+                            Icons.person,
+                            color: colorScheme.primary,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '—',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                accountEmail: Text(
-                  firstLast.isEmpty ? (s?.email ?? '') : firstLast,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 11.5,
-                    height: 1.25,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
               ListTile(
                 leading: const Icon(Icons.person_outline_rounded),
                 title: const Text('Profile'),

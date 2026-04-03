@@ -30,7 +30,7 @@ class OfflineService {
     final path = join(await getDatabasesPath(), 'attendance_offline.db');
     return openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE students(
@@ -49,6 +49,7 @@ class OfflineService {
             faculty TEXT,
             department TEXT,
             level TEXT,
+            semester TEXT,
             password_hash TEXT,
             is_class_rep INTEGER DEFAULT 0,
             rep_roles TEXT,
@@ -181,6 +182,11 @@ class OfflineService {
             );
           } catch (_) {}
         }
+        if (oldVersion < 11) {
+          try {
+            await db.execute('ALTER TABLE students ADD COLUMN semester TEXT');
+          } catch (_) {}
+        }
       },
     );
   }
@@ -255,6 +261,7 @@ class OfflineService {
       faculty: m['faculty'] as String?,
       department: m['department'] as String?,
       level: m['level'] as String?,
+      semester: m['semester'] as String?,
       isClassRep: (m['is_class_rep'] as int?) == 1,
       repRoles: _repRolesFromSqlite(m['rep_roles'] as String?),
       role: (m['primary_role'] as String?) ?? 'student',
@@ -385,6 +392,7 @@ class OfflineService {
         'faculty': student.faculty,
         'department': student.department,
         'level': student.level,
+        'semester': student.semester,
         'is_class_rep': student.isClassRep ? 1 : 0,
         'rep_roles': student.repRoles.isEmpty
             ? null

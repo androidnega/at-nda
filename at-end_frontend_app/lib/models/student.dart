@@ -41,6 +41,8 @@ class Student {
   final String? faculty;
   final String? department;
   final String? level;
+  /// Academic semester label from the class (e.g. "2024 · Semester 1").
+  final String? semester;
   /// From login: class rep (any role) for mobile rep tools.
   final bool isClassRep;
   final List<RepRoleEntry> repRoles;
@@ -64,6 +66,7 @@ class Student {
     this.faculty,
     this.department,
     this.level,
+    this.semester,
     this.isClassRep = false,
     this.repRoles = const [],
     this.role = 'student',
@@ -138,6 +141,10 @@ class Student {
     if (p.startsWith('/')) {
       return '$origin$p';
     }
+    // Laravel `public` disk path (e.g. `students/1_abc.jpg`) without leading slash.
+    if (p.isNotEmpty && !p.contains('://')) {
+      return '$origin/storage/$p';
+    }
     return profilePictureUrl;
   }
 
@@ -176,6 +183,7 @@ class Student {
         faculty: _strOrNull(json['faculty']),
         department: _strOrNull(json['department']),
         level: _strOrNull(json['level']),
+        semester: _strOrNull(json['semester']),
         isClassRep: isRep,
         repRoles: roles,
         role: role,
@@ -203,6 +211,18 @@ class Student {
       return s == 'true' || s == '1' || s == 'yes';
     }
     return false;
+  }
+
+  /// Class group name with level, e.g. `ITS A - 200`. Level is tied to the class.
+  String? get classGroupWithLevelLabel {
+    final c = className?.trim() ?? '';
+    final l = level?.trim() ?? '';
+    if (c.isEmpty && l.isEmpty) return null;
+    if (c.isEmpty) {
+      return l.isEmpty ? null : 'Level $l';
+    }
+    if (l.isEmpty) return c;
+    return '$c - $l';
   }
 
   /// Line for UI: prefers first + last when present.
@@ -238,6 +258,7 @@ class Student {
         'faculty': faculty,
         'department': department,
         'level': level,
+        'semester': semester,
         'is_class_rep': isClassRep,
         'rep_roles': repRoles.map((e) => e.toJson()).toList(),
         'primary_role': role,
@@ -258,6 +279,7 @@ class Student {
     String? faculty,
     String? department,
     String? level,
+    String? semester,
     bool? isClassRep,
     List<RepRoleEntry>? repRoles,
     String? role,
@@ -277,6 +299,7 @@ class Student {
         faculty: faculty ?? this.faculty,
         department: department ?? this.department,
         level: level ?? this.level,
+        semester: semester ?? this.semester,
         isClassRep: isClassRep ?? this.isClassRep,
         repRoles: repRoles ?? this.repRoles,
         role: role ?? this.role,

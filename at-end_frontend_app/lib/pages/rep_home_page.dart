@@ -7,9 +7,11 @@ import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
+import '../services/student_profile_refresh.dart';
 import '../theme/dashboard_surfaces.dart';
 import '../widgets/app_drawer_shell.dart';
 import '../widgets/modern_pull_to_refresh.dart';
+import '../widgets/student_drawer_header.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/app_state.dart';
 import '../utils/connectivity_util.dart';
@@ -42,7 +44,11 @@ class _RepHomePageState extends State<RepHomePage> {
   }
 
   Future<void> _loadStudent() async {
-    final s = await OfflineService.getCurrentStudent();
+    var s = await OfflineService.getCurrentStudent();
+    if (s != null && await hasInternetConnectivity()) {
+      final r = await refreshStudentProfileFromApi(s);
+      if (r != null) s = r;
+    }
     if (!mounted) return;
     if (s == null) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -191,6 +197,86 @@ class _RepHomePageState extends State<RepHomePage> {
     });
   }
 
+  Widget _buildDrawer(BuildContext context, Student s) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final headerColor =
+        colorScheme.primaryContainer.withValues(alpha: 0.45);
+
+    return Drawer(
+      child: AppDrawerShell(
+        child: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              StudentDrawerHeader(
+                student: s,
+                decorationColor: headerColor,
+              ),
+              ListTile(
+                leading: const Icon(Icons.event_note_rounded),
+                title: const Text('Session management'),
+                subtitle: const Text('Open, QR & close attendance'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openSessions();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.fact_check_outlined),
+                title: const Text('Attendance Records'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/attendance-records');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: const Text('Class List'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/class-rep/students');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: const Text('Profile'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context)
+                      .pushNamed('/profile')
+                      .then((_) => _loadStudent());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('Settings'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/settings');
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: Icon(
+                  Icons.logout,
+                  color: colorScheme.error,
+                ),
+                title: Text(
+                  'Log out',
+                  style: TextStyle(color: colorScheme.error),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmLogout();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _pollTimer?.cancel();
@@ -203,10 +289,6 @@ class _RepHomePageState extends State<RepHomePage> {
     if (s == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
-    final classLabel = (s.className ?? '').trim().isNotEmpty
-        ? s.className!.trim()
-        : 'Class';
 
     return Scaffold(
       appBar: AppBar(
@@ -222,72 +304,7 @@ class _RepHomePageState extends State<RepHomePage> {
           ),
         ],
       ),
-      drawer: Drawer(
-        child: AppDrawerShell(
-          child: SafeArea(
-            child: ListView(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.event_note_rounded),
-                  title: const Text('Session management'),
-                  subtitle: const Text('Open, QR & close attendance'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _openSessions();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.fact_check_outlined),
-                  title: const Text('Attendance Records'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/attendance-records');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.groups_outlined),
-                  title: const Text('Class List'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/class-rep/students');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.person_outline),
-                  title: const Text('Profile'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/profile');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.settings_outlined),
-                  title: const Text('Settings'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/settings');
-                  },
-                ),
-                const Divider(),
-                ListTile(
-                  leading: Icon(
-                    Icons.logout,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  title: Text(
-                    'Log out',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _confirmLogout();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      drawer: _buildDrawer(context, s),
       body: SafeArea(
         child: ModernPullToRefresh(
           onRefresh: () => _loadDashboard(s),
@@ -304,7 +321,7 @@ class _RepHomePageState extends State<RepHomePage> {
                         children: [
                           Expanded(
                             child: Text(
-                              classLabel,
+                              'Dashboard',
                               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w800,
                                   ),

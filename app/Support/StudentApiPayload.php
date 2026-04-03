@@ -31,6 +31,7 @@ class StudentApiPayload
      */
     public static function forUser(Student $student): array
     {
+        $student->loadMissing(['schoolClass.semester']);
         $class = $student->schoolClass;
         $dept = $student->department ?? $class?->department;
         $faculty = $dept?->faculty ?? $class?->faculty;
@@ -61,6 +62,7 @@ class StudentApiPayload
             'faculty' => $faculty?->name ?? null,
             'department' => $dept?->name ?? null,
             'level' => $class?->level ?? null,
+            'semester' => $class?->semester?->display_label ?? null,
             'phone_number' => $student->phone_number,
             'updated_at' => $student->updated_at?->toIso8601String(),
             'weekly_timetable' => $student->weeklyTimetableSummary(),

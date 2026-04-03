@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import '../models/student.dart';
@@ -9,11 +12,13 @@ import '../services/api_service.dart';
 import '../services/offline_service.dart';
 import '../services/profile_identity_cooldown.dart';
 import '../services/profile_image_cache.dart';
-import '../utils/constants.dart';
 import '../services/permission_service.dart';
+import '../services/student_profile_refresh.dart';
+import '../utils/constants.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/profile_image_crop_dialog.dart';
 
-/// Profile: update phone, email, upload/retake photo.
+/// Profile: view / edit name & email; photo via crop; phone read-only (admin-only changes on server).
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -23,16 +28,14 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   Student? _student;
-  final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
-  /// Baseline for cooldown: values shown after last successful load/save.
   String _baselineFirst = '';
   String _baselineLast = '';
   bool _isLoading = true;
   bool _isSaving = false;
-  String? _message;
+  bool _editing = false;
 
   @override
   void initState() {
@@ -62,13 +65,37 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) {
       setState(() {
         _student = student;
-        _phoneController.text = student.phoneNumber ?? '';
         _emailController.text = student.email ?? '';
         _firstNameController.text = f;
         _lastNameController.text = l;
         _isLoading = false;
+        _editing = false;
       });
     }
+  }
+
+  void _syncControllersFromStudent() {
+    final student = _student;
+    if (student == null) return;
+    var f = student.firstName?.trim() ?? '';
+    var l = student.lastName?.trim() ?? '';
+    if (f.isEmpty && l.isEmpty) {
+      final parts = student.name.trim().split(RegExp(r'\s+'));
+      if (parts.length >= 2) {
+        f = parts.first;
+        l = parts.sublist(1).join(' ');
+      } else if (parts.isNotEmpty) {
+        f = parts.first;
+      }
+    }
+    _firstNameController.text = f;
+    _lastNameController.text = l;
+    _emailController.text = student.email ?? '';
+  }
+
+  void _cancelEdit() {
+    _syncControllersFromStudent();
+    setState(() => _editing = false);
   }
 
   Future<void> _retakePhoto() async {
@@ -87,11 +114,27 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final XFile? image = await picker.pickImage(
         source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-        imageQuality: 80,
+        imageQuality: 92,
       );
       if (image == null || !mounted) return;
-      final bytes = await image.readAsBytes();
-      final rawB64 = base64Encode(bytes);
+      final rawBytes = await image.readAsBytes();
+      if (!mounted) return;
+      final cropped = await showProfileImageCropDialog(context, rawBytes);
+      if (cropped == null || !mounted) return;
+
+      Uint8List jpegBytes;
+      try {
+        final decoded = img.decodeImage(cropped);
+        if (decoded != null) {
+          jpegBytes = Uint8List.fromList(img.encodeJpg(decoded, quality: 88));
+        } else {
+          jpegBytes = cropped;
+        }
+      } catch (_) {
+        jpegBytes = cropped;
+      }
+
+      final rawB64 = base64Encode(jpegBytes);
       final dataUri = Constants.jpegDataUriFromRawBase64(rawB64);
       final updated = _student!.copyWith(profileImage: dataUri);
       await OfflineService.setCurrentStudent(updated);
@@ -107,16 +150,21 @@ class _ProfilePageState extends State<ProfilePage> {
       } catch (_) {}
       await ProfileImageCache.instance.invalidate(updated.indexNumber);
       await ProfileIdentityCooldown.recordIdentityEdit();
+      Student? merged = updated;
+      try {
+        final refreshed = await refreshStudentProfileFromApi(updated);
+        if (refreshed != null) merged = refreshed;
+      } catch (_) {}
       if (mounted) {
-        setState(() {
-          _student = updated;
-          _message = 'Profile photo updated.';
-        });
+        setState(() => _student = merged);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated.')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not capture: $e')),
+          SnackBar(content: Text('Could not update photo: $e')),
         );
       }
     }
@@ -125,7 +173,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _save() async {
     if (_student == null) return;
 
-    final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
     final newFirst = _firstNameController.text.trim();
     final newLast = _lastNameController.text.trim();
@@ -144,14 +191,11 @@ class _ProfilePageState extends State<ProfilePage> {
       }
     }
 
-    setState(() {
-      _isSaving = true;
-      _message = null;
-    });
+    setState(() => _isSaving = true);
 
     final combined = '$newFirst $newLast'.trim();
     final updated = _student!.copyWith(
-      phoneNumber: phone.isEmpty ? null : phone,
+      phoneNumber: _student!.phoneNumber,
       email: email.isEmpty ? null : email,
       firstName: newFirst.isEmpty ? null : newFirst,
       lastName: newLast.isEmpty ? null : newLast,
@@ -190,20 +234,24 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) {
       if (nameIdentityChanged) {
         await ProfileIdentityCooldown.recordIdentityEdit();
+        if (!mounted) return;
         _baselineFirst = newFirst;
         _baselineLast = newLast;
       }
       setState(() {
         _student = updated;
         _isSaving = false;
-        _message = feedback;
+        _editing = false;
       });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(feedback)),
+      );
     }
   }
 
   @override
   void dispose() {
-    _phoneController.dispose();
     _emailController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
@@ -226,120 +274,197 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     }
 
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final s = _student!;
+    final phone = (s.phoneNumber ?? '').trim();
+    final email = (s.email ?? '').trim();
+    final classGroup = s.classGroupWithLevelLabel;
+    final semester = (s.semester ?? '').trim();
+    final faculty = (s.faculty ?? '').trim();
+    final department = (s.department ?? '').trim();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          if (_editing)
+            TextButton(
+              onPressed: _isSaving ? null : _cancelEdit,
+              child: const Text('Cancel'),
+            )
+          else
+            TextButton(
+              onPressed: () => setState(() => _editing = true),
+              child: const Text('Edit'),
+            ),
+        ],
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Card(
-              elevation: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: ProfileAvatar(student: _student!, radius: 48),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _student!.displayFirstLastName,
-                      style: Theme.of(context).textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Student ID',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            Center(
+              child: Semantics(
+                label: 'Change profile photo',
+                button: true,
+                child: SizedBox(
+                  width: 108,
+                  height: 108,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      ProfileAvatar(
+                        key: ValueKey<String>(
+                          '${s.indexNumber}_${s.profileImage.hashCode}_${s.serverId}',
+                        ),
+                        student: s,
+                        radius: 48,
+                      ),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Material(
+                          elevation: 3,
+                          shadowColor: Colors.black26,
+                          shape: const CircleBorder(),
+                          color: cs.surface,
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: _retakePhoto,
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: FaIcon(
+                                FontAwesomeIcons.penToSquare,
+                                size: 15,
+                                color: cs.primary,
+                              ),
+                            ),
                           ),
-                    ),
-                    const SizedBox(height: 2),
-                    SelectableText(
-                      _student!.indexNumber,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                    ),
-                    if (_student!.className != null) ...[
-                      const SizedBox(height: 8),
-                      Text('Class: ${_student!.className}'),
+                        ),
+                      ),
                     ],
-                    if (_student!.faculty != null)
-                      Text('Faculty: ${_student!.faculty}'),
-                    if (_student!.department != null)
-                      Text('Department: ${_student!.department}'),
-                    if (_student!.level != null)
-                      Text('Level: ${_student!.level}'),
-                  ],
+                  ),
                 ),
               ),
             ),
+            const SizedBox(height: 18),
+            Text(
+              s.displayFirstLastName,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            _ProfileInfoCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _kvRow(context, 'Index', s.indexNumber, mono: true),
+                  if (classGroup != null && classGroup.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _kvRow(context, 'Class', classGroup),
+                  ],
+                  if (semester.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _kvRow(context, 'Semester', semester),
+                  ],
+                  if (faculty.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _kvRow(context, 'Faculty', faculty),
+                  ],
+                  if (department.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _kvRow(context, 'Department', department),
+                  ],
+                ],
+              ),
+            ),
             const SizedBox(height: 16),
-            Card(
-              elevation: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Update info',
-                      style: Theme.of(context).textTheme.titleMedium,
+            _ProfileInfoCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _editing ? 'Edit details' : 'Your details',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'First name, last name, and profile photo share one limit: at most one change every 90 days. Phone and email are not limited.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Name and photo: one edit per 90 days. Phone is set by an administrator.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      height: 1.4,
                     ),
-                    const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 16),
+                  if (!_editing) ...[
+                    _kvRow(context, 'Name', s.displayFirstLastName),
+                    const SizedBox(height: 12),
+                    _kvRow(
+                      context,
+                      'Phone',
+                      phone.isNotEmpty ? phone : '—',
+                      mono: phone.isNotEmpty,
+                    ),
+                    const SizedBox(height: 12),
+                    _kvRow(
+                      context,
+                      'Email',
+                      email.isNotEmpty ? email : '—',
+                    ),
+                  ] else ...[
                     TextFormField(
                       controller: _firstNameController,
                       decoration: const InputDecoration(
                         labelText: 'First name',
                         border: OutlineInputBorder(),
+                        isDense: true,
                       ),
                       textCapitalization: TextCapitalization.words,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     TextFormField(
                       controller: _lastNameController,
                       decoration: const InputDecoration(
                         labelText: 'Last name',
                         border: OutlineInputBorder(),
+                        isDense: true,
                       ),
                       textCapitalization: TextCapitalization.words,
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _phoneController,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone number',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.phone,
+                    const SizedBox(height: 14),
+                    _kvRow(
+                      context,
+                      'Phone',
+                      phone.isNotEmpty ? phone : '—',
+                      mono: phone.isNotEmpty,
                     ),
-                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 88, top: 4),
+                      child: Text(
+                        'Contact an administrator to change your phone number.',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     TextFormField(
                       controller: _emailController,
                       decoration: const InputDecoration(
-                        labelText: 'Email (optional)',
+                        labelText: 'Email',
                         border: OutlineInputBorder(),
+                        isDense: true,
                       ),
                       keyboardType: TextInputType.emailAddress,
                     ),
-                    if (_message != null) ...[
-                      const SizedBox(height: 16),
-                      Text(_message!),
-                    ],
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 22),
                     FilledButton(
                       onPressed: _isSaving ? null : _save,
                       child: _isSaving
@@ -348,22 +473,10 @@ class _ProfilePageState extends State<ProfilePage> {
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Save'),
+                          : const Text('Save changes'),
                     ),
                   ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              elevation: 0,
-              child: ListTile(
-                title: const Text('Retake profile photo'),
-                subtitle: const Text(
-                  'Camera or gallery. Counts toward the 90-day name/photo limit.',
-                ),
-                leading: const Icon(Icons.camera_alt),
-                onTap: _retakePhoto,
+                ],
               ),
             ),
           ],
@@ -371,4 +484,63 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
+}
+
+/// Light card shell matching app surfaces.
+class _ProfileInfoCard extends StatelessWidget {
+  const _ProfileInfoCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+        child: child,
+      ),
+    );
+  }
+}
+
+Widget _kvRow(
+  BuildContext context,
+  String label,
+  String value, {
+  bool mono = false,
+}) {
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SizedBox(
+        width: 88,
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: cs.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+      Expanded(
+        child: SelectableText(
+          value,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            fontFeatures: mono
+                ? const [FontFeature.tabularFigures()]
+                : null,
+          ),
+        ),
+      ),
+    ],
+  );
 }
