@@ -126,13 +126,17 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'Course not found'], 404);
         }
 
-        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
-        $allowsMark = $session->isValid() || ($isCourseRep && $session->canBeMarkedByClassRep());
-        if (! $allowsMark) {
+        if ($student->isCourseRepForCourse((int) $course->id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Class reps are auto-marked and cannot mark attendance manually.',
+            ], 403);
+        }
+        if (! $session->isValid()) {
             return response()->json(['status' => 'error', 'message' => 'Session closed or expired'], 422);
         }
 
-        $supplementalRepMark = ! $session->isValid();
+        $supplementalRepMark = false;
 
         if ($student->class_id && $course->class_id && (int) $student->class_id !== (int) $course->class_id) {
             return response()->json(['status' => 'error', 'message' => 'Course not for your class'], 403);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ class RepHomePage extends StatefulWidget {
 }
 
 class _RepHomePageState extends State<RepHomePage> {
+  Timer? _pollTimer;
   Student? _student;
   bool _dashLoading = false;
   String? _dashError;
@@ -30,6 +32,8 @@ class _RepHomePageState extends State<RepHomePage> {
   int _activeSessionsCount = 0;
   int _studentsInClassesCount = 0;
   int _attendanceTodayCount = 0;
+  int _activeSessionStudents = 0;
+  int _activeSessionPresent = 0;
 
   @override
   void initState() {
@@ -51,6 +55,7 @@ class _RepHomePageState extends State<RepHomePage> {
     }
     setState(() => _student = s);
     await _loadDashboard(s);
+    _startPolling();
   }
 
   Future<void> _loadDashboard(Student s) async {
@@ -85,6 +90,7 @@ class _RepHomePageState extends State<RepHomePage> {
           _studentsInClassesCount = _toInt(d['students_in_classes_count']) ?? 0;
           _attendanceTodayCount = todayLogs.length;
         });
+        await _loadClassActiveSessionStats(s);
       } else {
         if (!mounted) return;
         setState(() {
@@ -101,6 +107,35 @@ class _RepHomePageState extends State<RepHomePage> {
         _dashError = 'Could not refresh dashboard.';
       });
     }
+  }
+
+  Future<void> _loadClassActiveSessionStats(Student s) async {
+    final pwd = await OfflineService.getApiSessionPassword();
+    if (pwd == null || pwd.isEmpty) return;
+    try {
+      final res = await ApiService.classActiveSession(
+        indexNumber: s.indexNumber,
+        password: pwd,
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body is! Map) return;
+      if (!mounted) return;
+      setState(() {
+        _hasActiveSession = body['has_active_session'] == true;
+        _activeSessionStudents = _toInt(body['total_students']) ?? _studentsInClassesCount;
+        _activeSessionPresent = _toInt(body['total_present']) ?? 0;
+      });
+    } catch (_) {}
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      final s = _student;
+      if (s == null || !mounted) return;
+      _loadDashboard(s);
+    });
   }
 
   int? _toInt(dynamic v) {
@@ -157,6 +192,12 @@ class _RepHomePageState extends State<RepHomePage> {
   }
 
   @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = _student;
     if (s == null) {
@@ -209,14 +250,6 @@ class _RepHomePageState extends State<RepHomePage> {
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.of(context).pushNamed('/class-rep/students');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.how_to_reg_outlined),
-                  title: const Text('My Attendance'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/home');
                   },
                 ),
                 ListTile(
@@ -306,6 +339,17 @@ class _RepHomePageState extends State<RepHomePage> {
                         ),
                       ],
                       const SizedBox(height: 12),
+                      if (_hasActiveSession)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: DashboardSurfaces.cardDecoration(context, radius: 12),
+                          child: Text(
+                            'Session active: $_activeSessionPresent / ${_activeSessionStudents > 0 ? _activeSessionStudents : _studentsInClassesCount} present',
+                            style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      if (_hasActiveSession) const SizedBox(height: 10),
                     ],
                   ),
                 ),

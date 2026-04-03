@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClassRepApiController;
 use App\Http\Controllers\Api\ClassRepRestController;
+use App\Http\Controllers\Api\ClassSessionController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AttendanceRecordsController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -44,6 +45,8 @@ Route::get('/students/{student}/profile-image', [StudentImageController::class, 
 Route::get('/students', [StudentController::class, 'index']);
 Route::match(['get', 'post'], '/students/lookup', [StudentController::class, 'lookup']);
 Route::get('/sessions/active', [SessionController::class, 'active']);
+Route::get('/class/active-session', [ClassSessionController::class, 'activeSession']);
+Route::get('/session/{session}/stats', [ClassSessionController::class, 'stats'])->whereNumber('session');
 
 Route::match(['get', 'post'], '/class-rep/dashboard', [ClassRepRestController::class, 'dashboard']);
 Route::match(['get', 'post'], '/class-rep/students', [ClassRepRestController::class, 'students']);

@@ -48,6 +48,11 @@ class AttendanceOfflineSyncService
             }
 
             $isRep = $student->isCourseRepForCourse((int) $course->id);
+            if ($isRep) {
+                $failed++;
+
+                continue;
+            }
             $session = AttendanceSession::resolveForMarking(
                 $course,
                 isset($record['session_token']) ? (string) $record['session_token'] : null,

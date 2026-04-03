@@ -196,6 +196,17 @@ class ApiService {
     );
   }
 
+  /// GET with query string (e.g. index_number + password for legacy auth).
+  static Future<http.Response> getWithQuery(
+    String endpoint,
+    Map<String, String> query,
+  ) async {
+    final uri = Uri.parse('${Constants.baseUrl}/$endpoint').replace(
+      queryParameters: query,
+    );
+    return await http.get(uri, headers: _requestHeaders());
+  }
+
   /// Fetch all students (for validation, fallback when API login unavailable).
   static Future<http.Response> getStudents() =>
       get('students');
@@ -551,6 +562,27 @@ class ApiService {
         'index_number': indexNumber.trim().toUpperCase(),
         'password': password.trim(),
         'additional_minutes': additionalMinutes,
+      });
+
+  /// GET /api/class/active-session
+  static Future<http.Response> classActiveSession({
+    required String indexNumber,
+    required String password,
+  }) =>
+      getWithQuery('class/active-session', {
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+      });
+
+  /// GET /api/session/{id}/stats
+  static Future<http.Response> sessionStats({
+    required int sessionId,
+    required String indexNumber,
+    required String password,
+  }) =>
+      getWithQuery('session/$sessionId/stats', {
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
       });
 
   /// Firebase-free: fetch and mark pending in-app notifications as read.

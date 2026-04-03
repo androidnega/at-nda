@@ -415,6 +415,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _openAttendancePage(Map<String, dynamic> session) {
+    if (_student?.isClassRep == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Class reps are auto-marked when a session is active.'),
+        ),
+      );
+      return;
+    }
     Navigator.of(context)
         .push<bool>(
           MaterialPageRoute(
@@ -548,7 +556,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               ),
                         ),
                       ),
-                    if (_unmarkedSessions.isNotEmpty) ...[
+                    if (_student?.isClassRep == true)
+                      _buildNoActiveSessionCard()
+                    else if (_unmarkedSessions.isNotEmpty) ...[
                       _buildPrimarySessionCard(context, _unmarkedSessions.first),
                       if (_unmarkedSessions.length > 1) ...[
                         const SizedBox(height: 20),

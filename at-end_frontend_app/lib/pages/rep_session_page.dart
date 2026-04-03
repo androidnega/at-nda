@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -21,16 +22,21 @@ class RepSessionPage extends StatefulWidget {
 }
 
 class _RepSessionPageState extends State<RepSessionPage> {
+  Timer? _pollTimer;
   bool _loading = true;
   String? _error;
   List<RepCourse> _courses = [];
   /// Selected row in [_courses]; open / QR / close apply only to this course.
   int? _selectedIndex;
+  Map<String, dynamic>? _classActiveSession;
+  int _statsTotalStudents = 0;
+  int _statsPresent = 0;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refresh());
   }
 
   Future<void> _refresh() async {
@@ -108,6 +114,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
           }
         });
       }
+      await _refreshClassActiveSessionAndStats(student.indexNumber, pwd ?? '');
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -117,6 +124,62 @@ class _RepSessionPageState extends State<RepSessionPage> {
         });
       }
     }
+  }
+
+  Future<void> _refreshClassActiveSessionAndStats(
+    String indexNumber,
+    String password,
+  ) async {
+    if (password.isEmpty) return;
+    try {
+      final activeRes = await ApiService.classActiveSession(
+        indexNumber: indexNumber,
+        password: password,
+      );
+      if (activeRes.statusCode != 200) return;
+      final activeBody = jsonDecode(activeRes.body);
+      if (activeBody is! Map) return;
+      if (activeBody['has_active_session'] != true) {
+        if (!mounted) return;
+        setState(() {
+          _classActiveSession = null;
+          _statsTotalStudents = 0;
+          _statsPresent = 0;
+        });
+        return;
+      }
+      final active = activeBody['session'];
+      int? activeSessionId;
+      if (active is Map) {
+        activeSessionId = int.tryParse('${active['id']}');
+      }
+      int totalStudents = int.tryParse('${activeBody['total_students']}') ?? 0;
+      int present = int.tryParse('${activeBody['total_present']}') ?? 0;
+
+      if (activeSessionId != null && activeSessionId > 0) {
+        final statsRes = await ApiService.sessionStats(
+          sessionId: activeSessionId,
+          indexNumber: indexNumber,
+          password: password,
+        );
+        if (statsRes.statusCode == 200) {
+          final statsBody = jsonDecode(statsRes.body);
+          if (statsBody is Map) {
+            totalStudents =
+                int.tryParse('${statsBody['total_students']}') ?? totalStudents;
+            present = int.tryParse('${statsBody['total_present']}') ?? present;
+          }
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _classActiveSession =
+            active is Map ? Map<String, dynamic>.from(active) : null;
+        _statsTotalStudents = totalStudents;
+        _statsPresent = present;
+      });
+    } catch (_) {}
   }
 
   Future<void> _openSession(RepCourse course) async {
@@ -813,6 +876,24 @@ class _RepSessionPageState extends State<RepSessionPage> {
                           physics: modernPullToRefreshPhysics,
                           padding: const EdgeInsets.all(16),
                           children: [
+                            if (_classActiveSession != null)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: DashboardSurfaces.cardDecoration(
+                                  context,
+                                  radius: 12,
+                                ),
+                                child: Text(
+                                  'Active session: $_statsPresent/${_statsTotalStudents > 0 ? _statsTotalStudents : '—'} present',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelLarge
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            if (_classActiveSession != null)
+                              const SizedBox(height: 10),
                             Text(
                               'Pick one course at a time. Open / QR / close apply only to this class.',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -865,5 +946,11 @@ class _RepSessionPageState extends State<RepSessionPage> {
                         ),
                 ),
     );
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 }
