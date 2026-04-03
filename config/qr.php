@@ -20,4 +20,11 @@ return [
     */
     'ttl_minutes' => (int) env('QR_TOKEN_TTL_MINUTES', 2),
 
+    /*
+     * Inner expiry in seconds (Unix timestamp in signed payload), capped by session end_time.
+     * If set to a value > 0, it takes precedence over `ttl_minutes`.
+     * Defaults to 20 seconds to match the anti-cheat requirement.
+     */
+    'ttl_seconds' => (int) env('QR_TOKEN_TTL_SECONDS', 20),
+
 ];

@@ -53,6 +53,7 @@ class AttendanceController extends Controller
             'qr_t' => 'nullable|integer',
             'timestamp' => 'nullable|string',
             'device_ip' => 'nullable|string|max:45',
+            'device_id' => 'nullable|string|max:128',
             'wifi_ssid' => 'nullable|string|max:128',
         ], [
             'course_id.exists' => 'Invalid course_id. Use the numeric course_id from GET /api/sessions/active for this session.',
@@ -188,16 +189,22 @@ class AttendanceController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Attendance time outside allowed window'], 422);
         }
 
-        $exists = Attendance::where('student_id', $student->id)
-            ->where('attendance_session_id', $session->id)
-            ->whereDate('created_at', now())
-            ->exists();
+        $deviceId = $validated['device_id'] ?? null;
+        $deviceIp = $validated['device_ip'] ?? $ip;
 
-        if ($exists) {
+        $existing = Attendance::where('student_id', $student->id)
+            ->where('attendance_session_id', $session->id)
+            ->first();
+
+        if ($existing) {
+            $existingDeviceId = $existing->device_id;
+            if ($existingDeviceId !== null && $deviceId !== null && $existingDeviceId !== $deviceId) {
+                return response()->json([
+                    'message' => 'Already marked from a different device',
+                ], 403);
+            }
             return response()->json(['message' => 'Already marked'], 200);
         }
-
-        $deviceIp = $validated['device_ip'] ?? $ip;
 
         Attendance::create([
             'student_id' => $student->id,
@@ -211,6 +218,7 @@ class AttendanceController extends Controller
             'lng' => $longitude,
             'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
             'device_ip' => $deviceIp,
+            'device_id' => $deviceId,
         ]);
 
         $presentCount = Attendance::where('attendance_session_id', $session->id)

@@ -30,6 +30,7 @@ class Attendance extends Model
         'lng',
         'qr_code',
         'device_ip',
+        'device_id',
     ];
 
     public function attendanceWeek(): BelongsTo

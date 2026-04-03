@@ -28,8 +28,14 @@ class SecureQrToken
             return Str::random(12);
         }
 
-        $ttlMin = max(1, (int) config('qr.ttl_minutes', 2));
-        $expiresAt = now()->addMinutes($ttlMin)->timestamp;
+        $issuedAt = now()->timestamp;
+        $ttlSeconds = (int) config('qr.ttl_seconds', 0);
+        if ($ttlSeconds > 0) {
+            $expiresAt = $issuedAt + $ttlSeconds;
+        } else {
+            $ttlMin = max(1, (int) config('qr.ttl_minutes', 2));
+            $expiresAt = $issuedAt + ($ttlMin * 60);
+        }
         $end = $session->end_time ?? $session->expires_at;
         if ($end) {
             $expiresAt = min($expiresAt, $end->timestamp);
@@ -38,6 +44,8 @@ class SecureQrToken
         $data = [
             'session_id' => $session->id,
             'expires_at' => $expiresAt,
+            // Issued timestamp to support offline validation and screenshot expiry guidance.
+            'timestamp' => $issuedAt,
         ];
         $payload = json_encode($data, JSON_UNESCAPED_SLASHES);
         $sig = hash_hmac('sha256', $payload, $secret);
