@@ -19,7 +19,7 @@ class SettingsController extends Controller
             $settings = SystemSetting::get();
 
             return [
-                'face_verification_enabled' => $settings->enable_face_verification ?? true,
+                'face_verification_enabled' => (bool) ($settings->enable_face_verification ?? false),
                 'qr_code_enabled' => $settings->enable_qr ?? true,
                 'ip_binding_enabled' => $settings->enable_ip_binding,
                 'require_password_on_first_login' => $settings->require_password_on_first_login ?? true,

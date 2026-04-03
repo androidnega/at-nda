@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../widgets/course_book_icon.dart';
 
 import '../models/attendance_record.dart';
@@ -14,6 +13,7 @@ import '../services/location_service.dart';
 import '../services/offline_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/session_cache_prefs.dart';
+import '../services/success_chime.dart';
 import '../services/sync_service.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/app_state.dart';
@@ -438,7 +438,7 @@ class _AttendancePageState extends State<AttendancePage> {
     final ts = DateTime.now().toIso8601String();
     final index = AppState.studentIndex ?? _student!.indexNumber;
     final faceForPayload =
-        ApiService.faceVerificationEnabled ? _student!.faceDescriptor : null;
+        ApiService.attachFaceDescriptorToAttendance ? _student!.faceDescriptor : null;
 
     var lat = 0.0;
     var lng = 0.0;
@@ -559,7 +559,7 @@ class _AttendancePageState extends State<AttendancePage> {
         subtitle: code == 409
             ? 'Your attendance was already recorded.'
             : 'You have successfully marked attendance',
-        playSystemClick: false,
+        playCelebrationFeedback: false,
       );
     } else if (result != null && !result.success) {
       setState(() => _error = result.message ?? 'Could not submit attendance');
@@ -622,7 +622,7 @@ class _AttendancePageState extends State<AttendancePage> {
       }
 
       final faceForPayload =
-          ApiService.faceVerificationEnabled ? _student!.faceDescriptor : null;
+          ApiService.attachFaceDescriptorToAttendance ? _student!.faceDescriptor : null;
 
       final courseId = parseOptionalCourseId(rawSession);
       final weekId = parseOptionalWeekId(rawSession);
@@ -766,16 +766,15 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   /// Full-screen dim + white card; then pop to home. No SnackBar.
-  /// [playSystemClick] is false after QR success — success chime already played.
+  /// [playCelebrationFeedback] is false after QR success — chime + haptics already ran in the scanner.
   Future<void> _presentSuccessAndPop({
     String? subtitle,
-    bool playSystemClick = true,
+    bool playCelebrationFeedback = true,
   }) async {
     if (!mounted) return;
     await _saveLastAttendanceForHomeDashboard();
-    HapticFeedback.mediumImpact();
-    if (playSystemClick) {
-      SystemSound.play(SystemSoundType.click);
+    if (playCelebrationFeedback) {
+      await SuccessChime.celebrateAttendanceMarked();
     }
     setState(() {
       _showSuccessOverlay = true;

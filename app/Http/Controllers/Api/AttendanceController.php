@@ -33,6 +33,11 @@ class AttendanceController extends Controller
     {
         $payload = $this->normalizeAttendanceRequestPayload($request->all());
 
+        $settingsEarly = SystemSetting::get();
+        if (! ($settingsEarly->enable_face_verification ?? false)) {
+            unset($payload['face_descriptor']);
+        }
+
         $validated = Validator::make($payload, [
             'index_number' => 'required|string',
             // Integer PK from /api/sessions/active `course_id` (not course code).
@@ -60,7 +65,7 @@ class AttendanceController extends Controller
             'course_id.integer' => 'course_id must be the numeric database id (integer), not the course code.',
         ])->validate();
 
-        $settings = SystemSetting::get();
+        $settings = $settingsEarly;
         $ip = $request->ip();
 
         $indexUpper = strtoupper(trim($validated['index_number']));

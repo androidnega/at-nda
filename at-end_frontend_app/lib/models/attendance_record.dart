@@ -85,7 +85,7 @@ class AttendanceRecord {
   }) {
     final sid = sessionId;
     final face =
-        ApiService.faceVerificationEnabled ? faceDescriptor : null;
+        ApiService.attachFaceDescriptorToAttendance ? faceDescriptor : null;
     if ((sid != null && sid > 0) || (qrCode?.isNotEmpty ?? false)) {
       return buildAttendancePostBody(
         indexNumber: studentIndex,

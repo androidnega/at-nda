@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:http/http.dart' as http;
 
 import '../utils/constants.dart';
@@ -64,12 +64,26 @@ class ApiService {
     } catch (_) {}
   }
 
-  /// Set from GET /api/settings — include [face_descriptor] in attendance when true.
+  /// Set from GET /api/settings — include [face_descriptor] in attendance when true (native only).
   static bool faceVerificationEnabled = false;
+
+  /// True when admin enables face verification **and** the client can send embeddings (not web).
+  static bool get attachFaceDescriptorToAttendance =>
+      !kIsWeb && faceVerificationEnabled;
 
   /// Optional backend-driven UI blocks (v1). Rendered only when present.
   /// Schema is documented in `dynamic_widget_renderer.dart`.
   static List<dynamic> dynamicUi = const [];
+
+  static bool _jsonTruthy(dynamic v) {
+    if (v == true || v == 1) return true;
+    if (v == false || v == 0 || v == null) return false;
+    if (v is String) {
+      final s = v.toLowerCase().trim();
+      return s == 'true' || s == '1' || s == 'yes';
+    }
+    return false;
+  }
 
   /// Loads `face_verification` / `face_verification_enabled` from GET /api/settings.
   static Future<void> loadAppSettings() async {
@@ -80,9 +94,13 @@ class ApiService {
       if (r.statusCode != 200) return;
       if (!_responseBodyLooksLikeJson(r.body)) return;
       final m = jsonDecode(r.body) as Map<String, dynamic>;
-      faceVerificationEnabled = m['face_verification_enabled'] == true ||
-          m['face_verification'] == true ||
-          m['enable_face_verification'] == true;
+      faceVerificationEnabled = _jsonTruthy(m['face_verification_enabled']) ||
+          _jsonTruthy(m['face_verification']) ||
+          _jsonTruthy(m['enable_face_verification']);
+      // Web has no TFLite face pipeline — attendance is always direct (QR / location).
+      if (kIsWeb) {
+        faceVerificationEnabled = false;
+      }
 
       final d = m['dynamic_ui'];
       if (d is List) {
@@ -237,12 +255,24 @@ class ApiService {
   }
 
   /// Login via Laravel: POST /api/login. Index uppercased; password trimmed only (case preserved).
-  static Future<Map<String, dynamic>> login(String index, String password) async {
-    final uri = Uri.parse('${Constants.baseUrl}/login');
+  static Future<Map<String, dynamic>> login(String index, String password) async =>
+      _postCredentials('${Constants.baseUrl}/login', index, password, debugLabel: 'LOGIN');
+
+  /// Same payload as [login]; refreshes profile + issues a new Sanctum token (Laravel: POST /api/me).
+  static Future<Map<String, dynamic>> me(String index, String password) async =>
+      _postCredentials('${Constants.baseUrl}/me', index, password, debugLabel: 'ME');
+
+  static Future<Map<String, dynamic>> _postCredentials(
+    String url,
+    String index,
+    String password, {
+    String debugLabel = 'AUTH',
+  }) async {
+    final uri = Uri.parse(url);
 
     if (kDebugMode) {
       // ignore: avoid_print
-      print('LOGIN URL: $uri');
+      print('$debugLabel URL: $uri');
     }
 
     final response = await http.post(
