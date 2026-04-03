@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\StudentController;
+use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\StudentProfileController;
 use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
@@ -59,6 +60,7 @@ Route::post('/rep/sessions/{session}/close', [ClassRepApiController::class, 'clo
 Route::post('/sessions/{session}/location', [SessionController::class, 'updateLocation'])->whereNumber('session');
 Route::get('/sessions/current-qr/{session}', [SessionController::class, 'currentQr'])->whereNumber('session');
 Route::get('/settings', [SettingsController::class, 'index']);
+Route::post('/notifications/pending', [NotificationsController::class, 'pending']);
 Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
 Route::get('/attendance/sync', [AttendanceController::class, 'sync']);
 Route::post('/attendance/sync', [AttendanceController::class, 'syncPush']);

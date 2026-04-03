@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands([
         \App\Console\Commands\MigrateSqliteToMysql::class,
+        \App\Console\Commands\DispatchClassStartReminders::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Laravel defaults to route('login'), which this app does not define.

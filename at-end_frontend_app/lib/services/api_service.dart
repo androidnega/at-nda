@@ -552,4 +552,16 @@ class ApiService {
         'password': password.trim(),
         'additional_minutes': additionalMinutes,
       });
+
+  /// Firebase-free: fetch and mark pending in-app notifications as read.
+  ///
+  /// POST /api/notifications/pending
+  static Future<http.Response> notificationsPending({
+    required String indexNumber,
+    required String password,
+  }) =>
+      post('notifications/pending', {
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+      });
 }

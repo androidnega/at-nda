@@ -14,6 +14,7 @@ import '../utils/constants.dart';
 import '../utils/password_util.dart';
 import '../services/sync_service.dart';
 import '../services/push_service.dart';
+import '../services/notification_bridge.dart';
 
 /// Sign-in: Laravel API when localAuthOnly=false, local-only when true.
 class LoginPage extends StatefulWidget {
@@ -286,6 +287,8 @@ class _LoginPageState extends State<LoginPage> {
       await SyncService.syncAttendance();
     } catch (_) {}
     await PushService.registerAfterLogin(student.indexNumber);
+    // Firebase-free reminders: poll immediately after successful login.
+    await NotificationBridge.pollPending();
 
     if (!mounted) return;
 
@@ -308,6 +311,8 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _error = 'No connection or incorrect password.');
       return;
     }
+    // Needed for Firebase-free reminder polling (`/api/notifications/pending`).
+    await OfflineService.setApiSessionPassword(passwordForStorage);
     AppState.studentIndex = stored.indexNumber;
     final t = await OfflineService.getApiSessionToken();
     if (t != null && t.isNotEmpty) {
@@ -317,6 +322,7 @@ class _LoginPageState extends State<LoginPage> {
       await SyncService.syncAttendance();
     } catch (_) {}
     await PushService.registerAfterLogin(stored.indexNumber);
+    await NotificationBridge.pollPending();
     if (!mounted) return;
     setState(() => _error = null);
     await _goToPostLoginHome(stored);

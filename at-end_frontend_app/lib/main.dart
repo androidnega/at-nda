@@ -74,6 +74,7 @@ class AttendanceApp extends StatelessWidget {
       builder: (context, mode, _) {
         return MaterialApp(
           title: 'at-enda',
+          scaffoldMessengerKey: NotificationBridge.messengerKey,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
