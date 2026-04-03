@@ -45,6 +45,10 @@ class ApiService {
     return h;
   }
 
+  static Map<String, String> requestHeaders({bool jsonBody = false}) {
+    return _requestHeaders(jsonBody: jsonBody);
+  }
+
   /// Revokes the current token on the server (`POST /api/logout`). Ignores errors.
   static Future<void> logoutRemote() async {
     try {
@@ -63,9 +67,14 @@ class ApiService {
   /// Set from GET /api/settings — include [face_descriptor] in attendance when true.
   static bool faceVerificationEnabled = false;
 
+  /// Optional backend-driven UI blocks (v1). Rendered only when present.
+  /// Schema is documented in `dynamic_widget_renderer.dart`.
+  static List<dynamic> dynamicUi = const [];
+
   /// Loads `face_verification` / `face_verification_enabled` from GET /api/settings.
   static Future<void> loadAppSettings() async {
     faceVerificationEnabled = false;
+    dynamicUi = const [];
     try {
       final r = await get('settings').timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return;
@@ -74,8 +83,15 @@ class ApiService {
       faceVerificationEnabled = m['face_verification_enabled'] == true ||
           m['face_verification'] == true ||
           m['enable_face_verification'] == true;
+
+      final d = m['dynamic_ui'];
+      if (d is List) {
+        // Keep raw items; the renderer will validate each entry.
+        dynamicUi = d;
+      }
     } catch (_) {
       faceVerificationEnabled = false;
+      dynamicUi = const [];
     }
   }
 
@@ -520,5 +536,20 @@ class ApiService {
         'session_id': sessionId,
         'index_number': indexNumber.trim().toUpperCase(),
         'password': password.trim(),
+      });
+
+  /// Class rep: extend an open attendance session's marking window.
+  /// POST /api/class-rep/sessions/extend
+  static Future<http.Response> classRepExtendSession({
+    required int sessionId,
+    required String indexNumber,
+    required String password,
+    required int additionalMinutes,
+  }) =>
+      post('class-rep/sessions/extend', {
+        'session_id': sessionId,
+        'index_number': indexNumber.trim().toUpperCase(),
+        'password': password.trim(),
+        'additional_minutes': additionalMinutes,
       });
 }

@@ -100,4 +100,30 @@ class ClassRepRestController extends Controller
             'session_id' => $request->input('session_id'),
         ], (string) ($payload['message'] ?? 'Session closed'));
     }
+
+    /**
+     * POST /api/class-rep/sessions/extend
+     * Body: session_id, additional_minutes
+     */
+    public function extendSession(Request $request): JsonResponse
+    {
+        $student = $this->classRepApi->authenticate($request);
+        if ($student instanceof JsonResponse) {
+            return $student;
+        }
+
+        $inner = $this->classRepApi->extendSessionById($request, $student);
+        $payload = $inner->getData(true);
+        if (! is_array($payload)) {
+            return ApiEnvelope::error('Unexpected response', 500);
+        }
+
+        if (($payload['success'] ?? false) !== true) {
+            return $inner;
+        }
+
+        return ApiEnvelope::success([
+            'session_id' => $request->input('session_id'),
+        ], (string) ($payload['message'] ?? 'Session extended'));
+    }
 }

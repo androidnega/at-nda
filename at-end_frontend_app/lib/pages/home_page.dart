@@ -3,8 +3,11 @@ import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
+import '../widgets/app_drawer_shell.dart';
 import '../widgets/course_book_icon.dart';
+import '../widgets/modern_pull_to_refresh.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
@@ -18,6 +21,7 @@ import '../utils/app_selectable_scope.dart';
 import '../utils/constants.dart';
 import '../utils/greeting_util.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
 import 'attendance_page.dart';
 import 'attendance_stats_page.dart';
@@ -45,6 +49,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Timer? _sessionUiTicker;
   /// Offline [attendance] queue rows not yet POSTed to the API.
   int _pendingSyncCount = 0;
+
+  /// Backend-driven small UI blocks (optional).
+  List<dynamic> _dynamicUi = const [];
 
   /// From last GET /sessions/active `warnings` (snapshot for UI).
   List<Map<String, dynamic>> _absenceWarningsSnapshot = [];
@@ -206,8 +213,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _load() async {
     final online = await hasInternetConnectivity();
+    _dynamicUi = const [];
     if (online) {
       await ApiService.loadAppSettings();
+      _dynamicUi = ApiService.dynamicUi;
     }
     await SessionCachePrefs.clear();
     _sessionUiTicker?.cancel();
@@ -479,12 +488,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Attendance'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
+      body: ModernPullToRefresh(
+        onRefresh: _load,
+        child: _isLoading
+            ? LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: modernPullToRefreshPhysics,
+                    child: SizedBox(
+                      height: constraints.maxHeight,
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                  );
+                },
+              )
+            : SingleChildScrollView(
+                physics: modernPullToRefreshPhysics,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -492,6 +511,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     if (Constants.debugShowSessionApiResponseOnHome)
                       _buildSessionApiDebugPanel(context),
                     _buildGreetingRow(context),
+                    if (_dynamicUi.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                    ],
                     if (_student?.isClassRep == true) ...[
                       const SizedBox(height: 12),
                       _buildClassRepEntryCard(context),
@@ -551,7 +574,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -704,22 +727,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         timeLabel != '--:--' &&
         timeLabel != '—';
 
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = canMark
-        ? const Color(0xFF1B5E20)
-        : Theme.of(context).colorScheme.outline;
+        ? (isDark ? cs.primary : const Color(0xFF1B5E20))
+        : cs.outline;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: canMark
-            ? const Color(0xFF1B5E20).withValues(alpha: 0.08)
-            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+            ? (isDark
+                ? cs.primary.withValues(alpha: 0.18)
+                : const Color(0xFF1B5E20).withValues(alpha: 0.08))
+            : cs.surfaceContainerHighest.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: canMark
-              ? accent.withValues(alpha: 0.5)
-              : Theme.of(context).colorScheme.outline.withValues(alpha: 0.35),
+              ? accent.withValues(alpha: isDark ? 0.55 : 0.5)
+              : cs.outline.withValues(alpha: 0.35),
           width: 1.5,
         ),
       ),
@@ -731,7 +758,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Icon(
                 Icons.circle,
                 size: 10,
-                color: canMark ? Colors.green.shade700 : Theme.of(context).colorScheme.outline,
+                color: canMark
+                    ? (isDark ? cs.primary : Colors.green.shade700)
+                    : cs.outline,
               ),
               const SizedBox(width: 8),
               Text(
@@ -939,7 +968,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   fontSize: 11,
                   height: 1.35,
                   fontFamily: 'monospace',
-                  color: Colors.grey.shade900,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.88),
                 ),
               ),
             ],
@@ -959,102 +988,120 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             : '${s.firstName ?? ''} ${s.lastName ?? ''}'.trim();
 
     return Drawer(
-      child: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+      child: AppDrawerShell(
+        child: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              UserAccountsDrawerHeader(
+                margin: EdgeInsets.zero,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+                ),
+                currentAccountPicture: s != null
+                    ? ProfileAvatar(student: s, radius: 26)
+                    : CircleAvatar(
+                        backgroundColor: colorScheme.primary.withValues(alpha: 0.3),
+                        child: Icon(Icons.person, color: colorScheme.primary, size: 26),
+                      ),
+                accountName: Text(
+                  s?.indexNumber ?? '—',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                accountEmail: Text(
+                  firstLast.isEmpty ? (s?.email ?? '') : firstLast,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 11.5,
+                    height: 1.25,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-              currentAccountPicture: s != null
-                  ? ProfileAvatar(student: s, radius: 28)
-                  : CircleAvatar(
-                      backgroundColor: colorScheme.primary.withValues(alpha: 0.3),
-                      child: Icon(Icons.person, color: colorScheme.primary),
-                    ),
-              accountName: Text(
-                s?.indexNumber ?? '—',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              accountEmail: Text(
-                firstLast.isEmpty ? (s?.email ?? '') : firstLast,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.person_outline_rounded),
-              title: const Text('Profile'),
-              subtitle: const Text('Details & photo'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).pushNamed('/profile').then((_) => _load());
-              },
-            ),
-            if (s?.isClassRep == true)
               ListTile(
-                leading: Icon(Icons.dashboard_customize_outlined,
-                    color: colorScheme.primary),
-                title: const Text('Class rep dashboard'),
-                subtitle: const Text('Sessions, QR & tools'),
+                leading: const Icon(Icons.person_outline_rounded),
+                title: const Text('Profile'),
+                subtitle: const Text('Details & photo'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.of(context)
-                      .push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              appSelectableScope(const RepHomePage()),
-                        ),
-                      )
-                      .then((_) => _load());
+                  Navigator.of(context).pushNamed('/profile').then((_) => _load());
                 },
               ),
-            ListTile(
-              leading: const Icon(Icons.history_rounded),
-              title: const Text('Attendance history'),
-              subtitle: const Text('Past sessions & status'),
-              onTap: () {
-                Navigator.pop(context);
-                _openAttendanceHistory();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bar_chart_rounded),
-              title: const Text('Statistics'),
-              subtitle: const Text('Marks per course'),
-              onTap: () {
-                Navigator.pop(context);
-                _openStats();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.cloud_queue_rounded),
-              title: const Text('Offline queue'),
-              subtitle: const Text('Pending sync'),
-              onTap: () {
-                Navigator.pop(context);
-                _openOfflineQueue();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('Settings'),
-              subtitle: const Text('Theme & refresh'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).pushNamed('/settings').then((_) => _load());
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.logout, color: colorScheme.error),
-              title: Text('Log out', style: TextStyle(color: colorScheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmLogout();
-              },
-            ),
-          ],
+              if (s?.isClassRep == true)
+                ListTile(
+                  leading: Icon(Icons.dashboard_customize_outlined,
+                      color: colorScheme.primary),
+                  title: const Text('Class rep dashboard'),
+                  subtitle: const Text('Sessions, QR & tools'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context)
+                        .push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                appSelectableScope(const RepHomePage()),
+                          ),
+                        )
+                        .then((_) => _load());
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.history_rounded),
+                title: const Text('Attendance history'),
+                subtitle: const Text('Past sessions & status'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openAttendanceHistory();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart_rounded),
+                title: const Text('Statistics'),
+                subtitle: const Text('Marks per course'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openStats();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.cloud_queue_rounded),
+                title: const Text('Offline queue'),
+                subtitle: const Text('Pending sync'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openOfflineQueue();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('Settings'),
+                subtitle: const Text('Theme & refresh'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/settings').then((_) => _load());
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: Icon(Icons.logout, color: colorScheme.error),
+                title: Text(
+                  'Log out',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.error,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmLogout();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -17,6 +17,8 @@ class SystemSetting extends Model
         'face_match_threshold',
         'attendance_data_version',
         'last_attendance_reset_at',
+        // Optional JSON list for backend-driven small UI updates (Flutter renders only when present).
+        'dynamic_ui',
     ];
 
     protected $casts = [
@@ -28,11 +30,17 @@ class SystemSetting extends Model
         'require_profile_image_on_onboarding' => 'boolean',
         'face_match_threshold' => 'float',
         'last_attendance_reset_at' => 'datetime',
+        'dynamic_ui' => 'array',
     ];
 
     public static function hasRequireProfileImageColumn(): bool
     {
         return Schema::hasColumn('system_settings', 'require_profile_image_on_onboarding');
+    }
+
+    public static function hasDynamicUiColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'dynamic_ui');
     }
 
     public function requiresProfileImageOnOnboarding(): bool
@@ -59,6 +67,9 @@ class SystemSetting extends Model
             ];
             if (static::hasRequireProfileImageColumn()) {
                 $payload['require_profile_image_on_onboarding'] = true;
+            }
+            if (static::hasDynamicUiColumn()) {
+                $payload['dynamic_ui'] = [];
             }
 
             $setting = static::create($payload);

@@ -30,7 +30,7 @@ class OfflineService {
     final path = join(await getDatabasesPath(), 'attendance_offline.db');
     return openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE students(
@@ -51,7 +51,8 @@ class OfflineService {
             level TEXT,
             password_hash TEXT,
             is_class_rep INTEGER DEFAULT 0,
-            rep_roles TEXT
+            rep_roles TEXT,
+            primary_role TEXT
           )
         ''');
         await db.execute('''
@@ -173,6 +174,13 @@ class OfflineService {
             await db.execute('ALTER TABLE students ADD COLUMN server_id INTEGER');
           } catch (_) {}
         }
+        if (oldVersion < 10) {
+          try {
+            await db.execute(
+              "ALTER TABLE students ADD COLUMN primary_role TEXT DEFAULT 'student'",
+            );
+          } catch (_) {}
+        }
       },
     );
   }
@@ -249,6 +257,7 @@ class OfflineService {
       level: m['level'] as String?,
       isClassRep: (m['is_class_rep'] as int?) == 1,
       repRoles: _repRolesFromSqlite(m['rep_roles'] as String?),
+      role: (m['primary_role'] as String?) ?? 'student',
     );
   }
 
@@ -380,6 +389,7 @@ class OfflineService {
         'rep_roles': student.repRoles.isEmpty
             ? null
             : jsonEncode(student.repRoles.map((e) => e.toJson()).toList()),
+        'primary_role': student.role,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

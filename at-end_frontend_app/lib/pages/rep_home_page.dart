@@ -6,14 +6,15 @@ import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
-import '../utils/connectivity_util.dart';
-import '../utils/greeting_util.dart';
+import '../theme/dashboard_surfaces.dart';
+import '../widgets/app_drawer_shell.dart';
+import '../widgets/modern_pull_to_refresh.dart';
 import '../utils/app_selectable_scope.dart';
-import '../widgets/profile_avatar.dart';
+import '../utils/app_state.dart';
+import '../utils/connectivity_util.dart';
 import 'login_page.dart';
 import 'rep_session_page.dart';
 
-/// Entry screen for class reps: session management first; student attendance is secondary.
 class RepHomePage extends StatefulWidget {
   const RepHomePage({super.key});
 
@@ -28,6 +29,7 @@ class _RepHomePageState extends State<RepHomePage> {
   bool _hasActiveSession = false;
   int _activeSessionsCount = 0;
   int _studentsInClassesCount = 0;
+  int _attendanceTodayCount = 0;
 
   @override
   void initState() {
@@ -59,6 +61,7 @@ class _RepHomePageState extends State<RepHomePage> {
       _dashLoading = true;
       _dashError = null;
     });
+
     try {
       final pwd = await OfflineService.getApiSessionPassword();
       final res = await ApiService.classRepDashboard(
@@ -71,14 +74,16 @@ class _RepHomePageState extends State<RepHomePage> {
           raw['success'] == true &&
           raw['data'] is Map) {
         final d = Map<String, dynamic>.from(raw['data'] as Map);
+        final idx = AppState.studentIndex ?? s.indexNumber;
+        final todayLogs = await OfflineService.getTodayAttendanceLogs(idx);
         if (!mounted) return;
         setState(() {
           _dashLoading = false;
           _dashError = null;
           _hasActiveSession = d['has_active_session'] == true;
-          _activeSessionsCount = _parseInt(d['active_sessions_count']) ?? 0;
-          _studentsInClassesCount =
-              _parseInt(d['students_in_classes_count']) ?? 0;
+          _activeSessionsCount = _toInt(d['active_sessions_count']) ?? 0;
+          _studentsInClassesCount = _toInt(d['students_in_classes_count']) ?? 0;
+          _attendanceTodayCount = todayLogs.length;
         });
       } else {
         if (!mounted) return;
@@ -89,28 +94,19 @@ class _RepHomePageState extends State<RepHomePage> {
               : ApiService.messageFromHttpResponse(res);
         });
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _dashLoading = false;
-          _dashError = null;
-        });
-      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dashLoading = false;
+        _dashError = 'Could not refresh dashboard.';
+      });
     }
   }
 
-  int? _parseInt(dynamic v) {
+  int? _toInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.round();
     return int.tryParse(v?.toString() ?? '');
-  }
-
-  String _greetingName(Student s) {
-    final fl = '${s.firstName ?? ''} ${s.lastName ?? ''}'.trim();
-    if (fl.isNotEmpty) return fl;
-    final n = s.name.trim();
-    if (n.isNotEmpty) return n;
-    return s.indexNumber;
   }
 
   Future<void> _logout() async {
@@ -146,20 +142,34 @@ class _RepHomePageState extends State<RepHomePage> {
     if (ok == true) await _logout();
   }
 
+  void _openSessions() {
+    Navigator.of(context)
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => appSelectableScope(const RepSessionPage()),
+          ),
+        )
+        .then((_) {
+      if (mounted && _student != null) {
+        _loadDashboard(_student!);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = _student;
-    final colorScheme = Theme.of(context).colorScheme;
-
     if (s == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final classLabel = (s.className ?? '').trim().isNotEmpty
+        ? s.className!.trim()
+        : 'Class';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Class rep'),
+        title: const Text('Class Rep'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -172,246 +182,182 @@ class _RepHomePageState extends State<RepHomePage> {
         ],
       ),
       drawer: Drawer(
-        child: SafeArea(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              UserAccountsDrawerHeader(
-                decoration: BoxDecoration(color: colorScheme.primaryContainer),
-                currentAccountPicture: ProfileAvatar(student: s, radius: 36),
-                accountName: Text(
-                  _greetingName(s),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+        child: AppDrawerShell(
+          child: SafeArea(
+            child: ListView(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.event_note_rounded),
+                  title: const Text('Session management'),
+                  subtitle: const Text('Open, QR & close attendance'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openSessions();
+                  },
                 ),
-                accountEmail: Text(
-                  s.indexNumber,
-                  style: TextStyle(
-                    color: colorScheme.onPrimaryContainer.withValues(alpha: 0.85),
+                ListTile(
+                  leading: const Icon(Icons.fact_check_outlined),
+                  title: const Text('Attendance Records'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/attendance-records');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.groups_outlined),
+                  title: const Text('Class List'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/class-rep/students');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.how_to_reg_outlined),
+                  title: const Text('My Attendance'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/home');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: const Text('Profile'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/profile');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.settings_outlined),
+                  title: const Text('Settings'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/settings');
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: Icon(
+                    Icons.logout,
+                    color: Theme.of(context).colorScheme.error,
                   ),
+                  title: Text(
+                    'Log out',
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _confirmLogout();
+                  },
                 ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.event_seat_outlined),
-                title: const Text('Manage sessions'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context)
-                      .push<void>(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              appSelectableScope(const RepSessionPage()),
-                        ),
-                      )
-                      .then((_) {
-                    if (mounted && _student != null) {
-                      _loadDashboard(_student!);
-                    }
-                  });
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.groups_outlined),
-                title: const Text('Class roster'),
-                subtitle: const Text('Students in your rep classes'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/class-rep/students');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.how_to_reg_outlined),
-                title: const Text('My attendance'),
-                subtitle: const Text('Mark your own attendance'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/home');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('Profile'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/profile');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Settings'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/settings');
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: Icon(Icons.logout, color: colorScheme.error),
-                title: Text('Log out', style: TextStyle(color: colorScheme.error)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _confirmLogout();
-                },
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  ProfileAvatar(student: s, radius: 40),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          getGreeting(),
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _greetingName(s),
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Chip(
-                  avatar: Icon(Icons.badge_outlined, size: 18, color: colorScheme.primary),
-                  label: const Text('Class representative'),
-                  side: BorderSide(color: colorScheme.outlineVariant),
-                ),
-              ),
-              if (_dashLoading) ...[
-                const SizedBox(height: 16),
-                const LinearProgressIndicator(),
-              ],
-              if (_dashError != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _dashError!,
-                  style: TextStyle(
-                    color: colorScheme.error,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-              if (!_dashLoading && _dashError == null) ...[
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Attendance status',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              _hasActiveSession
-                                  ? Icons.circle
-                                  : Icons.circle_outlined,
-                              size: 14,
-                              color: _hasActiveSession
-                                  ? colorScheme.primary
-                                  : colorScheme.outline,
+        child: ModernPullToRefresh(
+          onRefresh: () => _loadDashboard(s),
+          child: CustomScrollView(
+            physics: modernPullToRefreshPhysics,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              classLabel,
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _hasActiveSession
-                                    ? '$_activeSessionsCount active session(s)'
-                                    : 'No active sessions',
-                                style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: DashboardSurfaces.chipDecoration(context),
+                            child: Text(
+                              'Class Rep',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
-                          ],
-                        ),
-                        if (_studentsInClassesCount > 0) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            '$_studentsInClassesCount student(s) in your classes',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
                           ),
                         ],
+                      ),
+                      if (_dashLoading) ...[
+                        const SizedBox(height: 10),
+                        const LinearProgressIndicator(),
                       ],
-                    ),
+                      if (_dashError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _dashError!,
+                          style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                    ],
                   ),
                 ),
-              ],
-              const SizedBox(height: 28),
-              Text(
-                'Open or close live attendance for your class, show the session QR, and help classmates check in.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.45,
-                    ),
               ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context)
-                      .push<void>(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              appSelectableScope(const RepSessionPage()),
-                        ),
-                      )
-                      .then((_) {
-                    if (mounted && _student != null) {
-                      _loadDashboard(_student!);
-                    }
-                  });
-                },
-                icon: const Icon(Icons.event_available_rounded),
-                label: const Text('Manage class sessions'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pushNamed('/class-rep/students');
-                },
-                icon: const Icon(Icons.groups_outlined),
-                label: const Text('View class roster'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pushNamed('/home');
-                },
-                icon: const Icon(Icons.how_to_reg_outlined),
-                label: const Text('My attendance (as student)'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1.35,
+                  ),
+                  delegate: SliverChildListDelegate(
+                    [
+                      _metricCard(
+                        context,
+                        lightPastel: const Color(0xFFE8F5E9),
+                        darkAccent: const Color(0xFF4ADE80),
+                        icon: Icons.bolt_rounded,
+                        title: 'Active Session',
+                        value: _hasActiveSession ? 'Live' : 'None',
+                      ),
+                      _metricCard(
+                        context,
+                        lightPastel: const Color(0xFFE3F2FD),
+                        darkAccent: const Color(0xFF38BDF8),
+                        icon: Icons.groups_rounded,
+                        title: 'Students Count',
+                        value: '$_studentsInClassesCount',
+                      ),
+                      _metricCard(
+                        context,
+                        lightPastel: const Color(0xFFF3E5F5),
+                        darkAccent: const Color(0xFFC084FC),
+                        icon: Icons.today_rounded,
+                        title: 'Attendance Today',
+                        value: '$_attendanceTodayCount',
+                      ),
+                      _actionCard(
+                        context,
+                        lightPastel: const Color(0xFFFFF3E0),
+                        darkAccent: const Color(0xFFFBBF24),
+                        icon: Icons.event_note_rounded,
+                        title: 'Manage Sessions',
+                        subtitle: _hasActiveSession
+                            ? '$_activeSessionsCount active'
+                            : 'Open or close session',
+                        onTap: _openSessions,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -420,4 +366,105 @@ class _RepHomePageState extends State<RepHomePage> {
       ),
     );
   }
+
+  Widget _metricCard(
+    BuildContext context, {
+    required Color lightPastel,
+    required Color darkAccent,
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final bg = DashboardSurfaces.metricWash(
+      context,
+      lightPastel: lightPastel,
+      darkAccent: darkAccent,
+    );
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: DashboardSurfaces.metricCardBorder(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 17, color: cs.primary),
+          const Spacer(),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withValues(alpha: 0.88),
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionCard(
+    BuildContext context, {
+    required Color lightPastel,
+    required Color darkAccent,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final bg = DashboardSurfaces.metricWash(
+      context,
+      lightPastel: lightPastel,
+      darkAccent: darkAccent,
+    );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+          border: DashboardSurfaces.metricCardBorder(context),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 17, color: cs.primary),
+            const Spacer(),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface.withValues(alpha: 0.9),
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: cs.onSurface.withValues(alpha: 0.72),
+                    fontSize: 10,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+

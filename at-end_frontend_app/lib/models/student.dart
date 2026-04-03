@@ -44,9 +44,10 @@ class Student {
   /// From login: class rep (any role) for mobile rep tools.
   final bool isClassRep;
   final List<RepRoleEntry> repRoles;
+  final String role;
 
-  /// Laravel `primary_role`: `class_rep` or `student` (navigation; mirrors [isClassRep] when omitted).
-  String get primaryRole => isClassRep ? 'class_rep' : 'student';
+  /// Laravel `primary_role`: `student`, `class_rep`, or `lecturer`.
+  String get primaryRole => role;
 
   Student({
     this.serverId,
@@ -65,6 +66,7 @@ class Student {
     this.level,
     this.isClassRep = false,
     this.repRoles = const [],
+    this.role = 'student',
   });
 
   static String _str(dynamic v) => v?.toString() ?? '';
@@ -152,6 +154,7 @@ class Student {
     final profile = (pic != null && pic.isNotEmpty) ? pic : img;
     final roles = _parseRepRoles(json['rep_roles']);
     final isRep = _parseTruthy(json['is_class_rep']) || roles.isNotEmpty;
+    final role = _resolvedRole(json['primary_role'], isRep);
     final sid = json['id'];
     final serverId = sid is int
         ? sid
@@ -175,7 +178,16 @@ class Student {
         level: _strOrNull(json['level']),
         isClassRep: isRep,
         repRoles: roles,
+        role: role,
       );
+  }
+
+  static String _resolvedRole(dynamic raw, bool isRep) {
+    final role = _str(raw).trim().toLowerCase();
+    if (role == 'lecturer') return 'lecturer';
+    if (role == 'class_rep') return 'class_rep';
+    if (role == 'student') return 'student';
+    return isRep ? 'class_rep' : 'student';
   }
 
   static List<RepRoleEntry> _parseRepRoles(dynamic v) {
@@ -228,6 +240,7 @@ class Student {
         'level': level,
         'is_class_rep': isClassRep,
         'rep_roles': repRoles.map((e) => e.toJson()).toList(),
+        'primary_role': role,
       };
 
   Student copyWith({
@@ -247,6 +260,7 @@ class Student {
     String? level,
     bool? isClassRep,
     List<RepRoleEntry>? repRoles,
+    String? role,
   }) =>
       Student(
         serverId: serverId ?? this.serverId,
@@ -265,5 +279,6 @@ class Student {
         level: level ?? this.level,
         isClassRep: isClassRep ?? this.isClassRep,
         repRoles: repRoles ?? this.repRoles,
+        role: role ?? this.role,
       );
 }

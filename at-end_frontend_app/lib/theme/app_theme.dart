@@ -78,6 +78,17 @@ class AppTheme {
         backgroundColor: _surfaceVariant,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
+      drawerTheme: DrawerThemeData(
+        backgroundColor: _surface,
+        elevation: 20,
+        shadowColor: Colors.black.withValues(alpha: 0.55),
+        surfaceTintColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.horizontal(right: Radius.circular(22)),
+        ),
+        width: 296,
+        scrimColor: Colors.black.withValues(alpha: 0.52),
+      ),
     );
 
     return base.copyWith(
@@ -163,6 +174,17 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
         backgroundColor: Color(0xFF334155),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      drawerTheme: DrawerThemeData(
+        backgroundColor: surface,
+        elevation: 16,
+        shadowColor: Colors.black.withValues(alpha: 0.14),
+        surfaceTintColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.horizontal(right: Radius.circular(22)),
+        ),
+        width: 296,
+        scrimColor: Colors.black.withValues(alpha: 0.32),
       ),
     );
 

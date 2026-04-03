@@ -7,6 +7,7 @@ use App\Dto\ClassRep\ClassRepStudentRow;
 use App\Events\SessionLiveEvent;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Student;
 use App\Services\ActiveSessionListBuilder;
@@ -251,6 +252,8 @@ class ClassRepApiService
             'mode' => 'required|in:location,qr,hybrid,wifi',
             'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
+            // Optional override: rep can choose a week number; otherwise use the course's default "next_week_number".
+            'week_number' => 'nullable|integer|min:1|max:500',
             'location_lat' => 'nullable|numeric',
             'location_lng' => 'nullable|numeric',
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
@@ -272,7 +275,35 @@ class ClassRepApiService
 
         $course->attendanceSessions()->where('is_active', true)->update(['is_active' => false]);
 
-        $week = $course->createOrGetAttendanceWeekForToday();
+        $week = null;
+        $weekNumber = $validated['week_number'] ?? null;
+        if ($weekNumber !== null) {
+            $today = now()->toDateString();
+            $existing = AttendanceWeek::query()
+                ->where('course_id', $course->id)
+                ->where('week_date', $today)
+                ->first();
+
+            if ($existing) {
+                $existing->update(['week_number' => (int) $weekNumber]);
+                $week = $existing;
+            } else {
+                $week = AttendanceWeek::create([
+                    'course_id' => $course->id,
+                    'week_number' => (int) $weekNumber,
+                    'week_date' => $today,
+                ]);
+            }
+
+            // Advance default week seed so the next auto week doesn't re-use the same number.
+            $maxWeek = (int) ($course->attendanceWeeks()->max('week_number') ?? $weekNumber);
+            $currentNext = (int) ($course->next_week_number ?? 0);
+            $course->update([
+                'next_week_number' => (int) max($currentNext, $maxWeek + 1, ((int) $weekNumber) + 1),
+            ]);
+        } else {
+            $week = $course->createOrGetAttendanceWeekForToday();
+        }
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expiresAt = $course->computeSessionExpiresAt($duration);
@@ -375,5 +406,79 @@ class ClassRepApiService
         $session = AttendanceSession::findOrFail((int) $validated['session_id']);
 
         return $this->closeSession($request, $student, $session);
+    }
+
+    /**
+     * Extend an active session's marking time by increasing end_time/expires_at.
+     */
+    public function extendSessionById(Request $request, Student $student): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id' => 'required|integer|exists:attendance_sessions,id',
+            'additional_minutes' => 'required|integer|min:5|max:480',
+        ]);
+
+        $session = AttendanceSession::query()->with(['course'])->findOrFail((int) $validated['session_id']);
+        $course = $session->course;
+
+        if (! $course) {
+            return response()->json(['message' => 'Course not found'], 404);
+        }
+        $classIds = $student->repManagedClassIds();
+        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+            return response()->json(['message' => 'You can only manage sessions for your class courses.'], 403);
+        }
+        if (! $this->isMainRepForCourse($student, (int) $session->course_id)) {
+            return response()->json(['message' => 'Only main reps can extend sessions'], 403);
+        }
+
+        // Ensure the session is still "active" in the time window.
+        AttendanceSession::deactivateExpiredSessions();
+        $session->refresh();
+        if (! $session->isValid()) {
+            return response()->json(['message' => 'Session is not active/expired'], 422);
+        }
+
+        $additionalMinutes = (int) $validated['additional_minutes'];
+
+        $currentEnd = $session->end_time ?? $session->expires_at;
+        if (! $currentEnd) {
+            $currentEnd = now();
+        }
+
+        $newEnd = $currentEnd->copy()->addMinutes($additionalMinutes);
+
+        // If the course is on its scheduled weekday, cap to the timetable end time so the
+        // "extended" window never runs past the official slot.
+        if ($course->hasSchedule()) {
+            $todayName = now()->format('l');
+            if (strcasecmp(trim((string) $course->day_of_week), $todayName) === 0) {
+                $slotEnd = now()->copy()->setTimeFromTimeString(
+                    \Carbon\Carbon::parse($course->end_time)->format('H:i:s')
+                );
+                if (! $slotEnd->isPast()) {
+                    $newEnd = $newEnd->lessThanOrEqualTo($slotEnd) ? $newEnd : $slotEnd;
+                }
+            }
+        }
+
+        // Persist the new window.
+        $session->update([
+            'end_time' => $newEnd,
+            'expires_at' => $newEnd,
+        ]);
+        $session->refresh();
+
+        $presentCount = Attendance::where('attendance_session_id', $session->id)
+            ->where('status', 'present')
+            ->count();
+        event(new SessionLiveEvent($session->fresh(['course']), 'session_extended', ['present_count' => $presentCount]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Session extended.',
+            'session_id' => $session->id,
+            'end_time' => $session->end_time?->toIso8601String(),
+        ]);
     }
 }

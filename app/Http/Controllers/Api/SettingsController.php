@@ -11,6 +11,11 @@ class SettingsController extends Controller
     public function index(): JsonResponse
     {
         $settings = SystemSetting::get();
+        $dynamicUi = null;
+        if (SystemSetting::hasDynamicUiColumn()) {
+            // Casted to array by SystemSetting; keep null safe if older rows have null.
+            $dynamicUi = is_array($settings->dynamic_ui ?? null) ? $settings->dynamic_ui : [];
+        }
 
         return response()->json([
             'face_verification_enabled' => $settings->enable_face_verification ?? true,
@@ -22,6 +27,8 @@ class SettingsController extends Controller
             'face_match_threshold' => (float) ($settings->face_match_threshold ?? 0.5),
             'attendance_data_version' => (int) ($settings->attendance_data_version ?? 0),
             'last_attendance_reset_at' => $settings->last_attendance_reset_at?->toIso8601String(),
+            // Optional, safe: Flutter only renders when present and correctly shaped.
+            'dynamic_ui' => $dynamicUi,
         ]);
     }
 }

@@ -48,6 +48,7 @@ Route::match(['get', 'post'], '/class-rep/dashboard', [ClassRepRestController::c
 Route::match(['get', 'post'], '/class-rep/students', [ClassRepRestController::class, 'students']);
 Route::post('/class-rep/sessions/open', [ClassRepRestController::class, 'openSession']);
 Route::post('/class-rep/sessions/close', [ClassRepRestController::class, 'closeSession']);
+Route::post('/class-rep/sessions/extend', [ClassRepRestController::class, 'extendSession']);
 
 Route::post('/attendance/open', [ClassRepRestController::class, 'openSession']);
 Route::post('/attendance/close', [ClassRepRestController::class, 'closeSession']);

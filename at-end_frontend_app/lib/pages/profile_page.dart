@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/offline_service.dart';
+import '../services/profile_identity_cooldown.dart';
+import '../services/profile_image_cache.dart';
 import '../utils/constants.dart';
 import '../services/permission_service.dart';
 import '../widgets/profile_avatar.dart';
@@ -23,6 +25,11 @@ class _ProfilePageState extends State<ProfilePage> {
   Student? _student;
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  /// Baseline for cooldown: values shown after last successful load/save.
+  String _baselineFirst = '';
+  String _baselineLast = '';
   bool _isLoading = true;
   bool _isSaving = false;
   String? _message;
@@ -35,11 +42,30 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _load() async {
     final student = await OfflineService.getCurrentStudent();
+    if (student == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    var f = student.firstName?.trim() ?? '';
+    var l = student.lastName?.trim() ?? '';
+    if (f.isEmpty && l.isEmpty) {
+      final parts = student.name.trim().split(RegExp(r'\s+'));
+      if (parts.length >= 2) {
+        f = parts.first;
+        l = parts.sublist(1).join(' ');
+      } else if (parts.isNotEmpty) {
+        f = parts.first;
+      }
+    }
+    _baselineFirst = f;
+    _baselineLast = l;
     if (mounted) {
       setState(() {
         _student = student;
-        _phoneController.text = student?.phoneNumber ?? '';
-        _emailController.text = student?.email ?? '';
+        _phoneController.text = student.phoneNumber ?? '';
+        _emailController.text = student.email ?? '';
+        _firstNameController.text = f;
+        _lastNameController.text = l;
         _isLoading = false;
       });
     }
@@ -47,6 +73,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _retakePhoto() async {
     if (_student == null) return;
+    if (!await ProfileIdentityCooldown.canEditIdentity()) {
+      if (!mounted) return;
+      final hint = await ProfileIdentityCooldown.nextAllowedHint();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(hint ?? 'Try again later.')),
+      );
+      return;
+    }
     await PermissionService.requestAll();
     final picker = ImagePicker();
     try {
@@ -70,6 +105,8 @@ class _ProfilePageState extends State<ProfilePage> {
           });
         }
       } catch (_) {}
+      await ProfileImageCache.instance.invalidate(updated.indexNumber);
+      await ProfileIdentityCooldown.recordIdentityEdit();
       if (mounted) {
         setState(() {
           _student = updated;
@@ -87,16 +124,38 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _save() async {
     if (_student == null) return;
+
+    final phone = _phoneController.text.trim();
+    final email = _emailController.text.trim();
+    final newFirst = _firstNameController.text.trim();
+    final newLast = _lastNameController.text.trim();
+    final nameIdentityChanged =
+        newFirst != _baselineFirst || newLast != _baselineLast;
+
+    if (nameIdentityChanged) {
+      if (!await ProfileIdentityCooldown.canEditIdentity()) {
+        if (!mounted) return;
+        final hint = await ProfileIdentityCooldown.nextAllowedHint();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(hint ?? 'Try again later.')),
+        );
+        return;
+      }
+    }
+
     setState(() {
       _isSaving = true;
       _message = null;
     });
 
-    final phone = _phoneController.text.trim();
-    final email = _emailController.text.trim();
+    final combined = '$newFirst $newLast'.trim();
     final updated = _student!.copyWith(
       phoneNumber: phone.isEmpty ? null : phone,
       email: email.isEmpty ? null : email,
+      firstName: newFirst.isEmpty ? null : newFirst,
+      lastName: newLast.isEmpty ? null : newLast,
+      name: combined.isEmpty ? _student!.name : combined,
     );
 
     await OfflineService.setCurrentStudent(updated);
@@ -129,6 +188,11 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     if (mounted) {
+      if (nameIdentityChanged) {
+        await ProfileIdentityCooldown.recordIdentityEdit();
+        _baselineFirst = newFirst;
+        _baselineLast = newLast;
+      }
       setState(() {
         _student = updated;
         _isSaving = false;
@@ -141,6 +205,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     _phoneController.dispose();
     _emailController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     super.dispose();
   }
 
@@ -179,7 +245,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      _student!.name,
+                      _student!.displayFirstLastName,
                       style: Theme.of(context).textTheme.titleLarge,
                       textAlign: TextAlign.center,
                     ),
@@ -226,6 +292,31 @@ class _ProfilePageState extends State<ProfilePage> {
                       'Update info',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'First name, last name, and profile photo share one limit: at most one change every 90 days. Phone and email are not limited.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _firstNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'First name',
+                        border: OutlineInputBorder(),
+                      ),
+                      textCapitalization: TextCapitalization.words,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _lastNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Last name',
+                        border: OutlineInputBorder(),
+                      ),
+                      textCapitalization: TextCapitalization.words,
+                    ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _phoneController,
@@ -268,7 +359,9 @@ class _ProfilePageState extends State<ProfilePage> {
               elevation: 0,
               child: ListTile(
                 title: const Text('Retake profile photo'),
-                subtitle: const Text('Use camera to capture new photo'),
+                subtitle: const Text(
+                  'Camera or gallery. Counts toward the 90-day name/photo limit.',
+                ),
                 leading: const Icon(Icons.camera_alt),
                 onTap: _retakePhoto,
               ),

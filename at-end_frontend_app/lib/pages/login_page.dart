@@ -236,7 +236,11 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _goToPostLoginHome(Student student) async {
     final forNav = await _enrichRepFromApi(student);
     if (!mounted) return;
-    final route = forNav.isClassRep ? '/rep-home' : '/home';
+    final route = forNav.primaryRole == 'class_rep'
+        ? '/rep-home'
+        : forNav.primaryRole == 'lecturer'
+            ? '/lecturer-home'
+            : '/home';
     Navigator.of(context).pushReplacementNamed(route);
   }
 
@@ -348,6 +352,7 @@ class _LoginPageState extends State<LoginPage> {
       faculty: sameUser ? stored!.faculty : 'Faculty',
       department: sameUser ? stored!.department : 'Department',
       level: sameUser ? stored!.level : 'Level 100',
+      role: sameUser ? stored!.primaryRole : 'student',
     );
 
     await OfflineService.setCurrentStudent(student);
@@ -367,7 +372,11 @@ class _LoginPageState extends State<LoginPage> {
     await PushService.registerAfterLogin(student.indexNumber);
 
     if (!mounted) return;
-    final route = student.isClassRep ? '/rep-home' : '/home';
+    final route = student.primaryRole == 'class_rep'
+        ? '/rep-home'
+        : student.primaryRole == 'lecturer'
+            ? '/lecturer-home'
+            : '/home';
     Navigator.of(context).pushReplacementNamed(route);
   }
 

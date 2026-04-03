@@ -32,6 +32,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
   String? _error;
   bool _captureFailed = false;
 
+  String _postOnboardingRoute(Student s) {
+    if (s.primaryRole == 'class_rep') return '/rep-home';
+    if (s.primaryRole == 'lecturer') return '/lecturer-home';
+    return '/home';
+  }
+
   /// Laravel: `POST /api/onboarding/complete`.
   Future<void> _syncOnboardingToServer(Student updatedStudent) async {
     try {
@@ -97,7 +103,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       await _syncOnboardingToServer(updatedStudent);
 
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
+        Navigator.of(context).pushReplacementNamed(_postOnboardingRoute(updatedStudent));
       }
     } catch (e) {
       setState(() => _error = 'Error: $e');
@@ -125,7 +131,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       await OfflineService.setApiSessionPassword(widget.password.trim());
       await _syncOnboardingToServer(updatedStudent);
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
+        Navigator.of(context).pushReplacementNamed(_postOnboardingRoute(updatedStudent));
       }
     } catch (e) {
       setState(() => _error = 'Error: $e');

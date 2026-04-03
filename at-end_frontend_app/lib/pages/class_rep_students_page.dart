@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/offline_service.dart';
 import '../utils/app_selectable_scope.dart';
+import '../widgets/modern_pull_to_refresh.dart';
 import 'login_page.dart';
 
-/// Roster from `POST /api/class-rep/students` (server-enforced class rep only).
+/// Class list from `POST /api/class-rep/students` (server-enforced class rep only).
 class ClassRepStudentsPage extends StatefulWidget {
   const ClassRepStudentsPage({super.key});
 
@@ -19,6 +20,28 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _rows = [];
+
+  static String _norm(String? s) => (s ?? '').trim();
+
+  /// Meaningful name (not empty, not em dash, not identical to index).
+  bool _hasDisplayName(Map<String, dynamic> r) {
+    final n = _norm(r['name']?.toString());
+    if (n.isEmpty || n == '—') return false;
+    final idx = _norm(r['index_number']?.toString());
+    if (idx.isNotEmpty && n == idx) return false;
+    return true;
+  }
+
+  /// If every row shares the same class, show once in the header (not per row).
+  String? _sharedClassLabel() {
+    if (_rows.isEmpty) return null;
+    final first = _norm(_rows.first['class_name']?.toString());
+    if (first.isEmpty) return null;
+    final same = _rows.every(
+      (r) => _norm(r['class_name']?.toString()) == first,
+    );
+    return same ? first : null;
+  }
 
   @override
   void initState() {
@@ -106,9 +129,26 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final classHint = _sharedClassLabel();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Class roster'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Class list'),
+            if (classHint != null)
+              Text(
+                classHint,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -128,9 +168,7 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
                         Text(
                           _error!,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
+                          style: TextStyle(color: cs.error),
                         ),
                         const SizedBox(height: 16),
                         if (_error!.contains('Sign in'))
@@ -148,28 +186,32 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
                     ),
                   ),
                 )
-              : RefreshIndicator(
+              : ModernPullToRefresh(
                   onRefresh: _load,
                   child: ListView.separated(
+                    physics: modernPullToRefreshPhysics,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: _rows.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, i) {
                       final r = _rows[i];
-                      final name = r['name']?.toString() ?? '—';
-                      final idx = r['index_number']?.toString() ?? '';
-                      final cls = r['class_name']?.toString();
+                      final idx = _norm(r['index_number']?.toString());
+                      final hasName = _hasDisplayName(r);
+                      final displayName = _norm(r['name']?.toString());
+
+                      final primaryLine = hasName ? displayName : (idx.isNotEmpty ? idx : '—');
+                      final secondaryLine = hasName && idx.isNotEmpty ? idx : null;
+
                       return ListTile(
                         leading: CircleAvatar(
                           child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                            hasName && displayName.isNotEmpty
+                                ? displayName[0].toUpperCase()
+                                : (idx.isNotEmpty ? idx[0] : '?'),
                           ),
                         ),
-                        title: Text(name),
-                        subtitle: Text(
-                          [idx, if (cls != null && cls.isNotEmpty) cls]
-                              .join(' · '),
-                        ),
+                        title: Text(primaryLine),
+                        subtitle: secondaryLine != null ? Text(secondaryLine) : null,
                       );
                     },
                   ),

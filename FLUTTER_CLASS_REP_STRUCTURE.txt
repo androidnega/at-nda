@@ -1,0 +1,165 @@
+FLUTTER MOBILE APP - CLASS REP STRUCTURE AND EXPERIENCE
+======================================================
+
+Project area:
+- at-end_frontend_app/lib/
+
+Main class-rep screens:
+- pages/rep_home_page.dart
+- pages/rep_session_page.dart
+- pages/class_rep_students_page.dart
+
+Related data + API files:
+- models/rep_course.dart
+- models/student.dart
+- services/api_service.dart
+- services/offline_service.dart
+
+
+1) HIGH-LEVEL APP FLOW (CLASS REP)
+----------------------------------
+
+Login and identity:
+- User logs in as a student.
+- If backend marks user as class rep, class-rep tools become available.
+- Student profile and credentials are stored locally for future calls.
+
+Class rep entry:
+- The entry page is RepHomePage.
+- App bar title currently shows: "Class rep".
+- Page loads dashboard stats from:
+  POST /api/class-rep/dashboard
+
+Drawer navigation in rep home:
+- Manage sessions
+- Class roster
+- My attendance
+- Profile
+- Settings
+- Log out
+
+
+2) WHAT THE CLASS REP DASHBOARD LOOKS LIKE NOW
+----------------------------------------------
+
+Overall feel:
+- Clean and practical Material design layout.
+- Simple card-based structure with moderate spacing.
+- Focuses on quick overview + navigation, not heavy visual decoration.
+
+Header/profile section:
+- Shows greeting and profile avatar.
+- Shows class rep chip/badge.
+
+Status section:
+- Displays attendance status card:
+  - Active sessions count (if any)
+  - Students count in managed classes
+
+Action section:
+- Main button to open session management page.
+- Secondary buttons for class roster and personal attendance view.
+
+Error/loading states:
+- Shows linear progress while loading dashboard data.
+- Shows inline error text if dashboard fetch fails.
+
+
+3) SESSION MANAGEMENT EXPERIENCE (RepSessionPage)
+-------------------------------------------------
+
+Purpose:
+- Core operational screen for class reps.
+- Lists courses assigned to rep role.
+- Allows opening and closing live attendance sessions.
+- Supports showing QR token for active sessions.
+
+Data source:
+- Course/session list currently comes from:
+  POST /api/rep/courses
+
+Open session flow:
+- Tap open session action on a course.
+- Dialog allows:
+  - mode: qr / location / hybrid / wifi
+  - lecturer status
+  - duration
+  - optional GPS capture or Wi-Fi SSID based on mode
+- Sends open request through API service.
+
+Close session flow:
+- Confirmation dialog before closing.
+- Sends close request using session id.
+
+Show QR flow:
+- Uses active session qr_token value from response.
+- Opens dialog with QrImageView when token is available.
+- If token missing, shows fallback message.
+
+Course-level state shown:
+- course name and code
+- rep role (main/assist)
+- schedule availability
+- active session marker
+- role restrictions for non-main rep
+
+
+4) CLASS ROSTER EXPERIENCE (ClassRepStudentsPage)
+-------------------------------------------------
+
+Purpose:
+- Dedicated list of students in rep-managed classes.
+
+Data source:
+- POST /api/class-rep/students
+
+UI behavior:
+- Loading spinner while fetching.
+- Error state with retry/login action where needed.
+- List rows show:
+  - Student name
+  - Index number
+  - Class name
+
+
+5) API CONNECTIONS USED BY CLASS REP MOBILE AREA
+-------------------------------------------------
+
+Legacy rep endpoints:
+- POST /api/rep/courses
+- POST /api/rep/sessions/open
+- POST /api/rep/sessions/{id}/close
+
+REST class-rep endpoints (envelope style):
+- POST /api/class-rep/dashboard
+- POST /api/class-rep/students
+- POST /api/class-rep/sessions/open
+- POST /api/class-rep/sessions/close
+
+Backend authority:
+- Backend validates rep permissions and session rules.
+- Mobile UI acts as client layer and presents backend feedback.
+
+
+6) CURRENT CLASS REP "FEEL" SUMMARY
+-----------------------------------
+
+How it feels for a class rep today:
+- Functional and straightforward.
+- Built around utility-first flow:
+  - check status -> manage sessions -> share QR -> close session.
+- Suitable for operational use, with room for a more polished
+  university-style visual system (typography, naming, animation, and card language).
+
+
+7) IF YOU WANT THE "MODERN UNIVERSITY PANEL" STYLE
+--------------------------------------------------
+
+Typical upgrade direction (without changing backend API format):
+- Rename labels to academic tone (panel/session terminology).
+- Keep dashboard as overview only.
+- Move session operations to dedicated menu pages.
+- Add subtle fade/slide transitions.
+- Use flatter cards (elevation 0) and soft borders.
+- Keep QR display in a well-sized modal/container with explicit width/height.
+
