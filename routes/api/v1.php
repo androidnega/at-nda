@@ -55,5 +55,6 @@ Route::middleware('api.https')->group(function () {
         Route::get('sessions', [SessionController::class, 'index']);
         Route::get('sessions/active', [SessionController::class, 'active']);
         Route::post('attendance', [AttendanceController::class, 'store']);
+        Route::get('students', [LegacyStudentController::class, 'indexV1Authenticated']);
     });
 });

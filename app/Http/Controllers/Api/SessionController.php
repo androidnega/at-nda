@@ -36,6 +36,10 @@ class SessionController extends Controller
 
             $missedExtras = $this->missedWarningExtras($request, $indexNumber);
 
+            if ($indexNumber && $student === null) {
+                return response()->json($this->sessionsListPayload(collect(), null, $missedExtras));
+            }
+
             if ($classId && $student && $student->class_id !== null && (int) $classId !== (int) $student->class_id) {
                 return response()->json([
                     'sessions' => [],
@@ -44,7 +48,7 @@ class SessionController extends Controller
             }
 
             $classIdFilter = $classId;
-            if (!$classIdFilter && $indexNumber) {
+            if (! $classIdFilter && $indexNumber) {
                 $classIdFilter = $student?->class_id;
             }
 
@@ -70,12 +74,14 @@ class SessionController extends Controller
                 return response()->json($this->sessionsListPayload($sessions, $student, $missedExtras));
             }
 
+            if ($classIdFilter === null) {
+                return response()->json($this->sessionsListPayload(collect(), $student, $missedExtras));
+            }
+
             $query = AttendanceSession::with(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek'])
                 ->activeWithinTimeWindow();
 
-            if ($classIdFilter) {
-                $query->whereHas('course', fn ($q) => $q->where('class_id', $classIdFilter));
-            }
+            $query->whereHas('course', fn ($q) => $q->where('class_id', $classIdFilter));
 
             $sessions = $query->latest('id')->get();
 

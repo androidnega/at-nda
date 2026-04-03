@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use App\Support\SessionQrPng;
 use App\Models\SchoolClass;
 use App\Models\Student;
+use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -166,7 +167,9 @@ class ClassRepController extends Controller
             return back()->with('error', 'Set day and time for this course first (timetable).');
         }
 
-        $course->attendanceSessions()->where('is_active', true)->update(['is_active' => false]);
+        ClassSessionScopeService::deactivateActiveSessionsForClass(
+            $course->class_id ? (int) $course->class_id : null
+        );
 
         $week = $course->createOrGetAttendanceWeekForToday();
 
@@ -207,6 +210,8 @@ class ClassRepController extends Controller
             'location_lng' => $needsAnchor ? $lng : null,
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
+
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
 
         app(FcmNotificationService::class)->sendSessionStartedToClass($course);
 

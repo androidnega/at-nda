@@ -91,6 +91,12 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
+        if ($student->isCourseRepForCourse((int) $course->id)) {
+            return response()->json([
+                'verified' => false,
+                'message' => 'Class reps are auto-marked when a session is active.',
+            ], 403);
+        }
         $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
         $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
         $session = AttendanceSession::resolveForMarking(
@@ -196,6 +202,12 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
+        if ($student->isCourseRepForCourse((int) $course->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Class reps are auto-marked when a session is active.',
+            ], 403);
+        }
         $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
         $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
         $session = AttendanceSession::resolveForMarking(

@@ -258,7 +258,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } else {
       try {
-        final sessions = await ApiService.getActiveSessions();
+        final sessions = await ApiService.getActiveSessions(
+          indexNumber: _student?.indexNumber,
+        );
         debugPrint('FULL RESPONSE: sessions count=${sessions.length}');
         for (var i = 0; i < sessions.length; i++) {
           debugPrint('CURRENT SESSION [$i]: id=${sessions[i]['id']} '

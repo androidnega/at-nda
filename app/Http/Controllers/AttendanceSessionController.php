@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AttendanceSession;
 use App\Models\Course;
+use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use App\Support\SessionQrPng;
 use Illuminate\Http\Request;
@@ -56,13 +57,15 @@ class AttendanceSessionController extends Controller
 
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
-        $course->attendanceSessions()->where('is_active', true)->update(['is_active' => false]);
+        ClassSessionScopeService::deactivateActiveSessionsForClass(
+            $course->class_id ? (int) $course->class_id : null
+        );
 
         $week = $course->createOrGetAttendanceWeekForToday();
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expiresAt = $course->computeSessionExpiresAt($duration);
-        AttendanceSession::create([
+        $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
@@ -78,6 +81,8 @@ class AttendanceSessionController extends Controller
             'location_lng' => $needsAnchor ? $lng : null,
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
+
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
 
         app(FcmNotificationService::class)->sendSessionStartedToClass($course);
 

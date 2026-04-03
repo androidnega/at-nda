@@ -17,12 +17,9 @@ use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('v1')->group(function () {
-    Route::get('/students', [StudentController::class, 'index']);
-});
-
 /*
 | API v1 (extended) — production envelope + Sanctum (kept for existing clients).
+| GET /api/v1/students is defined in routes/api/v1.php (auth + class scope).
 */
 Route::prefix('v1')->group(base_path('routes/api/v1.php'));
 

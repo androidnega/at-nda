@@ -306,11 +306,25 @@ class ApiService {
 
   /// GET /api/sessions/active — expects `{ "sessions": [ {...}, ... ] }`.
   /// Legacy: top-level JSON array `[ {...}, ... ]` is also accepted.
+  /// Pass [indexNumber] (and optional [classId]) so the server returns only that class's sessions.
   /// Does not throw; on failure returns [] and sets [lastActiveSessionErrorMessage].
-  static Future<List<Map<String, dynamic>>> getActiveSessions() async {
+  static Future<List<Map<String, dynamic>>> getActiveSessions({
+    String? indexNumber,
+    int? classId,
+  }) async {
     lastActiveSessionDebugNote = '';
     lastActiveSessionErrorMessage = '';
-    final uri = Uri.parse('${Constants.baseUrl}/sessions/active');
+    final qp = <String, String>{};
+    final idx = indexNumber?.trim();
+    if (idx != null && idx.isNotEmpty) {
+      qp['index_number'] = idx.toUpperCase();
+    }
+    if (classId != null && classId > 0) {
+      qp['class_id'] = '$classId';
+    }
+    final uri = Uri.parse('${Constants.baseUrl}/sessions/active').replace(
+      queryParameters: qp.isEmpty ? null : qp,
+    );
 
     if (kDebugMode) {
       // ignore: avoid_print

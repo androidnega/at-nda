@@ -8,10 +8,10 @@ use App\Events\SessionLiveEvent;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceWeek;
-use App\Models\ClassRep;
 use App\Models\Course;
 use App\Models\Student;
 use App\Services\ActiveSessionListBuilder;
+use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -274,12 +274,9 @@ class ClassRepApiService
             return response()->json(['message' => 'Set day and time for this course first (timetable).'], 422);
         }
 
-        if ($course->class_id) {
-            AttendanceSession::query()
-                ->where('is_active', true)
-                ->whereHas('course', fn ($q) => $q->where('class_id', $course->class_id))
-                ->update(['is_active' => false]);
-        }
+        ClassSessionScopeService::deactivateActiveSessionsForClass(
+            $course->class_id ? (int) $course->class_id : null
+        );
 
         $week = null;
         $weekNumber = $validated['week_number'] ?? null;
@@ -351,7 +348,7 @@ class ClassRepApiService
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
 
-        $this->autoMarkClassRepsForSession($sessionModel, $course);
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
 
         app(FcmNotificationService::class)->sendSessionStartedToClass($course);
 
@@ -373,41 +370,6 @@ class ClassRepApiService
             'week_number' => $week->week_number,
             'session' => $row,
         ]);
-    }
-
-    /**
-     * Auto-mark all reps in this class as present when a session opens.
-     */
-    private function autoMarkClassRepsForSession(AttendanceSession $session, Course $course): void
-    {
-        if (! $course->class_id) {
-            return;
-        }
-
-        $repIds = ClassRep::query()
-            ->where('class_id', (int) $course->class_id)
-            ->pluck('student_id')
-            ->unique()
-            ->values();
-        if ($repIds->isEmpty()) {
-            return;
-        }
-
-        foreach ($repIds as $repId) {
-            Attendance::firstOrCreate(
-                [
-                    'student_id' => (int) $repId,
-                    'attendance_session_id' => $session->id,
-                ],
-                [
-                    'course_id' => $course->id,
-                    'attendance_week_id' => $session->attendance_week_id,
-                    'attendance_time' => now(),
-                    'status' => 'present',
-                    'synced' => true,
-                ]
-            );
-        }
     }
 
     public function closeSession(Request $request, Student $student, AttendanceSession $session): JsonResponse

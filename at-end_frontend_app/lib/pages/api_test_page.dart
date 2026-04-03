@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../services/offline_service.dart';
 import '../services/location_service.dart';
 import '../utils/constants.dart';
 import '../utils/session_attendance_payload.dart';
@@ -59,7 +60,10 @@ class _ApiTestPageState extends State<ApiTestPage> {
     });
 
     try {
-      final sessions = await ApiService.getActiveSessions();
+      final st = await OfflineService.getCurrentStudent();
+      final sessions = await ApiService.getActiveSessions(
+        indexNumber: st?.indexNumber,
+      );
       if (sessions.isEmpty) {
         final err = ApiService.lastActiveSessionErrorMessage;
         _logMsg(
@@ -135,7 +139,10 @@ class _ApiTestPageState extends State<ApiTestPage> {
     });
 
     try {
-      final data = await ApiService.getActiveSessions();
+      final st = await OfflineService.getCurrentStudent();
+      final data = await ApiService.getActiveSessions(
+        indexNumber: st?.indexNumber,
+      );
       if (data.isEmpty) {
         final err = ApiService.lastActiveSessionErrorMessage;
         _logMsg(

@@ -173,18 +173,45 @@ class StudentController extends Controller
         ]);
     }
 
-    public function index(Request $request): JsonResponse
+    /**
+     * GET /api/v1/students — Sanctum only; list students in the same class as the token holder.
+     */
+    public function indexV1Authenticated(Request $request): JsonResponse
     {
-        if ($request->is('api/v1/students')) {
-            $students = Student::all();
+        $user = $request->user();
+        if (! $user instanceof Student) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Authentication required',
+                'data' => [],
+            ], 401);
+        }
 
+        if ($user->class_id === null) {
             return response()->json([
                 'status' => true,
-                'message' => 'Students fetched successfully',
-                'data' => StudentResource::collection($students),
+                'message' => 'No class assigned',
+                'data' => StudentResource::collection(collect()),
             ]);
         }
 
+        $students = Student::query()
+            ->where('class_id', $user->class_id)
+            ->with(['schoolClass.faculty', 'schoolClass.department', 'department', 'department.faculty'])
+            ->orderByRaw('COALESCE(last_name, index_number)')
+            ->orderByRaw('COALESCE(first_name, index_number)')
+            ->limit(2000)
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Students fetched successfully',
+            'data' => StudentResource::collection($students),
+        ]);
+    }
+
+    public function index(Request $request): JsonResponse
+    {
         $indexNumber = $request->query('index_number');
         if ($indexNumber !== null && $indexNumber !== '') {
             $indexNumber = strtoupper(trim((string) $indexNumber));
@@ -195,6 +222,11 @@ class StudentController extends Controller
             $student->load(['schoolClass.faculty', 'schoolClass.department', 'department', 'department.faculty']);
             $students = collect([$student]);
         } else {
+            $hasClassScope = $request->filled('class_id') || $request->filled('course_id');
+            if (! $hasClassScope) {
+                return response()->json([]);
+            }
+
             $query = Student::query();
             if ($classId = $request->query('class_id')) {
                 $query->where('class_id', $classId);
@@ -203,6 +235,8 @@ class StudentController extends Controller
                 $course = Course::find($courseId);
                 if ($course?->class_id) {
                     $query->where('class_id', $course->class_id);
+                } else {
+                    return response()->json([]);
                 }
             }
             // Avoid loading entire table on mobile (slow / huge JSON). Override with ?limit= up to 2000.

@@ -182,7 +182,9 @@ class _AttendancePageState extends State<AttendancePage> {
       _gpsAccuracyMeters = null;
     });
 
+    Student? loadedStudent;
     try {
+      loadedStudent = await OfflineService.getCurrentStudent();
       if (widget.session != null) {
         final s = Map<String, dynamic>.from(widget.session!);
         debugPrint('activeSession (from home): $s');
@@ -194,7 +196,9 @@ class _AttendancePageState extends State<AttendancePage> {
           _startSessionCountdown();
         }
       } else {
-        final sessions = await ApiService.getActiveSessions();
+        final sessions = await ApiService.getActiveSessions(
+          indexNumber: loadedStudent?.indexNumber,
+        );
         if (mounted) {
           if (sessions.isNotEmpty) {
             debugPrint('activeSession (first of ${sessions.length}): ${sessions.first}');
@@ -238,14 +242,14 @@ class _AttendancePageState extends State<AttendancePage> {
       await _refreshSessionFromActiveList();
     }
 
-    final student = await OfflineService.getCurrentStudent();
+    loadedStudent ??= await OfflineService.getCurrentStudent();
 
     var alreadyMarked = false;
-    if (student != null && _session != null) {
+    if (loadedStudent != null && _session != null) {
       final sid = parseSessionId(Map<String, dynamic>.from(_session!));
       if (sid != null) {
         alreadyMarked = await OfflineService.hasMarkedSessionToday(
-          indexNumber: student.indexNumber,
+          indexNumber: loadedStudent.indexNumber,
           sessionId: sid,
         );
       }
@@ -257,7 +261,7 @@ class _AttendancePageState extends State<AttendancePage> {
     if (mounted) {
       setState(() {
         _isLoading = false;
-        _student = student;
+        _student = loadedStudent;
         _alreadyMarkedForSession = alreadyMarked;
       });
     }
@@ -282,7 +286,10 @@ class _AttendancePageState extends State<AttendancePage> {
     final wantId = parseSessionId(Map<String, dynamic>.from(cur));
     if (wantId == null) return;
     try {
-      final list = await ApiService.getActiveSessions();
+      final st = await OfflineService.getCurrentStudent();
+      final list = await ApiService.getActiveSessions(
+        indexNumber: st?.indexNumber,
+      );
       if (!mounted) return;
       for (final raw in list) {
         final s = Map<String, dynamic>.from(raw);
@@ -798,100 +805,117 @@ class _AttendancePageState extends State<AttendancePage> {
       if (_checkingRange) const Center(child: CircularProgressIndicator()),
       if (_rangeChecked && _distanceMeters != null) ...[
         const SizedBox(height: 12),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Radio<bool>(
-              value: true,
-              groupValue: _withinRange,
-              onChanged: null,
-              fillColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return const Color(0xFF2E7D32);
-                }
-                return Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.55);
-              }),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Within range',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: _withinRange
-                                ? const Color(0xFF1B5E20)
-                                : Theme.of(context).colorScheme.onSurface,
-                          ),
-                    ),
-                    if (_withinRange) ...[
-                      const SizedBox(height: 6),
-                      Row(
+        RadioGroup<bool>(
+          groupValue: _withinRange,
+          // Display-only radios: we still need an onChanged callback because
+          // RadioGroup's API requires it.
+          onChanged: (_) {},
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Radio<bool>(
+                    value: true,
+                    enabled: false,
+                    fillColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return const Color(0xFF2E7D32);
+                      }
+                      return Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.55);
+                    }),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 18,
-                            color: Colors.green.shade700,
+                          Text(
+                            'Within range',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: _withinRange
+                                      ? const Color(0xFF1B5E20)
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                ),
                           ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              "Great — you're in range.",
-                              style: TextStyle(
-                                fontSize: 14,
-                                height: 1.35,
-                                color: Colors.green.shade800,
-                              ),
+                          if (_withinRange) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: Colors.green.shade700,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    "Great — you're in range.",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      height: 1.35,
+                                      color: Colors.green.shade800,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                          ],
                         ],
                       ),
-                    ],
-                  ],
-                ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Radio<bool>(
-              value: false,
-              groupValue: _withinRange,
-              onChanged: null,
-              fillColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return const Color(0xFFE65100);
-                }
-                return Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.55);
-              }),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  'Out of range',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: !_withinRange
-                            ? const Color(0xFFB71C1C)
-                            : Theme.of(context).colorScheme.onSurface,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Radio<bool>(
+                    value: false,
+                    enabled: false,
+                    fillColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return const Color(0xFFE65100);
+                      }
+                      return Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.55);
+                    }),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        'Out of range',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: !_withinRange
+                                  ? const Color(0xFFB71C1C)
+                                  : Theme.of(context).colorScheme.onSurface,
+                            ),
                       ),
-                ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         Text(
           'Distance: ${_distanceMeters!.toStringAsFixed(1)} m · '
