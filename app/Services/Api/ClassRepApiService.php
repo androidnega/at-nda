@@ -240,6 +240,7 @@ class ClassRepApiService
                 name: $s->getDisplayNameOrIndex(),
                 classId: $s->class_id ? (int) $s->class_id : null,
                 className: $s->schoolClass?->name,
+                profileImage: $s->profile_image ? (string) $s->profile_image : null,
             );
 
             return $dto->toArray();

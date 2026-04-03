@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../services/notification_bridge.dart';
+import '../services/notification_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
-import '../services/venue_occupancy_roadmap.dart';
 import '../theme/dashboard_surfaces.dart';
 import '../utils/app_selectable_scope.dart';
 import 'login_page.dart';
@@ -147,7 +148,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(
                   leading: Icon(Icons.person_outline_rounded, color: cs.primary),
                   title: const Text('Profile'),
-                  subtitle: const Text('Name, email, phone, photo'),
+                  subtitle: const Text('Update your details and photo'),
                   trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () =>
                       Navigator.of(context).pushNamed('/profile').then((_) {
@@ -167,7 +168,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         )
                       : Icon(Icons.sync_rounded, color: cs.primary),
                   title: const Text('Sync attendance'),
-                  subtitle: const Text('Upload pending marks from this device'),
+                  subtitle: const Text('Send any pending marks from this device'),
                   onTap: _refreshing ? null : _refreshData,
                 ),
                 const Divider(height: 1),
@@ -180,43 +181,35 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 16),
-          Text(
-            'Notifications & reminders',
-            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.all(14),
             decoration: DashboardSurfaces.cardDecoration(context),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Class alerts and broadcast messages need Firebase + server setup. '
-                  'Hooks are prepared in the codebase.',
-                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '• Reminder ~30 min before a scheduled class\n'
-                  '• Optional “all users” notice when the app opens',
-                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Venues (planned)',
-            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: DashboardSurfaces.cardDecoration(context),
-            child: Text(
-              VenueOccupancyRoadmap.summary,
-              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: NotificationPrefs.enabledNotifier,
+              builder: (context, on, _) {
+                return SwitchListTile(
+                  secondary: Icon(
+                    Icons.notifications_outlined,
+                    color: cs.primary,
+                  ),
+                  title: const Text('In-app reminders'),
+                  subtitle: Text(
+                    on
+                        ? 'You’ll see class reminders here when your school sends them.'
+                        : 'Turn on to start receiving reminders and notices in the app.',
+                    style: tt.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                  value: on,
+                  onChanged: (v) async {
+                    await NotificationPrefs.setEnabled(v);
+                    if (v) {
+                      await NotificationBridge.pollPending();
+                    }
+                  },
+                );
+              },
             ),
           ),
           const SizedBox(height: 20),

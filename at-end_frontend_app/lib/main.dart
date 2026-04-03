@@ -13,6 +13,7 @@ import 'pages/rep_home_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'services/notification_bridge.dart';
+import 'services/notification_prefs.dart';
 import 'services/theme_service.dart';
 import 'theme/app_theme.dart';
 import 'utils/app_selectable_scope.dart';
@@ -20,6 +21,7 @@ import 'utils/app_selectable_scope.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeService.load();
+  await NotificationPrefs.load();
   await NotificationBridge.initialize();
   runApp(
     const _AppLifecycleShell(

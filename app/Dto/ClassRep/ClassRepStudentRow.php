@@ -13,6 +13,7 @@ final readonly class ClassRepStudentRow
         public string $name,
         public ?int $classId,
         public ?string $className,
+        public ?string $profileImage,
     ) {}
 
     /**
@@ -26,6 +27,7 @@ final readonly class ClassRepStudentRow
             'name' => $this->name,
             'class_id' => $this->classId,
             'class_name' => $this->className,
+            'profile_image' => $this->profileImage,
         ];
     }
 }

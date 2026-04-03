@@ -2,10 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/offline_service.dart';
 import '../utils/app_selectable_scope.dart';
 import '../widgets/modern_pull_to_refresh.dart';
+import '../widgets/profile_avatar.dart';
 import 'login_page.dart';
 
 /// Class list from `POST /api/class-rep/students` (server-enforced class rep only).
@@ -20,6 +22,11 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _rows = [];
+
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  /// `null` = all classes; otherwise exact class name from API.
+  String? _classFilter;
 
   static String _norm(String? s) => (s ?? '').trim();
 
@@ -43,10 +50,55 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
     return same ? first : null;
   }
 
+  List<String> _distinctClassNames() {
+    final set = <String>{};
+    for (final r in _rows) {
+      final c = _norm(r['class_name']?.toString());
+      if (c.isNotEmpty) set.add(c);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  List<Map<String, dynamic>> get _filteredRows {
+    var list = _rows;
+    if (_classFilter != null && _classFilter!.isNotEmpty) {
+      list = list
+          .where((r) => _norm(r['class_name']?.toString()) == _classFilter)
+          .toList();
+    }
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return list;
+    return list.where((r) {
+      final name = _norm(r['name']?.toString()).toLowerCase();
+      final idx = _norm(r['index_number']?.toString()).toLowerCase();
+      return name.contains(q) || idx.contains(q);
+    }).toList();
+  }
+
+  Student _rowToStudent(Map<String, dynamic> r) {
+    final idx = _norm(r['index_number']?.toString());
+    final display = _norm(r['name']?.toString());
+    final id = int.tryParse('${r['id']}');
+    final pic = _norm(r['profile_image']?.toString());
+    return Student(
+      serverId: id,
+      indexNumber: idx.isNotEmpty ? idx : '—',
+      name: display.isNotEmpty ? display : (idx.isNotEmpty ? idx : 'Student'),
+      profileImage: pic,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -114,6 +166,7 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
           _loading = false;
           _error = null;
           _rows = out;
+          _classFilter = null;
         });
       }
     } catch (e) {
@@ -130,7 +183,10 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     final classHint = _sharedClassLabel();
+    final classes = _distinctClassNames();
+    final filtered = _filteredRows;
 
     return Scaffold(
       appBar: AppBar(
@@ -186,35 +242,129 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
                     ),
                   ),
                 )
-              : ModernPullToRefresh(
-                  onRefresh: _load,
-                  child: ListView.separated(
-                    physics: modernPullToRefreshPhysics,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: _rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final r = _rows[i];
-                      final idx = _norm(r['index_number']?.toString());
-                      final hasName = _hasDisplayName(r);
-                      final displayName = _norm(r['name']?.toString());
-
-                      final primaryLine = hasName ? displayName : (idx.isNotEmpty ? idx : '—');
-                      final secondaryLine = hasName && idx.isNotEmpty ? idx : null;
-
-                      return ListTile(
-                        leading: CircleAvatar(
-                          child: Text(
-                            hasName && displayName.isNotEmpty
-                                ? displayName[0].toUpperCase()
-                                : (idx.isNotEmpty ? idx[0] : '?'),
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: 'Search by name or index…',
+                              prefixIcon: const Icon(Icons.search),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                            ),
+                            onChanged: (v) =>
+                                setState(() => _searchQuery = v),
+                          ),
+                          if (classes.length > 1) ...[
+                            const SizedBox(height: 10),
+                            InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Filter by class',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String?>(
+                                  value: _classFilter,
+                                  isExpanded: true,
+                                  hint: const Text('All classes'),
+                                  items: [
+                                    const DropdownMenuItem<String?>(
+                                      value: null,
+                                      child: Text('All classes'),
+                                    ),
+                                    for (final c in classes)
+                                      DropdownMenuItem<String?>(
+                                        value: c,
+                                        child: Text(
+                                          c,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: (v) =>
+                                      setState(() => _classFilter = v),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (filtered.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              _rows.isEmpty
+                                  ? 'No students in your classes yet.'
+                                  : 'No matches. Try a different search or filter.',
+                              textAlign: TextAlign.center,
+                              style: tt.bodyMedium?.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
                           ),
                         ),
-                        title: Text(primaryLine),
-                        subtitle: secondaryLine != null ? Text(secondaryLine) : null,
-                      );
-                    },
-                  ),
+                      )
+                    else
+                      Expanded(
+                        child: ModernPullToRefresh(
+                          onRefresh: _load,
+                          child: ListView.separated(
+                            physics: modernPullToRefreshPhysics,
+                            padding: const EdgeInsets.only(bottom: 16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final r = filtered[i];
+                              final idx =
+                                  _norm(r['index_number']?.toString());
+                              final hasName = _hasDisplayName(r);
+                              final displayName =
+                                  _norm(r['name']?.toString());
+
+                              final primaryLine = hasName
+                                  ? displayName
+                                  : (idx.isNotEmpty ? idx : '—');
+                              final secondaryLine =
+                                  hasName && idx.isNotEmpty ? idx : null;
+
+                              return ListTile(
+                                leading: ProfileAvatar(
+                                  student: _rowToStudent(r),
+                                  radius: 22,
+                                ),
+                                title: Text(primaryLine),
+                                subtitle: secondaryLine != null
+                                    ? Text(secondaryLine)
+                                    : null,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'api_service.dart';
+import 'notification_prefs.dart';
 import 'offline_service.dart';
 
 /// Firebase-free notifications:
@@ -37,6 +38,10 @@ abstract final class NotificationBridge {
     if (_inFlight) return;
     _inFlight = true;
     try {
+      if (!NotificationPrefs.enabled) {
+        return;
+      }
+
       final student = await OfflineService.getCurrentStudent();
       if (student == null) return;
 
