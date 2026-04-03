@@ -98,7 +98,7 @@
         @if(session()->has('admin_id'))
         <div class="border-b border-gray-100 pb-5">
             <h3 class="text-sm font-semibold text-gray-800 mb-3">Default session location (optional)</h3>
-            <p class="text-xs text-gray-500 mb-3">When set, course reps can open <strong>location</strong> or <strong>hybrid</strong> sessions without entering coordinates — they can still override with GPS or manual entry.</p>
+            <p class="text-xs text-gray-500 mb-3">When set, class reps can open <strong>location</strong> or <strong>hybrid</strong> sessions without entering coordinates — they can still override with GPS or manual entry.</p>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                     <label for="location_lat" class="block text-sm font-medium text-gray-700 mb-2">Latitude</label>

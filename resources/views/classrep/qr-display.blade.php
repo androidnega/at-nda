@@ -36,8 +36,14 @@
                                 <img src="{{ $qrUrl }}" alt="Session QR code" width="288" height="288" class="w-full max-w-[min(16rem,70vw)] sm:max-w-[18rem] aspect-square object-contain select-none mx-auto" draggable="false">
                             </div>
                         </div>
+                        @if($session->session_code)
+                        <p class="mt-4 text-center text-sm text-slate-700">
+                            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Session code (manual entry)</span>
+                            <span class="font-mono text-lg font-bold tracking-tight text-emerald-900">{{ $session->session_code }}</span>
+                        </p>
+                        @endif
                         <p class="mt-5 text-center text-xs text-slate-400 leading-relaxed">
-                            Static code for this session · <span class="text-slate-600 font-medium">a-tenda</span> app or web check-in
+                            Scan from another device when possible · <span class="text-slate-600 font-medium">a-tenda</span> app or web check-in
                         </p>
                         <div class="mt-5 flex justify-center">
                             <a href="{{ route('dashboard.live-sessions.qr-download', $session) }}"

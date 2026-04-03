@@ -38,7 +38,10 @@ class AttendanceRecordsController extends Controller
 
         $managed = $student->repManagedClassIds();
         if (! $course->class_id || ! $managed->contains((int) $course->class_id)) {
-            return ApiEnvelope::error('Not allowed', 403);
+            return ApiEnvelope::error(
+                'You do not have permission to view attendance for this session.',
+                403
+            );
         }
 
         $rows = $this->attendanceRowsForSession($session->id);
@@ -164,7 +167,10 @@ class AttendanceRecordsController extends Controller
 
         $managed = $student->repManagedClassIds();
         if (! $course->class_id || ! $managed->contains((int) $course->class_id)) {
-            return ApiEnvelope::error('Not allowed', 403);
+            return ApiEnvelope::error(
+                'You do not have permission to view attendance for this session.',
+                403
+            );
         }
 
         return ['course' => $course];

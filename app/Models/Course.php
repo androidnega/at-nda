@@ -57,11 +57,6 @@ class Course extends Model
         return $this->hasMany(Attendance::class);
     }
 
-    public function courseReps(): \Illuminate\Database\Eloquent\Relations\HasMany
-    {
-        return $this->hasMany(CourseRep::class);
-    }
-
     public function attendanceSessions(): HasMany
     {
         return $this->hasMany(AttendanceSession::class);

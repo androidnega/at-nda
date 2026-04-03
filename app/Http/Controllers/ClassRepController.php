@@ -52,7 +52,7 @@ class ClassRepController extends Controller
         if ($cr) {
             return $cr->isMainRep();
         }
-        // Course reps are off-system; only class reps can open sessions.
+        // Only class reps can open sessions.
         return false;
     }
 

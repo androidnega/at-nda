@@ -149,7 +149,7 @@ class SessionController extends Controller
     }
 
     /**
-     * POST /api/sessions/{session}/location — main course rep updates session anchor (lat/lng) from device GPS.
+     * POST /api/sessions/{session}/location — primary class rep updates session anchor (lat/lng) from device GPS.
      *
      * Body: lat, lng, accuracy (optional), index_number, password
      */
@@ -181,7 +181,7 @@ class SessionController extends Controller
         }
 
         if (! $this->isMainRepForCourse($student, (int) $session->course_id)) {
-            return response()->json(['message' => 'Only the main course rep can update session location'], 403);
+            return response()->json(['message' => 'Only the primary class rep can update session location'], 403);
         }
 
         $session->location_lat = $validated['lat'];

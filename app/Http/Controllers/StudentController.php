@@ -38,7 +38,7 @@ class StudentController extends Controller
 
     public function index(Request $request): View
     {
-        // Course reps are off-system; only eager-load class reps.
+        // Eager-load class reps only.
         $query = Student::with(['schoolClass']);
         $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
         if ($lecturerClassIds !== null) {

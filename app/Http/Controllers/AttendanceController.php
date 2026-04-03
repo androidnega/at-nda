@@ -27,7 +27,17 @@ class AttendanceController extends Controller
             $loggedInStudent = Student::find($request->session()->get('student_id'));
         }
 
-        return view('attendance.form', compact('course', 'activeSession', 'settings', 'loggedInStudent'));
+        $isClassRep = $loggedInStudent
+            ? $loggedInStudent->isClassRepForCourse((int) $course->id)
+            : false;
+
+        return view('attendance.form', compact(
+            'course',
+            'activeSession',
+            'settings',
+            'loggedInStudent',
+            'isClassRep',
+        ));
     }
 
     /** Permanent redirect from legacy /attendance/{course} URLs (cacheable routes; no closures). */
@@ -91,25 +101,25 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
-        if ($student->isCourseRepForCourse((int) $course->id)) {
+        if ($student->isClassRepForCourse((int) $course->id)) {
             return response()->json([
                 'verified' => false,
                 'message' => 'Class reps are auto-marked when a session is active.',
             ], 403);
         }
-        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
+        $isClassRep = $student->isClassRepForCourse((int) $course->id);
         $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
         $session = AttendanceSession::resolveForMarking(
             $course,
             $validated['session_token'] ?? null,
             $sessionId > 0 ? $sessionId : null,
-            $isCourseRep
+            $isClassRep
         );
         if (! $session) {
             return response()->json(['verified' => false, 'message' => 'Session closed or expired'], 422);
         }
 
-        $supplementalRepMark = $isCourseRep && ! $session->isValid();
+        $supplementalRepMark = $isClassRep && ! $session->isValid();
 
         // Venue is anchored when the session opens; students are not required to send coordinates.
         // Optional lat/lng still validate against the session geofence when both are provided.
@@ -163,6 +173,7 @@ class AttendanceController extends Controller
             'longitude' => 'nullable|numeric',
             'session_token' => 'nullable|string',
             'session_id' => 'nullable|integer',
+            'session_code' => 'nullable|string|max:48',
             'qr_sig' => 'nullable|string',
             'qr_t' => 'nullable|integer',
             'wifi_ssid' => 'nullable|string|max:128',
@@ -202,31 +213,46 @@ class AttendanceController extends Controller
         }
 
         $course = Course::findOrFail($validated['course_id']);
-        if ($student->isCourseRepForCourse((int) $course->id)) {
+        if ($student->isClassRepForCourse((int) $course->id)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Class reps are auto-marked when a session is active.',
             ], 403);
         }
-        $isCourseRep = $student->isCourseRepForCourse((int) $course->id);
-        $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
-        $session = AttendanceSession::resolveForMarking(
-            $course,
-            $validated['session_token'] ?? null,
-            $sessionId > 0 ? $sessionId : null,
-            $isCourseRep
-        );
+        $isClassRep = $student->isClassRepForCourse((int) $course->id);
+        $sessionCode = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
+
+        if ($sessionCode !== '') {
+            $session = AttendanceSession::query()
+                ->where('course_id', $course->id)
+                ->where(function ($q) use ($sessionCode) {
+                    $q->where('session_code', $sessionCode)
+                        ->orWhereRaw('LOWER(session_code) = ?', [strtolower($sessionCode)]);
+                })
+                ->first();
+            if (! $session || ! $session->isValid()) {
+                return response()->json(['success' => false, 'message' => 'Invalid or expired session code'], 422);
+            }
+        } else {
+            $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
+            $session = AttendanceSession::resolveForMarking(
+                $course,
+                $validated['session_token'] ?? null,
+                $sessionId > 0 ? $sessionId : null,
+                $isClassRep
+            );
+        }
 
         if (! $session) {
             return response()->json(['success' => false, 'message' => 'Session closed or expired'], 422);
         }
 
-        $supplementalRepMark = $isCourseRep && ! $session->isValid();
+        $supplementalRepMark = $isClassRep && ! $session->isValid();
 
         $mode = $session->mode;
 
         if (! $supplementalRepMark && $mode === 'qr') {
-            if (!$isCourseRep) {
+            if (!$isClassRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated);
                 if ($qrErr !== null) {
                     return $qrErr;
@@ -252,7 +278,7 @@ class AttendanceController extends Controller
                     ], 422);
                 }
             }
-            if (!$isCourseRep) {
+            if (!$isClassRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated);
                 if ($qrErr !== null) {
                     return $qrErr;
@@ -357,9 +383,14 @@ class AttendanceController extends Controller
      */
     private function validateQrProofJson(AttendanceSession $session, array $validated): ?JsonResponse
     {
+        $manual = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
+        if ($manual !== '' && strcasecmp($manual, (string) ($session->session_code ?? '')) === 0) {
+            return null;
+        }
+
         $tok = isset($validated['session_token']) ? trim((string) $validated['session_token']) : '';
         if ($tok === '') {
-            return response()->json(['success' => false, 'message' => 'Invalid QR code'], 422);
+            return response()->json(['success' => false, 'message' => 'Invalid QR code or session code'], 422);
         }
         if (! SecureQrToken::isValidSubmission($tok, $session)) {
             return response()->json(['success' => false, 'message' => 'Invalid QR code'], 403);

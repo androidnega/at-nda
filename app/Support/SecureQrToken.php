@@ -47,6 +47,9 @@ class SecureQrToken
             // Issued timestamp to support offline validation and screenshot expiry guidance.
             'timestamp' => $issuedAt,
         ];
+        if (! empty($session->session_code)) {
+            $data['session_code'] = (string) $session->session_code;
+        }
         $payload = json_encode($data, JSON_UNESCAPED_SLASHES);
         $sig = hash_hmac('sha256', $payload, $secret);
 

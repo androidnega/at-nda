@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -35,7 +36,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.only' => \App\Http\Middleware\EnsureAdminOnly::class,
             'admin' => \App\Http\Middleware\EnsureAdminOrLecturer::class,
             'classrep' => \App\Http\Middleware\EnsureClassRep::class,
-            'courserep' => \App\Http\Middleware\EnsureClassRep::class,
             'lecturer' => \App\Http\Middleware\EnsureLecturer::class,
             'student.attendance' => \App\Http\Middleware\EnsureNotAdminOrLecturer::class,
             'student.auth' => \App\Http\Middleware\EnsureStudentAuthenticated::class,
@@ -69,6 +69,16 @@ return Application::configure(basePath: dirname(__DIR__))
                     'errors' => null,
                     'meta' => null,
                 ], 401);
+            }
+        });
+
+        // Route model binding 404s (e.g. invalid session id) — never expose model class names to clients.
+        $exceptions->render(function (ModelNotFoundException $e, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'We could not find that session or record.',
+                ], 404);
             }
         });
     })->create();

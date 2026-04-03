@@ -30,6 +30,7 @@ class AttendanceSession extends Model
         'end_time',
         'allowed_wifi_ssid',
         'lecturer_status',
+        'session_code',
     ];
 
     public function attendanceWeek(): BelongsTo
@@ -73,6 +74,23 @@ class AttendanceSession extends Model
         return $this->hasMany(Attendance::class);
     }
 
+    /**
+     * Human-readable join code (e.g. CSC101-4821) for manual entry and QR payload.
+     */
+    public static function generateUniqueSessionCodeForCourse(Course $course): string
+    {
+        $raw = preg_replace('/[^A-Za-z0-9]/', '', (string) ($course->course_code ?? ''));
+        $prefix = strtoupper(strlen($raw) >= 2 ? substr($raw, 0, 14) : ('C'.$course->id));
+        for ($attempt = 0; $attempt < 40; $attempt++) {
+            $code = $prefix.'-'.str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+            if (! static::query()->where('session_code', $code)->exists()) {
+                return $code;
+            }
+        }
+
+        return $prefix.'-'.strtoupper(Str::random(4));
+    }
+
     public function isExpired(): bool
     {
         $end = $this->end_time ?? $this->expires_at;
@@ -102,12 +120,6 @@ class AttendanceSession extends Model
         }
 
         return $start->greaterThanOrEqualTo(now()->subDays($days));
-    }
-
-    /** @deprecated Use {@see canBeMarkedByClassRep} */
-    public function canBeMarkedByCourseRep(): bool
-    {
-        return $this->canBeMarkedByClassRep();
     }
 
     /**
@@ -240,7 +252,7 @@ class AttendanceSession extends Model
         return in_array($this->mode, ['location', 'hybrid'], true);
     }
 
-    /** Non–course reps must prove they scanned the live QR (QR-only or hybrid). */
+    /** Students who are not class reps must prove they scanned the live QR (QR-only or hybrid). */
     public function requiresQrProof(): bool
     {
         return in_array($this->mode, ['qr', 'hybrid'], true);
@@ -396,6 +408,9 @@ class AttendanceSession extends Model
             if ($course) {
                 $session->lecturer_id ??= $course->lecturer_id;
                 $session->venue_id ??= $course->venue_id;
+                if (empty($session->session_code)) {
+                    $session->session_code = static::generateUniqueSessionCodeForCourse($course);
+                }
             }
             // Signed QR needs session id → generated in `created` when QR_SECRET is set.
             if (empty($session->qr_token) && ! SecureQrToken::secret()) {

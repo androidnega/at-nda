@@ -42,7 +42,7 @@ class StudentApiPayload
             $name = (string) ($student->index_number ?? '');
         }
 
-        // Course reps are off-system; only class reps are supported for API roles.
+        // Class rep roles only (from class_reps).
         $student->loadMissing(['classReps']);
         $isClassRep = $student->isClassRep();
         $repRoles = $isClassRep ? $student->apiRepRoleRows() : [];

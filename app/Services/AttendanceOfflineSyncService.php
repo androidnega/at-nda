@@ -47,7 +47,7 @@ class AttendanceOfflineSyncService
                 continue;
             }
 
-            $isRep = $student->isCourseRepForCourse((int) $course->id);
+            $isRep = $student->isClassRepForCourse((int) $course->id);
             if ($isRep) {
                 $failed++;
 
@@ -113,7 +113,7 @@ class AttendanceOfflineSyncService
                 }
             }
 
-            if (($session->mode === 'qr' || $session->mode === 'hybrid') && ! $student->isCourseRepForCourse($course->id)) {
+            if (($session->mode === 'qr' || $session->mode === 'hybrid') && ! $student->isClassRepForCourse($course->id)) {
                 $tok = isset($record['session_token']) ? trim((string) $record['session_token']) : '';
                 if ($tok === '' || ! SecureQrToken::isValidSubmission($tok, $session)) {
                     $failed++;

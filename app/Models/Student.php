@@ -365,11 +365,6 @@ class Student extends Model implements AuthenticatableContract
         return true;
     }
 
-    public function courseReps(): \Illuminate\Database\Eloquent\Relations\HasMany
-    {
-        return $this->hasMany(CourseRep::class);
-    }
-
     public function classReps(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(ClassRep::class, 'student_id');
@@ -378,11 +373,6 @@ class Student extends Model implements AuthenticatableContract
     public function reppedClasses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(SchoolClass::class, 'class_reps', 'student_id', 'class_id')->withPivot('role')->withTimestamps();
-    }
-
-    public function reppedCourses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
-    {
-        return $this->belongsToMany(Course::class, 'course_reps')->withTimestamps();
     }
 
     public function isClassRep(): bool
@@ -394,14 +384,7 @@ class Student extends Model implements AuthenticatableContract
         } elseif ($this->classReps()->exists()) {
             return true;
         }
-        // Course reps are no longer supported. Only class reps are valid.
         return false;
-    }
-
-    /** @deprecated Use {@see isClassRep()} */
-    public function isCourseRep(): bool
-    {
-        return $this->isClassRep();
     }
 
     public function isRep(): bool
@@ -425,13 +408,12 @@ class Student extends Model implements AuthenticatableContract
     }
 
     /**
-     * Distinct class rep roles for API login / profile (class_reps + legacy course_reps).
+     * Distinct class rep roles for API login / profile.
      *
      * @return list<array{class_id: int, role: string}>
      */
     public function apiRepRoleRows(): array
     {
-        // Course reps are no longer supported. Only class reps contribute to rep roles.
         $this->loadMissing(['classReps']);
         $rows = [];
         $seen = [];
@@ -540,12 +522,6 @@ class Student extends Model implements AuthenticatableContract
         return $this->classReps()
             ->where('class_id', $course->class_id)
             ->exists();
-    }
-
-    /** @deprecated Use {@see isClassRepForCourse} */
-    public function isCourseRepForCourse(int $courseId): bool
-    {
-        return $this->isClassRepForCourse($courseId);
     }
 
     public function deviceToken(): HasOne

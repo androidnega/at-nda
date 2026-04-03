@@ -65,10 +65,4 @@ class RoleAccess
 
         return null;
     }
-
-    /** @deprecated Use {@see requireClassRep} */
-    public static function requireCourseRep(Request $request): ?Response
-    {
-        return self::requireClassRep($request);
-    }
 }

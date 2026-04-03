@@ -49,6 +49,7 @@ class FlutterSessionFormatter
 
         return [
             'id' => $session->id,
+            'session_code' => $session->session_code ? (string) $session->session_code : null,
             'session_index' => (int) ($session->session_index ?? 1),
             'week_number' => $session->attendanceWeek?->week_number,
             'course_id' => $session->course_id,

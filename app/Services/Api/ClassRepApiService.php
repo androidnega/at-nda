@@ -42,7 +42,7 @@ class ClassRepApiService
         /** @var Student $student */
         $student = $pat->tokenable;
 
-        // Course reps are off-system; only load class reps to avoid missing table queries.
+        // Load class reps only.
         return $student->load(['classReps']);
     }
 

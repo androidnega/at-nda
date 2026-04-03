@@ -27,7 +27,7 @@ class AttendanceController extends Controller
      * POST /api/attendance — record attendance (server-side geofence, duplicate check, etc.).
      *
      * Mode `location` / `hybrid`: venue is set when the session opens; optional client lat/lng enforces geofence when sent.
-     * Mode `qr` / `hybrid`: QR token for non–course reps. Mode `wifi`: SSID is configured on the session by the rep (students need not send it).
+     * Mode `qr` / `hybrid`: QR token for students (not class reps). Mode `wifi`: SSID is set on the session by the class rep.
      */
     public function markAttendance(Request $request): JsonResponse
     {
@@ -60,6 +60,7 @@ class AttendanceController extends Controller
             'device_ip' => 'nullable|string|max:45',
             'device_id' => 'nullable|string|max:128',
             'wifi_ssid' => 'nullable|string|max:128',
+            'session_code' => 'nullable|string|max:48',
         ], [
             'course_id.exists' => 'Invalid course_id. Use the numeric course_id from GET /api/sessions/active for this session.',
             'course_id.integer' => 'course_id must be the numeric database id (integer), not the course code.',
@@ -113,10 +114,11 @@ class AttendanceController extends Controller
         $hasCourse = !empty($validated['course_id']);
         $hasSession = isset($validated['session_id']) && $validated['session_id'] !== '';
         $hasQrToken = $sessionToken !== null;
+        $hasSessionCode = isset($validated['session_code']) && trim((string) $validated['session_code']) !== '';
 
-        if (! $hasCourse && ! $hasSession && ! $hasQrToken) {
+        if (! $hasCourse && ! $hasSession && ! $hasQrToken && ! $hasSessionCode) {
             return response()->json([
-                'message' => 'Send course_id, numeric session_id, or qr_code (QR token from scan)',
+                'message' => 'Send course_id, numeric session_id, qr_code (scan), or session_code (manual entry).',
             ], 422);
         }
 
@@ -131,7 +133,7 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'Course not found'], 404);
         }
 
-        if ($student->isCourseRepForCourse((int) $course->id)) {
+        if ($student->isClassRepForCourse((int) $course->id)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Class reps are auto-marked and cannot mark attendance manually.',
@@ -161,19 +163,23 @@ class AttendanceController extends Controller
             return response()->json(['status' => 'error', 'message' => 'QR attendance is disabled'], 422);
         }
 
-        if ($session->requiresQrProof() && ! $isCourseRep) {
+        if ($session->requiresQrProof()) {
             $submitted = trim((string) (
                 $request->input('qr_code')
                 ?? $request->input('session_token')
                 ?? ($validated['qr_code'] ?? '')
                 ?? ''
             ));
-            if ($submitted === '' || ! SecureQrToken::isValidSubmission($submitted, $session)) {
-                return response()->json(['message' => 'Invalid QR Code'], 403);
+            $manualCode = trim((string) ($validated['session_code'] ?? ''));
+            $codeOk = $manualCode !== ''
+                && strcasecmp($manualCode, (string) ($session->session_code ?? '')) === 0;
+
+            if (! $codeOk && ($submitted === '' || ! SecureQrToken::isValidSubmission($submitted, $session))) {
+                return response()->json(['message' => 'Invalid QR or session code'], 403);
             }
             $pk = $request->input('session_id');
             if ($pk !== null && $pk !== '' && ctype_digit((string) $pk) && (int) $pk !== (int) $session->id) {
-                return response()->json(['message' => 'Invalid QR Code'], 403);
+                return response()->json(['message' => 'Invalid QR or session code'], 403);
             }
         }
 
@@ -477,6 +483,27 @@ class AttendanceController extends Controller
 
     private function resolveSession(array $validated, ?Course $course, ?string $sessionToken, Student $student): ?AttendanceSession
     {
+        $code = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
+        if ($code !== '') {
+            $byCode = AttendanceSession::with('course')
+                ->where('session_code', $code)
+                ->first();
+            if ($byCode === null) {
+                $byCode = AttendanceSession::with('course')
+                    ->whereRaw('LOWER(session_code) = ?', [strtolower($code)])
+                    ->first();
+            }
+            if ($byCode && $byCode->isValid()) {
+                if ($course && (int) $byCode->course_id !== (int) $course->id) {
+                    return null;
+                }
+
+                return $byCode;
+            }
+
+            return null;
+        }
+
         $rawSessionId = $validated['session_id'] ?? null;
 
         if ($rawSessionId !== null && $rawSessionId !== '' && ctype_digit((string) $rawSessionId)) {
@@ -496,7 +523,7 @@ class AttendanceController extends Controller
         }
 
         if ($course) {
-            $isRep = $student->isCourseRepForCourse((int) $course->id);
+            $isRep = $student->isClassRepForCourse((int) $course->id);
 
             return AttendanceSession::resolveForMarking($course, $sessionToken, null, $isRep);
         }
@@ -559,6 +586,11 @@ class AttendanceController extends Controller
 
         if (array_key_exists('wifi_ssid', $input) && is_string($input['wifi_ssid'])) {
             $input['wifi_ssid'] = trim($input['wifi_ssid']);
+        }
+
+        if (array_key_exists('session_code', $input)) {
+            $sc = $input['session_code'];
+            $input['session_code'] = is_string($sc) ? trim($sc) : trim((string) ($sc ?? ''));
         }
 
         return $input;

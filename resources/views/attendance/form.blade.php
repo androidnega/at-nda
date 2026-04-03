@@ -23,19 +23,19 @@
         <p class="text-gray-600 text-sm mt-2">
             @switch($sessionMode)
                 @case('qr')
-                    You will confirm your identity, then the camera opens to scan the session QR on screen.
+                    Scan the session QR (camera opens after you continue).
                     @break
                 @case('hybrid')
-                    The session venue was set when it opened. You will scan the session QR to mark attendance.
+                    Confirm you’re at the venue, then scan the session QR.
                     @break
                 @case('location')
-                    The session venue was set when it opened. Tap below to mark attendance.
+                    Tap below when you’re at the session location.
                     @break
                 @case('wifi')
-                    The expected network was set when the session opened. Tap below to check in.
+                    Connect to the class network, then tap below to check in.
                     @break
                 @default
-                    Follow the prompts below.
+                    Follow the steps below.
             @endswitch
         </p>
         @endif
@@ -43,7 +43,7 @@
         <p class="mt-2 text-xs text-slate-500">Signed in as <span class="font-mono font-medium text-slate-700">{{ $loggedInStudent->index_number }}</span></p>
         @endif
         @if($activeSession && $requireFaceVerification)
-        <p class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Web check-in uses <strong>face verification</strong> against your profile photo. Use a clear face photo on your profile, and allow the camera in a <strong>secure context</strong> (HTTPS, or localhost — plain HTTP on a LAN IP may block the camera).</p>
+        <p class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Face check uses your profile photo — allow the camera (HTTPS or localhost).</p>
         @endif
 
         @if(!$activeSession)
@@ -156,6 +156,21 @@
         <input type="hidden" id="session_token" value="{{ $activeSession?->qr_token ?? $activeSession?->session_token ?? '' }}">
         <input type="hidden" id="qr_sig" value="">
         <input type="hidden" id="qr_t" value="">
+
+        @if($activeSession && in_array($sessionMode, ['qr', 'hybrid'], true))
+        <div id="session-code-fallback" class="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
+            <p class="text-sm font-semibold text-gray-800">Session code</p>
+            <p class="text-xs text-gray-600">If you can’t scan, enter the code from the lecturer’s screen.</p>
+            <label for="manual_session_code" class="block text-xs font-medium text-gray-600">Session code</label>
+            <input type="text" id="manual_session_code" autocomplete="off" inputmode="text"
+                class="w-full border border-gray-200 rounded-lg px-3 py-2.5 font-mono text-sm uppercase tracking-wide"
+                placeholder="e.g. CSC101-4821" maxlength="48">
+            <button type="button" id="btn-session-code-mark"
+                class="w-full bg-slate-800 text-white py-3 rounded-xl text-sm font-semibold touch-manipulation">
+                Mark with session code
+            </button>
+        </div>
+        @endif
     </div>
     @endif
 </div>
@@ -189,9 +204,9 @@
             </svg>
         </button>
     </div>
-    <div class="p-4 bg-black/80 text-center">
-        <p class="text-white text-sm">Point your camera at the QR code on the screen</p>
-        <p class="text-white/70 text-xs mt-1">Make sure the QR code is live, not a screenshot</p>
+    <div class="p-4 bg-black/80 text-center space-y-1">
+        <p class="text-white text-sm">Use the <strong class="font-semibold">back camera</strong> and scan from another device or screen when possible.</p>
+        <p class="text-white/70 text-xs">If the camera fails, use <strong>session code</strong> on the form below.</p>
     </div>
 </div>
 <style>
@@ -635,8 +650,11 @@ function runAttendanceFlow() {
             }
             qrScanner = new Html5Qrcode('qr-reader');
             var scanCfg = {
-                fps: 10,
-                qrbox: { width: 260, height: 260 },
+                fps: 12,
+                qrbox: function(viewfinderWidth, viewfinderHeight) {
+                    var s = Math.min(viewfinderWidth, viewfinderHeight, 320);
+                    return { width: Math.floor(s * 0.85), height: Math.floor(s * 0.85) };
+                },
                 aspectRatio: 1.0
             };
 
@@ -967,6 +985,34 @@ function runAttendanceFlow() {
             updateFlowStatus('Tap below to open the scanner again');
         }
     });
+
+    var sessionCodeBtn = document.getElementById('btn-session-code-mark');
+    var manualSessionCodeEl = document.getElementById('manual_session_code');
+    if (sessionCodeBtn && manualSessionCodeEl) {
+        sessionCodeBtn.addEventListener('click', function() {
+            hideStatus();
+            var code = (manualSessionCodeEl.value || '').trim();
+            if (!code) {
+                showStatus('Enter the session code from your lecturer’s screen.', 'error');
+                return;
+            }
+            var indexNumber = getIndexNumber();
+            if (!indexNumber) return;
+            var payload = {
+                index_number: indexNumber,
+                course_id: courseId,
+                session_id: (sessionPkInput && sessionPkInput.value) ? parseInt(sessionPkInput.value, 10) : null,
+                session_code: code,
+                attendance_time: new Date().toISOString(),
+            };
+            if (latInput && latInput.value) payload.latitude = parseFloat(latInput.value);
+            if (lngInput && lngInput.value) payload.longitude = parseFloat(lngInput.value);
+            sessionCodeBtn.disabled = true;
+            submitAttendance(payload).finally(function() {
+                sessionCodeBtn.disabled = false;
+            });
+        });
+    }
 }
 
 /* Script is after markup in @stack('scripts'); DOM is ready — run immediately so
