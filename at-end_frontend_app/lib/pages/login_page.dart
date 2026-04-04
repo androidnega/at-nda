@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,11 +7,15 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/communication_log_sync.dart';
+import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/permission_service.dart';
 import '../utils/app_state.dart';
 import '../utils/connectivity_util.dart';
+import '../utils/api_user_message.dart';
 import '../utils/constants.dart';
+import '../utils/login_response_parser.dart';
 import '../utils/password_util.dart';
 import '../services/sync_service.dart';
 import '../services/push_service.dart';
@@ -151,57 +156,10 @@ class _LoginPageState extends State<LoginPage> {
         await _loginViaApi(index, password);
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = sanitizeApiUserMessage(e.toString()));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  /// Non-empty Sanctum token from legacy login, or null if absent / JSON null.
-  String? _parseLoginToken(dynamic raw) {
-    if (raw == null) return null;
-    if (raw is String) {
-      final s = raw.trim();
-      if (s.isEmpty || s == 'null') return null;
-      return s;
-    }
-    final s = raw.toString().trim();
-    if (s.isEmpty || s == 'null') return null;
-    return s;
-  }
-
-  /// Merges `student`, `user`, top-level so `is_class_rep` / `rep_roles` are never dropped.
-  Map<String, dynamic>? _studentMapFromLoginBody(Map<String, dynamic> body) {
-    Map<String, dynamic>? primary;
-    if (body['student'] is Map) {
-      primary = Map<String, dynamic>.from(body['student'] as Map);
-    } else if (body['user'] is Map) {
-      primary = Map<String, dynamic>.from(body['user'] as Map);
-    } else {
-      final idx = body['index_number'];
-      if (idx != null && idx.toString().trim().isNotEmpty) {
-        primary = Map<String, dynamic>.from(body);
-      }
-    }
-    if (primary == null) return null;
-
-    void copyRepKeys(Map<String, dynamic> src) {
-      if (src.containsKey('is_class_rep')) {
-        primary!['is_class_rep'] = src['is_class_rep'];
-      }
-      if (src.containsKey('rep_roles')) {
-        primary!['rep_roles'] = src['rep_roles'];
-      }
-      if (src.containsKey('primary_role')) {
-        primary!['primary_role'] = src['primary_role'];
-      }
-    }
-
-    copyRepKeys(body);
-    if (body['user'] is Map) {
-      copyRepKeys(Map<String, dynamic>.from(body['user'] as Map));
-    }
-    return primary;
   }
 
   /// If login JSON omitted rep flags, `POST /api/rep/courses` confirms access and persists `is_class_rep`.
@@ -258,7 +216,7 @@ class _LoginPageState extends State<LoginPage> {
 
     final body = await ApiService.login(cleanIndex, password);
 
-    final studentData = _studentMapFromLoginBody(body);
+    final studentData = studentMapFromLoginBody(body);
 
     if (studentData == null) {
       setState(() => _error = 'Invalid response from server.');
@@ -272,7 +230,7 @@ class _LoginPageState extends State<LoginPage> {
     await OfflineService.setCurrentStudent(student);
     await OfflineService.setPasswordHash(PasswordUtil.hash(passwordForStorage));
     await OfflineService.setApiSessionPassword(passwordForStorage);
-    var tokenStr = _parseLoginToken(body['token']);
+    var tokenStr = parseLoginResponseToken(body['token']);
     tokenStr ??= await ApiService.loginV1SanctumToken(cleanIndex, passwordForStorage);
     if (tokenStr != null && tokenStr.isNotEmpty) {
       await OfflineService.setApiSessionToken(tokenStr);
@@ -289,6 +247,12 @@ class _LoginPageState extends State<LoginPage> {
     await PushService.registerAfterLogin(student.indexNumber);
     // Firebase-free reminders: poll immediately after successful login.
     await NotificationBridge.pollPending();
+    await LogoutLockPrefs.recordFreshLoginBinding();
+
+    try {
+      await ApiService.loadAppSettings();
+    } catch (_) {}
+    unawaited(CommunicationLogSyncService.maybeSync());
 
     if (!mounted) return;
 
@@ -323,6 +287,10 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {}
     await PushService.registerAfterLogin(stored.indexNumber);
     await NotificationBridge.pollPending();
+    try {
+      await ApiService.loadAppSettings();
+    } catch (_) {}
+    unawaited(CommunicationLogSyncService.maybeSync());
     if (!mounted) return;
     setState(() => _error = null);
     await _goToPostLoginHome(stored);
@@ -376,6 +344,7 @@ class _LoginPageState extends State<LoginPage> {
       await SyncService.syncAttendance();
     } catch (_) {}
     await PushService.registerAfterLogin(student.indexNumber);
+    await LogoutLockPrefs.recordFreshLoginBinding();
 
     if (!mounted) return;
     final route = student.primaryRole == 'class_rep'
@@ -480,7 +449,7 @@ class _LoginPageState extends State<LoginPage> {
                             controller: _indexController,
                             decoration: const InputDecoration(
                               labelText: 'Index number',
-                              hintText: 'e.g. BC/ITD/24/001',
+                              hintText: 'e.g. BC/ITS/24/047',
                               prefixIcon: Icon(Icons.badge_outlined, color: _muted),
                             ),
                             style: GoogleFonts.plusJakartaSans(
@@ -559,17 +528,6 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed('/api-test'),
-                    child: Text(
-                      'Developer · API test',
-                      style: GoogleFonts.plusJakartaSans(
-                        color: _muted.withValues(alpha: 0.85),
-                        fontSize: 13,
                       ),
                     ),
                   ),

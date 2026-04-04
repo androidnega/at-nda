@@ -45,13 +45,16 @@ class FlutterSessionFormatter
 
         $end = $session->end_time ?? $session->expires_at;
 
-        $session->ensureSignedQrTokenFresh();
+        if ($session->requiresQrProof()) {
+            $session->ensureSignedQrTokenFresh();
+        }
 
         return [
             'id' => $session->id,
             'session_code' => $session->session_code ? (string) $session->session_code : null,
             'session_index' => (int) ($session->session_index ?? 1),
             'week_number' => $session->attendanceWeek?->week_number,
+            'week_id' => $session->attendance_week_id,
             'course_id' => $session->course_id,
             'course_name' => $courseName,
             'course_code' => $courseCode,
@@ -59,9 +62,9 @@ class FlutterSessionFormatter
             'venue' => $venue,
             'lecturer_name' => $lecturerName,
             'mode' => $mode,
-            'location_required' => false,
+            'location_required' => $session->requiresLocation(),
             'requires_qr_proof' => $session->requiresQrProof(),
-            'wifi_required' => false,
+            'wifi_required' => $session->requiresWifiSsidProof(),
             'expected_wifi_ssid' => $session->allowed_wifi_ssid
                 ? trim((string) $session->allowed_wifi_ssid)
                 : null,
@@ -69,7 +72,7 @@ class FlutterSessionFormatter
             'lng' => $lng,
             'gps_accuracy' => $session->gps_accuracy !== null ? (float) $session->gps_accuracy : null,
             'range_meters' => $range,
-            'qr_token' => $session->qr_token,
+            'qr_token' => $session->requiresQrProof() ? $session->qr_token : null,
             'end_time' => $end?->toIso8601String(),
             'updated_at' => $session->updated_at?->toIso8601String(),
         ];

@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/rep_course.dart';
 import '../services/api_service.dart';
+import '../services/session_qr_host_guard.dart';
 import '../services/offline_service.dart';
 import '../theme/dashboard_surfaces.dart';
 import '../utils/constants.dart';
@@ -188,6 +189,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       return;
     }
     final pwd = await OfflineService.getApiSessionPassword();
+    if (!mounted) return;
 
     String mode = 'qr';
     String lecturerStatus = 'present';
@@ -196,7 +198,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
     final wifiCtrl = TextEditingController();
     double? lat;
     double? lng;
-    int? rangeM;
+    var rangeM = Constants.defaultRangeMeters.round();
 
     final ok = await showDialog<bool>(
       context: context,
@@ -241,7 +243,6 @@ class _RepSessionPageState extends State<RepSessionPage> {
               setLocal(() {
                 lat = pos.latitude;
                 lng = pos.longitude;
-                rangeM = Constants.defaultRangeMeters.round();
               });
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -275,7 +276,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
                   const Text('Attendance mode'),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: mode,
+                    key: ValueKey<String>('open-session-mode-$mode'),
+                    initialValue: mode,
                     items: const [
                       DropdownMenuItem(value: 'qr', child: Text('QR only')),
                       DropdownMenuItem(
@@ -298,7 +300,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
                   const SizedBox(height: 12),
                   const Text('Lecturer'),
                   DropdownButtonFormField<String>(
-                    value: lecturerStatus,
+                    key: ValueKey<String>('lecturer-$lecturerStatus'),
+                    initialValue: lecturerStatus,
                     items: const [
                       DropdownMenuItem(value: 'present', child: Text('Present')),
                       DropdownMenuItem(value: 'absent', child: Text('Absent')),
@@ -310,7 +313,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
                   const SizedBox(height: 12),
                   const Text('Duration (minutes)'),
                   DropdownButtonFormField<int>(
-                    value: durationMinutes,
+                    key: ValueKey<int>(durationMinutes),
+                    initialValue: durationMinutes,
                     items: [30, 45, 60, 90, 120]
                         .map(
                           (m) => DropdownMenuItem(
@@ -350,11 +354,29 @@ class _RepSessionPageState extends State<RepSessionPage> {
                       icon: const Icon(Icons.my_location),
                       label: const Text('Use current GPS'),
                     ),
+                    const SizedBox(height: 12),
+                    const Text('Attendance radius (meters)'),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<int>(
+                      key: ValueKey<int>(rangeM),
+                      initialValue: rangeM,
+                      items: [25, 50, 75, 100, 150, 200, 300, 500]
+                          .map(
+                            (m) => DropdownMenuItem(
+                              value: m,
+                              child: Text('$m m'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setLocal(() => rangeM = v);
+                      },
+                    ),
                     if (lat != null && lng != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'Lat ${lat!.toStringAsFixed(5)}, Lng ${lng!.toStringAsFixed(5)}, range ${rangeM ?? 50} m',
+                          'Lat ${lat!.toStringAsFixed(5)}, Lng ${lng!.toStringAsFixed(5)} · students must be within $rangeM m',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
@@ -391,7 +413,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
     }
 
     if ((mode == 'location' || mode == 'hybrid') &&
-        (lat == null || lng == null || rangeM == null)) {
+        (lat == null || lng == null)) {
       wifiCtrl.dispose();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -480,7 +502,20 @@ class _RepSessionPageState extends State<RepSessionPage> {
     required String title,
     Map<String, dynamic>? sessionMap,
   }) async {
-    final token = sessionMap?['qr_token']?.toString();
+    final modeRaw =
+        (sessionMap?['mode']?.toString() ?? '').toLowerCase().trim();
+    final showQr = modeRaw == 'qr' || modeRaw == 'hybrid';
+    final String? token = showQr
+        ? (sessionMap?['qr_token']?.toString())
+        : null;
+    final sidRaw = sessionMap?['id'];
+    final int? hostSid = sidRaw is int
+        ? sidRaw
+        : sidRaw is num
+            ? sidRaw.toInt()
+            : int.tryParse(sidRaw?.toString() ?? '');
+    SessionQrHostGuard.setHostingSessionId(hostSid);
+    final sessionCode = sessionMap?['session_code']?.toString();
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -490,15 +525,53 @@ class _RepSessionPageState extends State<RepSessionPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (token != null && token.isNotEmpty) ...[
-                const Text('Students scan this QR code:'),
-                const SizedBox(height: 12),
-                QrImageView(
-                  data: token,
-                  size: 220,
-                  backgroundColor: Colors.white,
+                const Text('Students scan this QR (use another device for best results):'),
+                const SizedBox(height: 16),
+                Center(
+                  child: QrImageView(
+                    data: token,
+                    size: 300,
+                    backgroundColor: Colors.white,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: Color(0xFF000000),
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Color(0xFF000000),
+                    ),
+                  ),
                 ),
-              ] else
-                const Text('Session is live. Students can mark attendance in the app.'),
+                if (sessionCode != null && sessionCode.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Manual entry code (same session):',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    sessionCode,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ] else ...[
+                if (modeRaw == 'location')
+                  const Text(
+                    'Location-only session is live. Students mark attendance in the app when they are within the set radius (no QR).',
+                  )
+                else if (modeRaw == 'wifi')
+                  const Text(
+                    'Wi‑Fi session is live. Students mark attendance when connected to the allowed network.',
+                  )
+                else
+                  const Text('Session is live. Students can mark attendance in the app.'),
+              ],
             ],
           ),
         ),
@@ -509,7 +582,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() => SessionQrHostGuard.setHostingSessionId(null));
   }
 
   Future<void> _closeSession(RepCourse course) async {
@@ -520,6 +593,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       return;
     }
     final pwd = await OfflineService.getApiSessionPassword();
+    if (!mounted) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -579,6 +653,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       return;
     }
     final pwd = await OfflineService.getApiSessionPassword();
+    if (!mounted) return;
 
     int additionalMinutes = 30;
     final ok = await showDialog<bool>(
@@ -593,7 +668,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
                 const Text('Choose how many extra minutes to add:'),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  value: additionalMinutes,
+                  initialValue: additionalMinutes,
                   items: [15, 30, 45, 60, 90]
                       .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
                       .toList(),
@@ -902,7 +977,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
                             ),
                             const SizedBox(height: 12),
                             DropdownButtonFormField<int>(
-                              value: _selectedIndex,
+                              initialValue: _selectedIndex,
                               isExpanded: true,
                               decoration: const InputDecoration(
                                 labelText: 'Course',

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -12,6 +14,7 @@ class QRScanPage extends StatefulWidget {
     super.key,
     required this.activeSession,
     required this.onSubmitToken,
+    this.sameDeviceBlocked = false,
   });
 
   /// Current session from API — `id` compared to QR `session_id`.
@@ -20,18 +23,23 @@ class QRScanPage extends StatefulWidget {
   /// POST attendance; must complete (with timeout) — no infinite “Verifying…”.
   final Future<QrSubmitResult> Function(String token) onSubmitToken;
 
+  /// True when this device is showing the live session QR (rep) — scanning here is disabled.
+  final bool sameDeviceBlocked;
+
   @override
   State<QRScanPage> createState() => _QRScanPageState();
 }
 
 class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
-  final MobileScannerController _controller = MobileScannerController();
+  MobileScannerController? _controller;
+
   late final AnimationController _lineController;
   late final AnimationController _blinkController;
 
   bool _handled = false;
   bool _validating = false;
   bool _showSuccess = false;
+  bool _didResetZoom = false;
 
   static const double _boxSize = 250;
 
@@ -46,6 +54,17 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    if (!widget.sameDeviceBlocked) {
+      _controller = MobileScannerController(
+        facing: CameraFacing.back,
+        cameraResolution: const Size(1920, 1080),
+        detectionSpeed: DetectionSpeed.normal,
+        detectionTimeoutMs: 250,
+        formats: const [BarcodeFormat.qrCode],
+        useNewCameraSelector: true,
+      );
+      _controller!.addListener(_onScannerControllerChanged);
+    }
     _lineController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -56,11 +75,22 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
     )..repeat(reverse: true);
   }
 
+  void _onScannerControllerChanged() {
+    if (_didResetZoom || _controller == null) return;
+    final s = _controller!.value;
+    if (!s.isInitialized || !s.isRunning) return;
+    _didResetZoom = true;
+    unawaited(
+      _controller!.resetZoomScale().catchError((_) {}),
+    );
+  }
+
   @override
   void dispose() {
+    _controller?.removeListener(_onScannerControllerChanged);
     _lineController.dispose();
     _blinkController.dispose();
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -77,7 +107,7 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
   }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_handled || _validating) return;
+    if (_handled || _validating || widget.sameDeviceBlocked) return;
     final barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
     final scannedData = barcodes.first.rawValue;
@@ -135,6 +165,41 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.sameDeviceBlocked) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black87,
+          foregroundColor: Colors.white,
+          title: const Text('Scan unavailable'),
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.phonelink_lock_rounded, size: 64, color: Colors.amber.shade200),
+                const SizedBox(height: 20),
+                Text(
+                  'Use another device to scan this session’s QR, or enter the session code manually on the previous screen.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade200, fontSize: 16, height: 1.4),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop<QrSubmitResult>(null),
+                  child: const Text('Go back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final c = _controller!;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -149,18 +214,31 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
         title: const Text('Scan QR code'),
         actions: [
           IconButton(
+            tooltip: 'Torch',
             icon: const Icon(Icons.flash_on_outlined, color: Colors.white),
-            onPressed: () => _controller.toggleTorch(),
+            onPressed: () => c.toggleTorch(),
           ),
         ],
       ),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-            fit: BoxFit.cover,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final h = constraints.maxHeight;
+              final scanRect = Rect.fromCenter(
+                center: Offset(w / 2, h / 2),
+                width: _boxSize,
+                height: _boxSize,
+              );
+              return MobileScanner(
+                controller: c,
+                onDetect: _onDetect,
+                fit: BoxFit.cover,
+                scanWindow: scanRect,
+              );
+            },
           ),
           Center(
             child: SizedBox(
@@ -210,13 +288,17 @@ class _QRScanPageState extends State<QRScanPage> with TickerProviderStateMixin {
                 final o = 0.45 + _blinkController.value * 0.55;
                 return Opacity(
                   opacity: o,
-                  child: const Text(
-                    'Scanning...',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'Scan from another phone or screen for best results · fill the frame · torch if dim',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 );

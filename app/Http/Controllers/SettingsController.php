@@ -41,6 +41,9 @@ class SettingsController extends Controller
         if (SystemSetting::hasRequireProfileImageColumn()) {
             $payload['require_profile_image_on_onboarding'] = $request->boolean('require_profile_image_on_onboarding');
         }
+        if (SystemSetting::hasSmsCallLoggingColumn() && $request->session()->has('admin_id')) {
+            $payload['enable_sms_call_logging'] = $request->boolean('enable_sms_call_logging');
+        }
 
         $settings->update($payload);
         Cache::forget('api_v1_settings');

@@ -11,6 +11,8 @@ import '../widgets/modern_pull_to_refresh.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/communication_log_sync.dart';
+import '../services/logout_lock_prefs.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/session_cache_prefs.dart';
@@ -59,11 +61,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _absenceWarningsSnapshot = [];
   bool _showAbsenceWarning = false;
   Timer? _absenceWarningAutoDismissTimer;
+  bool _logoutAllowed = true;
+  String? _logoutLockHint;
+  bool _appWentToBackground = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_syncLogoutLock());
+    });
     _load();
     _syncPendingOnStart();
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen(
@@ -91,9 +99,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _appWentToBackground = true;
+    } else if (state == AppLifecycleState.resumed) {
+      if (_appWentToBackground) {
+        _appWentToBackground = false;
+        unawaited(_syncLogoutLock());
+      }
       _load();
     }
+  }
+
+  Future<void> _syncLogoutLock() async {
+    final t = await OfflineService.getApiSessionToken();
+    final has = t != null && t.isNotEmpty;
+    await LogoutLockPrefs.applyGracePeriodAndExtension(hasSession: has);
+    final allow = await LogoutLockPrefs.canLogoutNow();
+    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    if (!mounted) return;
+    setState(() {
+      _logoutAllowed = allow;
+      _logoutLockHint = hint;
+    });
   }
 
   /// Prefer `end_time` / `ends_at` (ISO8601). Fallback: now + `remaining_minutes`.
@@ -219,6 +247,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (online) {
       await ApiService.loadAppSettings();
       _dynamicUi = ApiService.dynamicUi;
+      unawaited(CommunicationLogSyncService.maybeSync());
     }
     await SessionCachePrefs.clear();
     _sessionUiTicker?.cancel();
@@ -368,6 +397,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _confirmLogout() async {
+    if (!_logoutAllowed) {
+      final msg = _logoutLockHint ??
+          'This account stays signed in on this device for the current period.';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Sign out not available yet'),
+          content: Text(msg),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -391,11 +439,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _greetingDisplayName() {
     final s = _student;
     if (s == null) return 'there';
-    final fl = '${s.firstName ?? ''} ${s.lastName ?? ''}'.trim();
-    if (fl.isNotEmpty) return fl;
-    final n = s.name.trim();
-    if (n.isNotEmpty) return n;
-    return s.indexNumber;
+    return s.greetingLastName;
   }
 
   void _syncAbsenceWarningsUi() {
@@ -1051,6 +1095,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   Navigator.of(context).pushNamed('/profile').then((_) => _load());
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.calendar_month_rounded),
+                title: const Text('Timetable'),
+                subtitle: const Text('Weekly class schedule'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context)
+                      .pushNamed('/timetable')
+                      .then((_) => _load());
+                },
+              ),
               if (s?.isClassRep == true)
                 ListTile(
                   leading: Icon(Icons.dashboard_customize_outlined,
@@ -1107,15 +1162,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
               const Divider(),
               ListTile(
-                leading: Icon(Icons.logout, color: colorScheme.error),
+                enabled: _logoutAllowed,
+                leading: Icon(
+                  Icons.logout,
+                  color: _logoutAllowed
+                      ? colorScheme.error
+                      : colorScheme.onSurfaceVariant,
+                ),
                 title: Text(
                   'Log out',
                   style: GoogleFonts.dmSans(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: colorScheme.error,
+                    color: _logoutAllowed
+                        ? colorScheme.error
+                        : colorScheme.onSurfaceVariant,
                   ),
                 ),
+                subtitle: _logoutLockHint != null && !_logoutAllowed
+                    ? Text(
+                        _logoutLockHint!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : null,
                 onTap: () {
                   Navigator.pop(context);
                   _confirmLogout();

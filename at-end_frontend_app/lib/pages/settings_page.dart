@@ -1,16 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../services/logout_lock_prefs.dart';
 import '../services/notification_bridge.dart';
 import '../services/notification_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
-import '../theme/dashboard_surfaces.dart';
 import '../utils/app_selectable_scope.dart';
 import 'login_page.dart';
 
-/// Appearance, profile, refresh, logout — compact layout.
+/// Appearance, sync, notifications — minimal mobile layout.
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -19,25 +21,45 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _refreshing = false;
+  bool _syncing = false;
+  bool _logoutAllowed = true;
+  String? _logoutLockHint;
 
-  Future<void> _refreshData() async {
-    setState(() => _refreshing = true);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refreshLogoutLock());
+    });
+  }
+
+  Future<void> _refreshLogoutLock() async {
+    final allow = await LogoutLockPrefs.canLogoutNow();
+    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    if (!mounted) return;
+    setState(() {
+      _logoutAllowed = allow;
+      _logoutLockHint = hint;
+    });
+  }
+
+  Future<void> _syncData() async {
+    setState(() => _syncing = true);
     try {
       await SyncService.syncAttendance();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Data refreshed')),
+          const SnackBar(content: Text('Synced')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Refresh failed: $e')),
+          SnackBar(content: Text('Sync failed: $e')),
         );
       }
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      if (mounted) setState(() => _syncing = false);
     }
   }
 
@@ -51,11 +73,30 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _confirmLogout() async {
+    if (!_logoutAllowed) {
+      final msg = _logoutLockHint ??
+          'This account stays signed in on this device for the current period.';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Sign out not available yet'),
+          content: Text(msg),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Log out'),
-        content: const Text('Clear stored student and return to login?'),
+        content: const Text('Clear this account on this device?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -79,215 +120,147 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
+          Text(
+            'Appearance',
+            style: tt.labelLarge?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
           ValueListenableBuilder<ThemeMode>(
             valueListenable: ThemeService.modeNotifier,
             builder: (context, mode, _) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: DashboardSurfaces.cardDecoration(context),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.palette_outlined, size: 22, color: cs.primary),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Appearance',
-                          style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Choose how the app looks. System follows your phone setting.',
-                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 14),
-                    _themeOption(
-                      context,
-                      selected: mode,
-                      value: ThemeMode.light,
-                      icon: Icons.light_mode_outlined,
-                      label: 'Light',
-                    ),
-                    const SizedBox(height: 8),
-                    _themeOption(
-                      context,
-                      selected: mode,
-                      value: ThemeMode.system,
-                      icon: Icons.brightness_auto_outlined,
-                      label: 'System',
-                    ),
-                    const SizedBox(height: 8),
-                    _themeOption(
-                      context,
-                      selected: mode,
-                      value: ThemeMode.dark,
-                      icon: Icons.dark_mode_outlined,
-                      label: 'Dark',
-                    ),
-                  ],
-                ),
+              return SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    label: Text('Light'),
+                    icon: Icon(Icons.light_mode_outlined, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.system,
+                    label: Text('Auto'),
+                    icon: Icon(Icons.brightness_auto_outlined, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.dark,
+                    label: Text('Dark'),
+                    icon: Icon(Icons.dark_mode_outlined, size: 18),
+                  ),
+                ],
+                selected: {mode},
+                onSelectionChanged: (s) {
+                  if (s.isEmpty) return;
+                  ThemeService.setTheme(s.first);
+                },
               );
             },
           ),
-          const SizedBox(height: 12),
-          Container(
-            decoration: DashboardSurfaces.cardDecoration(context),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(Icons.person_outline_rounded, color: cs.primary),
-                  title: const Text('Profile'),
-                  subtitle: const Text('Update your details and photo'),
-                  trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () =>
-                      Navigator.of(context).pushNamed('/profile').then((_) {
-                        if (mounted) setState(() {});
-                      }),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: _refreshing
-                      ? SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: cs.primary,
-                          ),
-                        )
-                      : Icon(Icons.sync_rounded, color: cs.primary),
-                  title: const Text('Sync attendance'),
-                  subtitle: const Text('Send any pending marks from this device'),
-                  onTap: _refreshing ? null : _refreshData,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.logout_rounded, color: cs.error),
-                  title: Text('Log out', style: TextStyle(color: cs.error)),
-                  onTap: _confirmLogout,
-                ),
-              ],
+          const SizedBox(height: 28),
+          Text(
+            'Account',
+            style: tt.labelLarge?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: DashboardSurfaces.cardDecoration(context),
-            child: ValueListenableBuilder<bool>(
-              valueListenable: NotificationPrefs.enabledNotifier,
-              builder: (context, on, _) {
-                return SwitchListTile(
-                  secondary: Icon(
-                    Icons.notifications_outlined,
-                    color: cs.primary,
-                  ),
-                  title: const Text('In-app reminders'),
-                  subtitle: Text(
-                    on
-                        ? 'You’ll see class reminders here when your school sends them.'
-                        : 'Turn on to start receiving reminders and notices in the app.',
-                    style: tt.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      height: 1.35,
+          const SizedBox(height: 4),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.person_outline_rounded, color: cs.primary),
+            title: const Text('Profile'),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () => Navigator.of(context).pushNamed('/profile'),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: _syncing
+                ? SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: cs.primary,
                     ),
-                  ),
-                  value: on,
-                  onChanged: (v) async {
-                    await NotificationPrefs.setEnabled(v);
-                    if (v) {
-                      await NotificationBridge.pollPending();
-                    }
-                  },
-                );
-              },
+                  )
+                : Icon(Icons.sync_rounded, color: cs.primary),
+            title: const Text('Sync attendance'),
+            subtitle: Text(
+              'Upload pending marks',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
+            onTap: _syncing ? null : _syncData,
+          ),
+          ListTile(
+            enabled: _logoutAllowed,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              Icons.logout_rounded,
+              color: _logoutAllowed ? cs.error : cs.onSurfaceVariant,
+            ),
+            title: Text(
+              'Log out',
+              style: TextStyle(
+                color: _logoutAllowed ? cs.error : cs.onSurfaceVariant,
+              ),
+            ),
+            subtitle: _logoutLockHint != null && !_logoutAllowed
+                ? Text(
+                    _logoutLockHint!,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  )
+                : null,
+            onTap: _confirmLogout,
           ),
           const SizedBox(height: 20),
           Text(
-            'About',
-            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            'Notifications',
+            style: tt.labelLarge?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          ValueListenableBuilder<bool>(
+            valueListenable: NotificationPrefs.enabledNotifier,
+            builder: (context, on, _) {
+              return SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: Icon(
+                  Icons.notifications_outlined,
+                  color: cs.primary,
+                ),
+                title: const Text('In-app reminders'),
+                subtitle: Text(
+                  on ? 'On' : 'Off',
+                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                value: on,
+                onChanged: (v) async {
+                  await NotificationPrefs.setEnabled(v);
+                  if (v) await NotificationBridge.pollPending();
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 24),
           FutureBuilder<PackageInfo>(
             future: PackageInfo.fromPlatform(),
             builder: (context, snap) {
               final v = snap.data?.version ?? '—';
               final b = snap.data?.buildNumber ?? '—';
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: DashboardSurfaces.cardDecoration(context),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline_rounded, color: cs.primary, size: 22),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'at-enda · Manuel (TTU CS) · Managed by AuswebLabs',
-                          ),
-                          Text(
-                            'Version $v ($b)',
-                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              return Text(
+                'at-enda · v$v ($b)',
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
               );
             },
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _themeOption(
-    BuildContext context, {
-    required ThemeMode selected,
-    required ThemeMode value,
-    required IconData icon,
-    required String label,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    final on = selected == value;
-    return Material(
-      color: on ? cs.primaryContainer.withValues(alpha: 0.35) : cs.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: () => ThemeService.setTheme(value),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Icon(icon, size: 22, color: on ? cs.primary : cs.onSurfaceVariant),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                ),
-              ),
-              if (on)
-                Icon(Icons.check_circle_rounded, color: cs.primary, size: 22),
-            ],
-          ),
-        ),
       ),
     );
   }

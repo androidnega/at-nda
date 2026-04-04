@@ -13,6 +13,7 @@ import '../services/location_service.dart';
 import '../services/offline_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/session_cache_prefs.dart';
+import '../services/session_qr_host_guard.dart';
 import '../services/success_chime.dart';
 import '../services/sync_service.dart';
 import '../utils/app_selectable_scope.dart';
@@ -42,6 +43,7 @@ class AttendancePage extends StatefulWidget {
 }
 
 class _AttendancePageState extends State<AttendancePage> {
+  final _sessionCodeController = TextEditingController();
   Map<String, dynamic>? _session;
   Student? _student;
   bool _withinRange = false;
@@ -94,6 +96,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
   @override
   void dispose() {
+    _sessionCodeController.dispose();
     _countTimer?.cancel();
     super.dispose();
   }
@@ -411,9 +414,13 @@ class _AttendancePageState extends State<AttendancePage> {
     await _openQrAndSubmit();
   }
 
-  /// POST after QR scan. Skips [Geolocator] entirely when [sessionLocationRequired] is false.
+  /// POST after QR scan or manual [sessionCode]. Skips [Geolocator] when [sessionLocationRequired] is false.
   /// [requireRange] false = QR-only mode (no range gate before scan).
-  Future<QrSubmitResult> _submitQrFromScanner(String token, {bool requireRange = true}) async {
+  Future<QrSubmitResult> _submitQrFromScanner(
+    String token, {
+    bool requireRange = true,
+    String? sessionCode,
+  }) async {
     if (_session == null || _student == null) {
       return QrSubmitResult.fail(500, 'Missing session');
     }
@@ -421,8 +428,14 @@ class _AttendancePageState extends State<AttendancePage> {
     final sessionId = parseSessionId(rawSession);
     final locationRequired = sessionLocationRequired(rawSession);
     final needProof = sessionRequiresQrProof(rawSession);
-    if (needProof && token.isEmpty) {
-      return QrSubmitResult.fail(400, 'QR proof required for this session');
+    final codeTrim = sessionCode?.trim();
+    if (needProof &&
+        token.isEmpty &&
+        (codeTrim == null || codeTrim.isEmpty)) {
+      return QrSubmitResult.fail(
+        400,
+        'Scan the session QR or enter the session code.',
+      );
     }
     if (requireRange && (!_rangeChecked || !_withinRange)) {
       return QrSubmitResult.fail(400, 'You must be within range first');
@@ -492,8 +505,9 @@ class _AttendancePageState extends State<AttendancePage> {
         lat: lat,
         lng: lng,
         includeLocation: locationRequired,
-        qrCode: token,
+        qrCode: token.isNotEmpty ? token : null,
         sessionToken: sessionTok,
+        sessionCode: codeTrim,
         faceDescriptor: faceForPayload,
         deviceIp: deviceIp,
         deviceId: deviceId,
@@ -524,6 +538,14 @@ class _AttendancePageState extends State<AttendancePage> {
       } on TimeoutException {
         return QrSubmitResult.fail(null, 'Request timed out. Check your connection.');
       } catch (_) {
+        if (token.isEmpty &&
+            codeTrim != null &&
+            codeTrim.isNotEmpty) {
+          return QrSubmitResult.fail(
+            null,
+            'No connection. Session code requires an online connection.',
+          );
+        }
         final dip = await DeviceService.getIp();
         await OfflineService.insert(record, deviceIp: dip);
         await _persistAttendanceLog(ts);
@@ -534,6 +556,41 @@ class _AttendancePageState extends State<AttendancePage> {
     }
   }
 
+  Future<void> _submitSessionCodeOnly() async {
+    if (!mounted) return;
+    if (_alreadyMarkedForSession) {
+      _showErrorSnackBar('Attendance already marked');
+      return;
+    }
+    final code = _sessionCodeController.text.trim();
+    if (code.isEmpty) {
+      setState(() => _error = 'Enter the session code or scan the QR.');
+      return;
+    }
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+    final requireRange = _mode != AttendanceFlowMode.qr;
+    final result = await _submitQrFromScanner(
+      '',
+      requireRange: requireRange,
+      sessionCode: code,
+    );
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    if (result.success) {
+      final httpC = result.httpStatus ?? 200;
+      await _presentSuccessAndPop(
+        subtitle: httpC == 409
+            ? 'Your attendance was already recorded.'
+            : 'You have successfully marked attendance',
+      );
+    } else {
+      setState(() => _error = result.message ?? 'Could not submit attendance');
+    }
+  }
+
   Future<void> _openQrAndSubmit() async {
     if (!mounted) return;
     if (_alreadyMarkedForSession) {
@@ -541,11 +598,15 @@ class _AttendancePageState extends State<AttendancePage> {
       return;
     }
     final requireRange = _mode != AttendanceFlowMode.qr;
+    final sid = parseSessionId(Map<String, dynamic>.from(_session!));
+    final sameDeviceBlocked =
+        sid != null && SessionQrHostGuard.isHostingSession(sid);
     final result = await Navigator.of(context).push<QrSubmitResult>(
       MaterialPageRoute(
         builder: (_) => appSelectableScope(
           QRScanPage(
             activeSession: _session!,
+            sameDeviceBlocked: sameDeviceBlocked,
             onSubmitToken: (token) =>
                 _submitQrFromScanner(token, requireRange: requireRange),
           ),
@@ -988,24 +1049,70 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   List<Widget> _buildQrModeBody(BuildContext context) {
+    final sid = parseSessionId(Map<String, dynamic>.from(_session!));
+    final hosting =
+        sid != null && SessionQrHostGuard.isHostingSession(sid);
     return [
       Icon(
         Icons.qr_code_scanner_rounded,
-        size: 64,
+        size: 72,
         color: Theme.of(context).colorScheme.primary,
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 16),
       Text(
-        'Scan the session QR code to mark attendance. This session does not use GPS range.',
+        'Scan the session QR',
         textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyLarge,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
       ),
-      const SizedBox(height: 24),
+      const SizedBox(height: 6),
+      Text(
+        hosting
+            ? 'This phone is showing the class QR — use another device or the code below.'
+            : 'Point the camera at the lecturer’s QR (another device works best).',
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              height: 1.35,
+            ),
+      ),
+      const SizedBox(height: 28),
       FilledButton.icon(
-        onPressed:
-            _student != null && !_isSubmitting ? _openQrAndSubmit : null,
+        onPressed: _student != null &&
+                !_isSubmitting &&
+                !hosting
+            ? _openQrAndSubmit
+            : null,
         icon: const Icon(Icons.qr_code_2),
-        label: const Text('Scan QR to mark attendance'),
+        label: const Text('Scan QR'),
+      ),
+      const SizedBox(height: 20),
+      Text(
+        'Session code',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _sessionCodeController,
+        textCapitalization: TextCapitalization.characters,
+        decoration: const InputDecoration(
+          labelText: 'Session code',
+          hintText: 'e.g. CSC101-4821',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        onSubmitted: (_) => _submitSessionCodeOnly(),
+      ),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        onPressed:
+            _student != null && !_isSubmitting ? _submitSessionCodeOnly : null,
+        icon: const Icon(Icons.keyboard_alt_outlined),
+        label: const Text('Submit code'),
       ),
     ];
   }
@@ -1068,19 +1175,46 @@ class _AttendancePageState extends State<AttendancePage> {
         child: Text(_checkingRange ? 'Checking…' : 'Check range'),
       ),
       if (_rangeChecked && _withinRange) ...[
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         Text(
-          'Step 2 · QR',
+          'Scan QR',
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         FilledButton.icon(
           onPressed: !_isSubmitting ? _proceedToQr : null,
           icon: const Icon(Icons.qr_code_scanner_outlined),
-          label: const Text('Proceed to QR scan'),
+          label: const Text('Open scanner'),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Or code',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _sessionCodeController,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Session code',
+            hintText: 'e.g. CSC101-4821',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (_) => _submitSessionCodeOnly(),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed:
+              _student != null && !_isSubmitting ? _submitSessionCodeOnly : null,
+          icon: const Icon(Icons.keyboard_alt_outlined),
+          label: const Text('Submit code'),
         ),
       ],
     ];

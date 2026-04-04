@@ -30,10 +30,7 @@ class StudentController extends Controller
         $student = Student::findByIndex($indexNumber);
         if (! $student) {
             $normalized = strtoupper(trim($indexNumber));
-            $removed = DeletedStudentIndex::query()
-                ->where('index_number', $normalized)
-                ->orderByDesc('deleted_at')
-                ->first();
+            $removed = DeletedStudentIndex::latestForIndex($normalized);
 
             $payload = [
                 'found' => false,
@@ -73,12 +70,13 @@ class StudentController extends Controller
             'department' => $dept?->name ?? null,
             'level' => $class?->level ?? null,
             'phone' => $student->phone_number,
-            'has_password' => !empty($student->password),
+            'has_password' => ! empty($student->password),
             'weekly_timetable' => $student->weeklyTimetableSummary(),
         ];
         if ($settings->enable_ip_binding && $student->bound_ip) {
             $item['bound_ip'] = $student->bound_ip;
         }
+
         return response()->json([
             'found' => true,
             'student' => $item,
@@ -93,6 +91,14 @@ class StudentController extends Controller
      */
     public function removed(Request $request): JsonResponse
     {
+        if (! DeletedStudentIndex::tableReady()) {
+            return response()->json([
+                'removed' => [],
+                'removed_indexes' => [],
+                'count' => 0,
+            ]);
+        }
+
         $since = $request->query('since');
         $query = DeletedStudentIndex::query()->orderBy('deleted_at')->orderBy('id');
 
@@ -147,10 +153,7 @@ class StudentController extends Controller
             ]);
         }
 
-        $removed = DeletedStudentIndex::query()
-            ->where('index_number', $indexNumber)
-            ->orderByDesc('deleted_at')
-            ->first();
+        $removed = DeletedStudentIndex::latestForIndex($indexNumber);
 
         if ($removed) {
             return response()->json([
@@ -216,7 +219,7 @@ class StudentController extends Controller
         if ($indexNumber !== null && $indexNumber !== '') {
             $indexNumber = strtoupper(trim((string) $indexNumber));
             $student = Student::findByIndex($indexNumber);
-            if (!$student) {
+            if (! $student) {
                 return response()->json([]);
             }
             $student->load(['schoolClass.faculty', 'schoolClass.department', 'department', 'department.faculty']);
@@ -272,9 +275,8 @@ class StudentController extends Controller
                 'phone' => $student->phone_number,
                 'profile_image' => $photoUrl,
                 'profile_image_url' => $photoUrl,
-                'has_password' => !empty($student->password),
+                'has_password' => ! empty($student->password),
             ];
-
 
             if ($includeBoundIp && $student->bound_ip) {
                 $item['bound_ip'] = $student->bound_ip;

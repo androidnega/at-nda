@@ -2,6 +2,9 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import 'face_service_io.dart' if (dart.library.html) 'face_service_web_stub.dart'
+    as face_impl;
+
 /// TFLite-based face verification.
 /// On web: returns placeholder (camera/TFLite not supported). Use mobile for real verification.
 class FaceService {
@@ -11,19 +14,16 @@ class FaceService {
   /// Initialize TFLite model.
   static Future<void> loadModel() async {
     if (kIsWeb) return;
-    // Cursor AI: implement TFLite model load for mobile
-    // Example: await TfliteFlutter.loadModel(model: 'assets/face_model.tflite');
+    await face_impl.loadModel();
   }
 
   /// Capture camera image and generate face descriptor.
-  /// On web: returns placeholder. On mobile: implement camera + TFLite; returns [] on failure.
+  /// On web: returns placeholder. On mobile: camera + TFLite; returns [] on failure.
   static Future<List<double>> getFaceDescriptor() async {
     if (kIsWeb) {
       return List.filled(_placeholderSize, 0.0);
     }
-    // TODO: implement camera capture + TFLite inference for mobile
-    // Return [] when capture fails (no face detected) so UI can show retry
-    return [];
+    return face_impl.getFaceDescriptor();
   }
 
   /// Use placeholder for testing when camera/TFLite unavailable.

@@ -7,12 +7,17 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/api_service.dart';
+import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
 import '../theme/dashboard_surfaces.dart';
+import '../utils/api_user_message.dart';
 import '../utils/constants.dart';
 
 class AttendanceRecordsPage extends StatefulWidget {
-  const AttendanceRecordsPage({super.key});
+  const AttendanceRecordsPage({super.key, this.initialSessionId});
+
+  /// From route arguments (e.g. active session on class rep dashboard).
+  final int? initialSessionId;
 
   @override
   State<AttendanceRecordsPage> createState() => _AttendanceRecordsPageState();
@@ -23,11 +28,33 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
   bool _loading = false;
   String? _error;
   List<Map<String, dynamic>> _records = [];
+  bool _didAutoLoad = false;
 
   @override
   void dispose() {
     _sessionCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoLoad());
+  }
+
+  /// Class reps: load records for the active session (drawer) or the last completed attendance session.
+  Future<void> _maybeAutoLoad() async {
+    if (_didAutoLoad || !mounted) return;
+    final student = await OfflineService.getCurrentStudent();
+    if (student == null || !student.isClassRep) return;
+
+    int? sid = widget.initialSessionId;
+    sid ??= await LastAttendancePrefs.getLastMarkedSessionId();
+    if (sid == null || sid <= 0) return;
+
+    _didAutoLoad = true;
+    _sessionCtrl.text = sid.toString();
+    await _loadRecords();
   }
 
   Future<void> _loadRecords() async {
@@ -59,7 +86,20 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
       });
 
       final res = await http.get(uri, headers: ApiService.requestHeaders());
-      final raw = jsonDecode(res.body);
+      dynamic raw;
+      try {
+        raw = jsonDecode(res.body);
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error = sanitizeApiUserMessage(
+            res.statusCode == 404 ? 'Not found' : null,
+          );
+        });
+        return;
+      }
+
       if (res.statusCode >= 200 &&
           res.statusCode < 300 &&
           raw is Map &&
@@ -79,20 +119,26 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
           _loading = false;
         });
       } else {
-        final msg = raw is Map && raw['message'] != null
-            ? raw['message'].toString()
-            : 'Could not load attendance records.';
+        final rawMsg = raw is Map
+            ? (raw['message']?.toString() ??
+                raw['error']?.toString() ??
+                raw['exception']?.toString())
+            : null;
+        final friendly = sanitizeApiUserMessage(
+          rawMsg,
+          fallback: 'Could not load attendance records.',
+        );
         if (!mounted) return;
         setState(() {
           _loading = false;
-          _error = msg;
+          _error = friendly;
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Error: $e';
+        _error = sanitizeApiUserMessage(e.toString());
       });
     }
   }
@@ -121,8 +167,20 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
       final res = await http.get(uri, headers: ApiService.requestHeaders());
       if (!mounted) return;
       if (res.statusCode < 200 || res.statusCode >= 300) {
+        dynamic raw;
+        try {
+          raw = jsonDecode(res.body);
+        } catch (_) {}
+        final msg = raw is Map ? raw['message']?.toString() : null;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed (${res.statusCode}).')),
+          SnackBar(
+            content: Text(
+              sanitizeApiUserMessage(
+                msg,
+                fallback: 'Export failed. Check your connection or permissions.',
+              ),
+            ),
+          ),
         );
         return;
       }
@@ -137,7 +195,9 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export error: $e')),
+        SnackBar(
+          content: Text(sanitizeApiUserMessage(e.toString())),
+        ),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -293,7 +353,7 @@ class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
                       )
                     : Center(
                         child: Text(
-                          'Load a session to see attendance rows.',
+                          'Load a session to see who marked attendance.',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: cs.onSurfaceVariant,

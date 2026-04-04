@@ -2,6 +2,8 @@ import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/success_chime.dart';
+
 /// Bounce + always scrollable so pull-to-refresh works with short content.
 ScrollPhysics get modernPullToRefreshPhysics =>
     const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
@@ -15,6 +17,8 @@ class ModernPullToRefresh extends StatelessWidget {
     required this.child,
     this.edgeOffset = 0,
     this.offsetToArmed = 76,
+    this.showIndicator = true,
+    this.playChime = true,
   });
 
   final Future<void> Function() onRefresh;
@@ -25,6 +29,12 @@ class ModernPullToRefresh extends StatelessWidget {
 
   /// Pull distance (px) to reach armed threshold (release then runs [onRefresh]).
   final double offsetToArmed;
+
+  /// When false, pull-to-refresh still runs [onRefresh] but no on-screen glyph/spinner.
+  final bool showIndicator;
+
+  /// Optional success chime after refresh (e.g. off on dashboards).
+  final bool playChime;
 
   static const _durations = RefreshIndicatorDurations(
     cancelDuration: Duration(milliseconds: 300),
@@ -52,6 +62,7 @@ class ModernPullToRefresh extends StatelessWidget {
       },
       onRefresh: () async {
         await onRefresh();
+        if (playChime) await SuccessChime.playRefreshComplete();
       },
       child: child,
       builder: (context, scrollableChild, controller) {
@@ -74,22 +85,23 @@ class ModernPullToRefresh extends StatelessWidget {
                 child: scrollableChild,
               ),
             ),
-            Positioned(
-              top: edgeOffset + (-28 + v * 56).clamp(4.0, 120.0),
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 80),
-                  opacity: v > 0.02 || controller.state.isLoading ? 1 : 0,
-                  child: _PullIndicatorGlyph(
-                    controller: controller,
-                    color: cs.primary,
-                    trackColor: cs.surfaceContainerHighest,
+            if (showIndicator)
+              Positioned(
+                top: edgeOffset + (-28 + v * 56).clamp(4.0, 120.0),
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 80),
+                    opacity: v > 0.02 || controller.state.isLoading ? 1 : 0,
+                    child: _PullIndicatorGlyph(
+                      controller: controller,
+                      color: cs.primary,
+                      trackColor: cs.surfaceContainerHighest,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },

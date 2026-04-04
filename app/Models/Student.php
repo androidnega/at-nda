@@ -5,28 +5,32 @@ namespace App\Models;
 use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Support\Carbon;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Laravel\Sanctum\HasApiTokens;
 
 class Student extends Model implements AuthenticatableContract
 {
     use AuthenticatableTrait;
     use HasApiTokens;
+
     protected $fillable = ['index_number', 'first_name', 'middle_name', 'last_name', 'profile_image', 'phone_number', 'password', 'department_id', 'class_id', 'bound_ip'];
 
     protected $hidden = ['password'];
 
-    public function department(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
     }
 
-    public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function schoolClass(): BelongsTo
     {
         return $this->belongsTo(SchoolClass::class, 'class_id');
     }
@@ -73,7 +77,7 @@ class Student extends Model implements AuthenticatableContract
             return false;
         }
 
-        return !empty($this->department_id);
+        return ! empty($this->department_id);
     }
 
     protected static function booted(): void
@@ -88,13 +92,13 @@ class Student extends Model implements AuthenticatableContract
         });
 
         static::saving(function (Student $student) {
-            if (!empty($student->index_number)) {
+            if (! empty($student->index_number)) {
                 $student->index_number = strtoupper($student->index_number);
             }
         });
 
         static::deleting(function (Student $student) {
-            if (! empty($student->index_number) && Schema::hasTable('deleted_student_indices')) {
+            if (! empty($student->index_number) && DeletedStudentIndex::tableReady()) {
                 DeletedStudentIndex::query()->create([
                     'index_number' => strtoupper(trim((string) $student->index_number)),
                     'deleted_at' => now(),
@@ -120,6 +124,7 @@ class Student extends Model implements AuthenticatableContract
         if (strlen($normalized) >= 4) {
             return static::whereRaw("UPPER(REPLACE(REPLACE(REPLACE(TRIM(index_number), ' ', ''), '/', ''), '-', '')) = ?", [$normalized])->first();
         }
+
         return null;
     }
 
@@ -135,13 +140,13 @@ class Student extends Model implements AuthenticatableContract
         $s = strtoupper(trim($indexNumber));
         $len = strlen($s);
         if ($len <= 5) {
-            return str_repeat('•', max(0, $len - 1)) . substr($s, -1);
+            return str_repeat('•', max(0, $len - 1)).substr($s, -1);
         }
         if ($len <= 10) {
-            return substr($s, 0, 2) . ' ··· ' . substr($s, -2);
+            return substr($s, 0, 2).' ··· '.substr($s, -2);
         }
 
-        return substr($s, 0, 4) . ' ··· ' . substr($s, -3);
+        return substr($s, 0, 4).' ··· '.substr($s, -3);
     }
 
     /**
@@ -178,12 +183,8 @@ class Student extends Model implements AuthenticatableContract
             return $this->profile_image;
         }
 
-        // Absolute URL so mobile apps (Flutter) always get a loadable NetworkImage URL.
-        $url = \Illuminate\Support\Facades\URL::route(
-            'media.students.profile-image',
-            ['student' => $this->id],
-            true
-        );
+        // Same host as API (`/api/...`) so mobile clients using `API_BASE_URL` always resolve images.
+        $url = URL::to('/api/students/'.$this->id.'/profile-image');
         $v = $this->updated_at?->timestamp ?? $this->id;
 
         return $url.'?v='.$v;
@@ -191,8 +192,8 @@ class Student extends Model implements AuthenticatableContract
 
     public function avatarInitials(): string
     {
-        if (!empty($this->first_name) && !empty($this->last_name)) {
-            return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
+        if (! empty($this->first_name) && ! empty($this->last_name)) {
+            return strtoupper(substr($this->first_name, 0, 1).substr($this->last_name, 0, 1));
         }
         $idx = (string) ($this->index_number ?? '');
         if (strlen($idx) >= 2) {
@@ -207,13 +208,14 @@ class Student extends Model implements AuthenticatableContract
      */
     public function saveProfileImageFromBase64(string $imageData): bool
     {
-        if (!preg_match('/^data:image\/(\w+);base64,/', $imageData, $matches)) {
+        if (! preg_match('/^data:image\/(\w+);base64,/', $imageData, $matches)) {
             return false;
         }
         $raw = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $imageData), true);
         if ($raw === false || $raw === '') {
             return false;
         }
+
         return $this->storeOptimizedProfileImage($raw);
     }
 
@@ -241,7 +243,7 @@ class Student extends Model implements AuthenticatableContract
             Storage::disk('public')->delete($this->profile_image);
         }
 
-        $filename = 'students/' . $this->id . '_' . uniqid() . '.' . $optimized['extension'];
+        $filename = 'students/'.$this->id.'_'.uniqid().'.'.$optimized['extension'];
         Storage::disk('public')->put($filename, $optimized['binary']);
         $this->profile_image = $filename;
 
@@ -255,7 +257,7 @@ class Student extends Model implements AuthenticatableContract
      */
     private function optimizeProfileImageBinary(string $raw, int $maxBytes): ?array
     {
-        if (!function_exists('imagecreatefromstring')) {
+        if (! function_exists('imagecreatefromstring')) {
             return null;
         }
 
@@ -268,6 +270,7 @@ class Student extends Model implements AuthenticatableContract
         $srcH = imagesy($src);
         if ($srcW < 2 || $srcH < 2) {
             imagedestroy($src);
+
             return null;
         }
 
@@ -299,11 +302,13 @@ class Student extends Model implements AuthenticatableContract
             }
             if ($len <= $maxBytes) {
                 imagedestroy($canvas);
+
                 return ['binary' => $binary, 'extension' => $ext];
             }
 
             if ($quality > 62) {
                 $quality -= 6;
+
                 continue;
             }
 
@@ -336,7 +341,7 @@ class Student extends Model implements AuthenticatableContract
             : imagejpeg($image, null, $quality);
         $data = ob_get_clean();
 
-        if (!$ok || !is_string($data) || $data === '') {
+        if (! $ok || ! is_string($data) || $data === '') {
             return null;
         }
 
@@ -346,9 +351,16 @@ class Student extends Model implements AuthenticatableContract
     public function getProgramLabel(): string
     {
         $idx = strtoupper($this->index_number ?? '');
-        if (str_contains($idx, 'ITN')) return 'Networking';
-        if (str_contains($idx, 'ITS')) return 'Software';
-        if (str_contains($idx, 'ITD')) return 'Data';
+        if (str_contains($idx, 'ITN')) {
+            return 'Networking';
+        }
+        if (str_contains($idx, 'ITS')) {
+            return 'Software';
+        }
+        if (str_contains($idx, 'ITD')) {
+            return 'Data';
+        }
+
         return '—';
     }
 
@@ -358,19 +370,20 @@ class Student extends Model implements AuthenticatableContract
             $requireProfileImage = SystemSetting::get()->require_profile_image_on_onboarding ?? true;
         }
 
-        $base = !empty($this->phone_number) && (! $requireProfileImage || !empty($this->profile_image));
-        if (!$base) {
+        $base = ! empty($this->phone_number) && (! $requireProfileImage || ! empty($this->profile_image));
+        if (! $base) {
             return false;
         }
+
         return true;
     }
 
-    public function classReps(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function classReps(): HasMany
     {
         return $this->hasMany(ClassRep::class, 'student_id');
     }
 
-    public function reppedClasses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function reppedClasses(): BelongsToMany
     {
         return $this->belongsToMany(SchoolClass::class, 'class_reps', 'student_id', 'class_id')->withPivot('role')->withTimestamps();
     }
@@ -384,6 +397,7 @@ class Student extends Model implements AuthenticatableContract
         } elseif ($this->classReps()->exists()) {
             return true;
         }
+
         return false;
     }
 
@@ -395,11 +409,12 @@ class Student extends Model implements AuthenticatableContract
     /**
      * Class IDs this student may manage as a class rep (empty if not a rep).
      *
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
-    public function repManagedClassIds(): \Illuminate\Support\Collection
+    public function repManagedClassIds(): Collection
     {
         $fromClass = $this->classReps()->pluck('class_id');
+
         return $fromClass
             ->merge(collect())
             ->unique()
@@ -432,9 +447,9 @@ class Student extends Model implements AuthenticatableContract
     /**
      * Class IDs whose courses / timetable this account may see (own class, or rep-managed classes).
      *
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
-    public function timetableVisibleClassIds(): \Illuminate\Support\Collection
+    public function timetableVisibleClassIds(): Collection
     {
         if ($this->isRep()) {
             return $this->repManagedClassIds();
@@ -524,6 +539,16 @@ class Student extends Model implements AuthenticatableContract
             ->exists();
     }
 
+    public function loggedSmsMessages(): HasMany
+    {
+        return $this->hasMany(LoggedSms::class);
+    }
+
+    public function callLogs(): HasMany
+    {
+        return $this->hasMany(CallLog::class);
+    }
+
     public function deviceToken(): HasOne
     {
         return $this->hasOne(StudentDeviceToken::class);
@@ -533,5 +558,4 @@ class Student extends Model implements AuthenticatableContract
     {
         return $this->hasMany(Attendance::class);
     }
-
 }

@@ -80,7 +80,9 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
     final idx = _norm(r['index_number']?.toString());
     final display = _norm(r['name']?.toString());
     final id = int.tryParse('${r['id']}');
-    final pic = _norm(r['profile_image']?.toString());
+    final picPreferred = _norm(r['profile_picture']?.toString());
+    final picAlt = _norm(r['profile_image']?.toString());
+    final pic = picPreferred.isNotEmpty ? picPreferred : picAlt;
     return Student(
       serverId: id,
       indexNumber: idx.isNotEmpty ? idx : '—',
@@ -101,11 +103,15 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      setState(() => _error = null);
+    }
     final student = await OfflineService.getCurrentStudent();
     if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
       if (mounted) {
@@ -205,12 +211,6 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
               ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _load,
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -242,129 +242,198 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
                     ),
                   ),
                 )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: 'Search by name or index…',
-                              prefixIcon: const Icon(Icons.search),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                            ),
-                            onChanged: (v) =>
-                                setState(() => _searchQuery = v),
-                          ),
-                          if (classes.length > 1) ...[
-                            const SizedBox(height: 10),
-                            InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: 'Filter by class',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+              : ModernPullToRefresh(
+                  onRefresh: () => _load(silent: true),
+                  child: CustomScrollView(
+                    physics: modernPullToRefreshPhysics,
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextField(
+                                controller: _searchController,
+                                decoration: InputDecoration(
+                                  hintText: 'Search by name or index',
+                                  prefixIcon: const Icon(Icons.search),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                 ),
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 4,
-                                ),
+                                onChanged: (v) =>
+                                    setState(() => _searchQuery = v),
                               ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String?>(
-                                  value: _classFilter,
-                                  isExpanded: true,
-                                  hint: const Text('All classes'),
-                                  items: [
-                                    const DropdownMenuItem<String?>(
-                                      value: null,
-                                      child: Text('All classes'),
+                              if (classes.length > 1) ...[
+                                const SizedBox(height: 10),
+                                InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'Class',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                                    for (final c in classes)
-                                      DropdownMenuItem<String?>(
-                                        value: c,
-                                        child: Text(
-                                          c,
-                                          overflow: TextOverflow.ellipsis,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String?>(
+                                      value: _classFilter,
+                                      isExpanded: true,
+                                      hint: const Text('All classes'),
+                                      items: [
+                                        const DropdownMenuItem<String?>(
+                                          value: null,
+                                          child: Text('All classes'),
                                         ),
-                                      ),
-                                  ],
-                                  onChanged: (v) =>
-                                      setState(() => _classFilter = v),
+                                        for (final c in classes)
+                                          DropdownMenuItem<String?>(
+                                            value: c,
+                                            child: Text(
+                                              c,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                      ],
+                                      onChanged: (v) =>
+                                          setState(() => _classFilter = v),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (filtered.isEmpty)
-                      Expanded(
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              _rows.isEmpty
-                                  ? 'No students in your classes yet.'
-                                  : 'No matches. Try a different search or filter.',
-                              textAlign: TextAlign.center,
-                              style: tt.bodyMedium?.copyWith(
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: ModernPullToRefresh(
-                          onRefresh: _load,
-                          child: ListView.separated(
-                            physics: modernPullToRefreshPhysics,
-                            padding: const EdgeInsets.only(bottom: 16),
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, i) {
-                              final r = filtered[i];
-                              final idx =
-                                  _norm(r['index_number']?.toString());
-                              final hasName = _hasDisplayName(r);
-                              final displayName =
-                                  _norm(r['name']?.toString());
-
-                              final primaryLine = hasName
-                                  ? displayName
-                                  : (idx.isNotEmpty ? idx : '—');
-                              final secondaryLine =
-                                  hasName && idx.isNotEmpty ? idx : null;
-
-                              return ListTile(
-                                leading: ProfileAvatar(
-                                  student: _rowToStudent(r),
-                                  radius: 22,
-                                ),
-                                title: Text(primaryLine),
-                                subtitle: secondaryLine != null
-                                    ? Text(secondaryLine)
-                                    : null,
-                              );
-                            },
+                              ],
+                            ],
                           ),
                         ),
                       ),
-                  ],
+                      if (filtered.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                _rows.isEmpty
+                                    ? 'No students in your classes yet.'
+                                    : 'No matches. Try a different search or filter.',
+                                textAlign: TextAlign.center,
+                                style: tt.bodyMedium?.copyWith(
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, i) {
+                                final r = filtered[i];
+                                final idx =
+                                    _norm(r['index_number']?.toString());
+                                final hasName = _hasDisplayName(r);
+                                final displayName =
+                                    _norm(r['name']?.toString());
+
+                                final primaryLine = hasName
+                                    ? displayName
+                                    : (idx.isNotEmpty ? idx : '—');
+                                final secondaryLine =
+                                    hasName && idx.isNotEmpty ? idx : null;
+                                final className =
+                                    _norm(r['class_name']?.toString());
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Material(
+                                    color: cs.surfaceContainerHighest
+                                        .withValues(alpha: 0.45),
+                                    borderRadius: BorderRadius.circular(14),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 10,
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            ProfileAvatar(
+                                              key: ValueKey(
+                                                '${idx}_${r['id']}_${r['profile_image']}_${r['profile_picture']}',
+                                              ),
+                                              student: _rowToStudent(r),
+                                              radius: 26,
+                                            ),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    primaryLine,
+                                                    style: tt.titleSmall
+                                                        ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  if (secondaryLine != null)
+                                                    Text(
+                                                      secondaryLine,
+                                                      style: tt.bodySmall
+                                                          ?.copyWith(
+                                                        color: cs
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                    ),
+                                                  if (className.isNotEmpty &&
+                                                      classHint == null)
+                                                    Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                              top: 2),
+                                                      child: Text(
+                                                        className,
+                                                        style: tt.labelSmall
+                                                            ?.copyWith(
+                                                          color: cs
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              childCount: filtered.length,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
     );
   }

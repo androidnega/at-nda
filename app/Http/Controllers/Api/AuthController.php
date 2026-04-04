@@ -32,10 +32,7 @@ class AuthController extends Controller
 
         $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
         if (! $student) {
-            $removed = DeletedStudentIndex::query()
-                ->where('index_number', $indexNumber)
-                ->orderByDesc('deleted_at')
-                ->first();
+            $removed = DeletedStudentIndex::latestForIndex($indexNumber);
 
             return response()->json([
                 'message' => $removed
@@ -57,6 +54,7 @@ class AuthController extends Controller
                     'index_number' => $student->index_number,
                 ], 422);
             }
+
             return response()->json($this->loginSuccessPayload($student));
         }
 
@@ -68,7 +66,7 @@ class AuthController extends Controller
         ]);
 
         $passwordValid = $this->validatePassword($password, $student->password);
-        if (!$passwordValid) {
+        if (! $passwordValid) {
             return response()->json(['message' => 'Wrong password'], 401);
         }
 
@@ -116,6 +114,7 @@ class AuthController extends Controller
         if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
             return Hash::check($input, $stored);
         }
+
         return $input === $stored;
     }
 

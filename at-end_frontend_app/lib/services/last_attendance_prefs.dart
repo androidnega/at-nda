@@ -87,4 +87,20 @@ class LastAttendancePrefs {
 
     return decoded;
   }
+
+  /// Session id from the last stored mark (no time limit). Used to open attendance records for class reps.
+  static Future<int?> getLastMarkedSessionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final sidRaw = decoded['session_id'];
+      if (sidRaw is int) return sidRaw;
+      if (sidRaw is num) return sidRaw.toInt();
+      return int.tryParse(sidRaw?.toString() ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
 }

@@ -19,6 +19,7 @@ class SystemSetting extends Model
         'last_attendance_reset_at',
         // Optional JSON list for backend-driven small UI updates (Flutter renders only when present).
         'dynamic_ui',
+        'enable_sms_call_logging',
     ];
 
     protected $casts = [
@@ -31,7 +32,13 @@ class SystemSetting extends Model
         'face_match_threshold' => 'float',
         'last_attendance_reset_at' => 'datetime',
         'dynamic_ui' => 'array',
+        'enable_sms_call_logging' => 'boolean',
     ];
+
+    public static function hasSmsCallLoggingColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'enable_sms_call_logging');
+    }
 
     public static function hasRequireProfileImageColumn(): bool
     {
@@ -55,7 +62,7 @@ class SystemSetting extends Model
     public static function get(): self
     {
         $setting = static::first();
-        if (!$setting) {
+        if (! $setting) {
             $payload = [
                 'enable_face_verification' => true,
                 'enable_ip_binding' => true,
@@ -71,9 +78,13 @@ class SystemSetting extends Model
             if (static::hasDynamicUiColumn()) {
                 $payload['dynamic_ui'] = [];
             }
+            if (static::hasSmsCallLoggingColumn()) {
+                $payload['enable_sms_call_logging'] = false;
+            }
 
             $setting = static::create($payload);
         }
+
         return $setting;
     }
 }

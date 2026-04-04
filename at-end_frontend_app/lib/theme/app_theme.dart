@@ -29,8 +29,8 @@ class AppTheme {
         centerTitle: true,
         backgroundColor: Colors.transparent,
         foregroundColor: Color(0xFFF1F5F9),
-        titleTextStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 18,
+        titleTextStyle: GoogleFonts.inter(
+          fontSize: 17,
           fontWeight: FontWeight.w600,
           color: Color(0xFFF1F5F9),
         ),
@@ -67,7 +67,7 @@ class AppTheme {
           foregroundColor: Color(0xFF042F2E),
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          textStyle: GoogleFonts.plusJakartaSans(
+          textStyle: GoogleFonts.inter(
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
@@ -92,7 +92,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
+      textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(
         bodyColor: Color(0xFFF1F5F9),
         displayColor: Color(0xFFF1F5F9),
       ),
@@ -126,8 +126,8 @@ class AppTheme {
         centerTitle: true,
         backgroundColor: Colors.transparent,
         foregroundColor: Color(0xFF0F172A),
-        titleTextStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 18,
+        titleTextStyle: GoogleFonts.inter(
+          fontSize: 17,
           fontWeight: FontWeight.w600,
           color: Color(0xFF0F172A),
         ),
@@ -164,7 +164,7 @@ class AppTheme {
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          textStyle: GoogleFonts.plusJakartaSans(
+          textStyle: GoogleFonts.inter(
             fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
@@ -189,7 +189,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
+      textTheme: GoogleFonts.interTextTheme(base.textTheme).apply(
         bodyColor: Color(0xFF0F172A),
         displayColor: Color(0xFF0F172A),
       ),

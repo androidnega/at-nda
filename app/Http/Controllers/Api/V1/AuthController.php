@@ -27,10 +27,7 @@ class AuthController extends Controller
 
         $student = Student::findByIndex($indexNumber);
         if (! $student) {
-            $removed = DeletedStudentIndex::query()
-                ->where('index_number', $indexNumber)
-                ->orderByDesc('deleted_at')
-                ->first();
+            $removed = DeletedStudentIndex::latestForIndex($indexNumber);
             Log::warning('api.v1.login.failed', [
                 'reason' => $removed ? 'student_removed' : 'index_not_found',
                 'index' => $indexNumber,

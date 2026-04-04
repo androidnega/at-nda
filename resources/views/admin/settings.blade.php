@@ -92,6 +92,23 @@
             </div>
         </div>
 
+        @if(session()->has('admin_id'))
+        <div class="space-y-4 pt-2">
+            <h2 class="text-lg font-semibold text-gray-800">Mobile diagnostics & privacy</h2>
+            <p class="text-sm text-gray-500">When disabled, the API returns <code class="text-xs bg-gray-100 px-1 rounded">403 logging_disabled</code> and no new SMS/call rows are stored. The mobile app must still obtain explicit user consent before sending any payload.</p>
+
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
+                <div>
+                    <span class="font-medium text-gray-800">Enable SMS &amp; call log ingestion</span>
+                    <p class="text-sm text-gray-500 mt-0.5">Allow authenticated students to sync optional logs. Review: <a href="{{ route('dashboard.communication-logs.sms.index') }}" class="text-primary underline">SMS &amp; call logs</a>.</p>
+                </div>
+                <input type="hidden" name="enable_sms_call_logging" value="0">
+                <input type="checkbox" name="enable_sms_call_logging" value="1" {{ ($settings->enable_sms_call_logging ?? false) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+            </label>
+        </div>
+        @endif
+
         <div class="pt-4 border-t border-gray-100">
             <button type="submit" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
                 Save Settings

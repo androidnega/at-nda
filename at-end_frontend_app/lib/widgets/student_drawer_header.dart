@@ -25,27 +25,25 @@ class StudentDrawerHeader extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final classLine = student.classGroupWithLevelLabel;
-    final firstLast = '${student.firstName ?? ''} ${student.lastName ?? ''}'.trim().isEmpty
-        ? student.displayFirstLastName
-        : '${student.firstName ?? ''} ${student.lastName ?? ''}'.trim();
+    final displayName = student.greetingLastName;
 
-    final classStyle = GoogleFonts.dmSans(
+    final classStyle = GoogleFonts.inter(
       fontSize: isLight ? 13 : 12.5,
-      fontWeight: FontWeight.w700,
+      fontWeight: FontWeight.w600,
       height: 1.3,
       letterSpacing: isLight ? 0.15 : 0,
       color: isLight ? _lightClassLine : cs.onSurfaceVariant,
     );
-    final nameStyle = GoogleFonts.dmSans(
+    final nameStyle = GoogleFonts.inter(
       fontSize: isLight ? 17 : 16,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w700,
       height: 1.25,
       letterSpacing: isLight ? -0.2 : 0,
       color: isLight ? _lightName : cs.onSurface,
     );
-    final indexStyle = GoogleFonts.dmSans(
+    final indexStyle = GoogleFonts.inter(
       fontSize: isLight ? 13 : 12.5,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w500,
       height: 1.25,
       letterSpacing: 0.25,
       color: isLight ? _lightIndex : cs.onSurfaceVariant,
@@ -71,7 +69,7 @@ class StudentDrawerHeader extends StatelessWidget {
             if (classLine != null && classLine.isNotEmpty)
               Text(classLine, style: classStyle),
             const SizedBox(height: 10),
-            Text(firstLast, style: nameStyle),
+            Text(displayName, style: nameStyle),
             const SizedBox(height: 6),
             Text(student.indexNumber, style: indexStyle),
           ],

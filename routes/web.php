@@ -1,31 +1,40 @@
 <?php
 
+use App\Http\Controllers\AdminAttendanceWeekController;
+use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AdminCommunicationLogController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\AttendancePdfController;
+use App\Http\Controllers\AttendanceSessionController;
 use App\Http\Controllers\ClassController;
 use App\Http\Controllers\ClassLogoController;
 use App\Http\Controllers\ClassRepController;
-use App\Http\Controllers\LecturerAttendanceWeekController;
-use App\Http\Controllers\AttendanceController;
-use App\Http\Controllers\StudentDashboardController;
-use App\Http\Controllers\AttendancePdfController;
-use App\Http\Controllers\AttendanceSessionController;
-use App\Http\Controllers\AdminAttendanceWeekController;
-use App\Http\Controllers\DashboardTimetableController;
 use App\Http\Controllers\CourseController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DashboardProfileController;
+use App\Http\Controllers\DashboardStudentsController;
+use App\Http\Controllers\DashboardTimetableController;
+use App\Http\Controllers\LecturerAttendanceWeekController;
+use App\Http\Controllers\LecturerAuthController;
+use App\Http\Controllers\LecturerController;
+use App\Http\Controllers\RunMigrationsController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffAccountController;
 use App\Http\Controllers\StudentController;
+use App\Http\Controllers\StudentDashboardController;
 use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
-use App\Http\Controllers\RunMigrationsController;
 use App\Http\Controllers\UniversityController;
+use App\Http\Controllers\VenueController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function (\Illuminate\Http\Request $request) {
+Route::get('/', function (Request $request) {
     if ($request->session()->has('student_id')) {
         return redirect()->route('dashboard.dashboard');
     }
@@ -33,31 +42,34 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
     return view('home');
 })->name('home');
 
-Route::post('/filter-by-index', function (\Illuminate\Http\Request $request) {
+Route::post('/filter-by-index', function (Request $request) {
     $validated = $request->validate(['index_number' => 'required|string']);
     $indexNumber = strtoupper(trim($validated['index_number']));
-    $student = \App\Models\Student::findByIndex($indexNumber);
-    if (!$student) {
+    $student = Student::findByIndex($indexNumber);
+    if (! $student) {
         return redirect()->route('home')->with('error', 'We couldn’t find that student ID.');
     }
     if ($student->class_id) {
         $request->session()->put('filter_class_id', $student->class_id);
         $request->session()->put('filter_index', $indexNumber);
+
         return redirect()->route('home')->with('success', 'Showing courses for your class.');
     }
     $request->session()->forget(['filter_class_id', 'filter_index']);
+
     return redirect()->route('home')->with('info', 'No class assigned. Showing all courses.');
 })->name('home.filter');
 
-Route::post('/clear-filter', function (\Illuminate\Http\Request $request) {
+Route::post('/clear-filter', function (Request $request) {
     $request->session()->forget(['filter_class_id', 'filter_index']);
+
     return redirect()->route('home');
 })->name('home.clear-filter');
 
 Route::get('/run-migrations', RunMigrationsController::class)->name('system.run-migrations');
 Route::get('/run-migartions', RunMigrationsController::class); // alias for common typo
 Route::get('/run-migrations-auto', function () {
-    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    $key = RunMigrationsController::expectedKey();
     if ($key === '') {
         abort(500, 'Migration key cannot be derived from configuration.');
     }
@@ -65,7 +77,7 @@ Route::get('/run-migrations-auto', function () {
     return redirect()->route('system.run-migrations', ['key' => $key]);
 });
 Route::get('/run-migartions-auto', function () {
-    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    $key = RunMigrationsController::expectedKey();
     if ($key === '') {
         abort(500, 'Migration key cannot be derived from configuration.');
     }
@@ -73,7 +85,7 @@ Route::get('/run-migartions-auto', function () {
     return redirect()->route('system.run-migrations', ['key' => $key]);
 });
 Route::get('/run-migraiton-auto', function () {
-    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    $key = RunMigrationsController::expectedKey();
     if ($key === '') {
         abort(500, 'Migration key cannot be derived from configuration.');
     }
@@ -81,7 +93,7 @@ Route::get('/run-migraiton-auto', function () {
     return redirect()->route('system.run-migrations', ['key' => $key]);
 });
 Route::get('/run-migration-auto', function () {
-    $key = \App\Http\Controllers\RunMigrationsController::expectedKey();
+    $key = RunMigrationsController::expectedKey();
     if ($key === '') {
         abort(500, 'Migration key cannot be derived from configuration.');
     }
@@ -135,15 +147,15 @@ Route::middleware('student.auth')->group(function () {
 });
 Route::get('/student/departments/{faculty}', [StudentDashboardController::class, 'departmentsByFaculty'])->name('student.departments');
 
-Route::get('/admin', [\App\Http\Controllers\AdminAuthController::class, 'loginForm'])->name('admin.login');
-Route::post('/admin', [\App\Http\Controllers\AdminAuthController::class, 'login'])->name('admin.login.post');
-Route::post('/admin/logout', [\App\Http\Controllers\AdminAuthController::class, 'logout'])->name('admin.logout');
+Route::get('/admin', [AdminAuthController::class, 'loginForm'])->name('admin.login');
+Route::post('/admin', [AdminAuthController::class, 'login'])->name('admin.login.post');
+Route::post('/admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
 
-Route::get('/lecturer/login', [\App\Http\Controllers\LecturerAuthController::class, 'loginForm'])->name('lecturer.login');
-Route::post('/lecturer/login', [\App\Http\Controllers\LecturerAuthController::class, 'login']);
-Route::post('/lecturer/logout', [\App\Http\Controllers\LecturerAuthController::class, 'logout'])->name('lecturer.logout');
-Route::get('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePasswordForm'])->name('lecturer.password.change.form');
-Route::post('/lecturer/change-password', [\App\Http\Controllers\LecturerAuthController::class, 'changePassword'])->name('lecturer.password.change.post');
+Route::get('/lecturer/login', [LecturerAuthController::class, 'loginForm'])->name('lecturer.login');
+Route::post('/lecturer/login', [LecturerAuthController::class, 'login']);
+Route::post('/lecturer/logout', [LecturerAuthController::class, 'logout'])->name('lecturer.logout');
+Route::get('/lecturer/change-password', [LecturerAuthController::class, 'changePasswordForm'])->name('lecturer.password.change.form');
+Route::post('/lecturer/change-password', [LecturerAuthController::class, 'changePassword'])->name('lecturer.password.change.post');
 
 Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(function () {
     Route::post('courses/{course}/weeks/{attendanceWeek}/cancel', [LecturerAttendanceWeekController::class, 'cancel'])->name('courses.week.cancel');
@@ -154,11 +166,11 @@ Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->
 Route::post('/onboarding/complete', [StudentOnboardingController::class, 'complete'])->name('onboarding.complete');
 
 Route::prefix('dashboard')->name('dashboard.')->group(function () {
-    Route::get('/', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
-    Route::get('/students', [\App\Http\Controllers\DashboardStudentsController::class, 'index'])->name('students.index');
-    Route::get('/students/{student}', [\App\Http\Controllers\DashboardStudentsController::class, 'show'])->name('students.show')->scopeBindings();
-    Route::post('/students/{student}/reset-password', [\App\Http\Controllers\DashboardStudentsController::class, 'resetPassword'])->name('students.reset-password')->scopeBindings();
+    Route::get('/students', [DashboardStudentsController::class, 'index'])->name('students.index');
+    Route::get('/students/{student}', [DashboardStudentsController::class, 'show'])->name('students.show')->scopeBindings();
+    Route::post('/students/{student}/reset-password', [DashboardStudentsController::class, 'resetPassword'])->name('students.reset-password')->scopeBindings();
 
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
@@ -220,8 +232,8 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::get('/sessions/{session}/qr', [AttendanceSessionController::class, 'qr'])->name('sessions.qr')->scopeBindings();
         Route::get('/sessions/{session}/qr-download', [AttendanceSessionController::class, 'qrDownload'])->name('sessions.qr-download')->scopeBindings();
 
-        Route::get('/profile', [\App\Http\Controllers\DashboardProfileController::class, 'edit'])->name('profile.edit');
-        Route::post('/profile', [\App\Http\Controllers\DashboardProfileController::class, 'update'])->name('profile.update');
+        Route::get('/profile', [DashboardProfileController::class, 'edit'])->name('profile.edit');
+        Route::post('/profile', [DashboardProfileController::class, 'update'])->name('profile.update');
         Route::middleware('admin.only')->get('/attendances', [AdminController::class, 'attendances'])->name('attendances');
         Route::resource('courses', CourseController::class)->except(['show']);
         Route::get('/attendance-weeks', [AdminAttendanceWeekController::class, 'index'])->name('attendance-weeks.index');
@@ -238,7 +250,11 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
-        Route::resource('venues', \App\Http\Controllers\VenueController::class)->except(['show']);
+        Route::middleware('admin.only')->prefix('communication-logs')->name('communication-logs.')->group(function () {
+            Route::get('/sms', [AdminCommunicationLogController::class, 'sms'])->name('sms.index');
+            Route::get('/calls', [AdminCommunicationLogController::class, 'calls'])->name('calls.index');
+        });
+        Route::resource('venues', VenueController::class)->except(['show']);
         Route::middleware('admin.only')->prefix('staff-accounts')->name('staff-accounts.')->group(function () {
             Route::get('/', [StaffAccountController::class, 'index'])->name('index');
             Route::get('/create', [StaffAccountController::class, 'create'])->name('create');
@@ -249,7 +265,7 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
             Route::put('/admins/{user}', [StaffAccountController::class, 'updateAdmin'])->name('admins.update');
             Route::delete('/admins/{user}', [StaffAccountController::class, 'destroyAdmin'])->name('admins.destroy');
         });
-        Route::resource('lecturers', \App\Http\Controllers\LecturerController::class)->except(['show']);
+        Route::resource('lecturers', LecturerController::class)->except(['show']);
         Route::resource('universities', UniversityController::class)->except(['show']);
         Route::get('/classes', [ClassController::class, 'index'])->name('classes.index');
         Route::get('/classes/create', [ClassController::class, 'create'])->name('classes.create');

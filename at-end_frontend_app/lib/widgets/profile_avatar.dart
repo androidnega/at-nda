@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../models/student.dart';
+import '../services/api_service.dart';
 import '../services/profile_image_cache.dart';
+import '../utils/constants.dart';
+
 
 /// Circle avatar: cached network download, base64, or placeholder.
 class ProfileAvatar extends StatefulWidget {
@@ -48,9 +51,16 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
     });
   }
 
+  String? _networkFallbackUrl() {
+    final urls = widget.student
+        .profileImageNetworkUrlCandidates(Uri.parse(Constants.baseUrl));
+    return urls.isNotEmpty ? urls.first : null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = widget.radius;
+    final d = r * 2;
     if (_loading) {
       return CircleAvatar(
         radius: r,
@@ -67,6 +77,37 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
         onBackgroundImageError: (_, __) {
           if (mounted) setState(() => _provider = null);
         },
+      );
+    }
+    final fallbackUrl = _networkFallbackUrl();
+    if (fallbackUrl != null) {
+      return ClipOval(
+        child: Image.network(
+          fallbackUrl,
+          headers: ApiService.profileImageGetHeaders(),
+          width: d,
+          height: d,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => CircleAvatar(
+            radius: r,
+            child: Icon(Icons.person, size: r * 1.25),
+          ),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return SizedBox(
+              width: d,
+              height: d,
+              child: Center(
+                child: SizedBox(
+                  width: r,
+                  height: r,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            );
+          },
+        ),
       );
     }
     return CircleAvatar(

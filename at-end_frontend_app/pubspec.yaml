@@ -41,6 +41,7 @@ dependencies:
   # Camera & face capture
   camera: ^0.10.5+9
   image_picker: ^1.0.7
+  image: ^4.3.0
 
   # GPS location
   geolocator: ^11.0.0
@@ -77,6 +78,9 @@ dependencies:
   share_plus: ^10.1.4
   package_info_plus: ^8.1.2
   custom_refresh_indicator: ^4.0.1
+  crop_your_image: ^2.0.0
+  call_log: ^6.0.1
+  flutter_sms_inbox: ^1.0.4
 
 dev_dependencies:
   flutter_test:
@@ -88,6 +92,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -102,7 +107,7 @@ flutter:
 
   assets:
     - assets/sounds/success.wav
-    - assets/images/flashimage.png
+    - assets/models/face_embedding.tflite
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -129,3 +134,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/app_icon.png
+  remove_alpha_ios: true
+  min_sdk_android: 21

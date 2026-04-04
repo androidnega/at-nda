@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/attendance_record.dart';
 import '../models/student.dart';
 import 'api_service.dart';
+import 'logout_lock_prefs.dart';
 
 /// Local storage: SQLite on mobile, SharedPreferences on web (sqflite doesn't support web).
 class OfflineService {
@@ -407,6 +408,7 @@ class OfflineService {
   }
 
   static Future<void> clearCurrentStudent() async {
+    await LogoutLockPrefs.clear();
     final storedToken = await getApiSessionToken();
     if (storedToken != null && storedToken.isNotEmpty) {
       ApiService.setSessionBearerToken(storedToken);

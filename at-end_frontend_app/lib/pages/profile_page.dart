@@ -353,7 +353,7 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 18),
             Text(
               s.displayFirstLastName,
-              style: theme.textTheme.titleLarge?.copyWith(
+              style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
@@ -365,19 +365,19 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   _kvRow(context, 'Index', s.indexNumber, mono: true),
                   if (classGroup != null && classGroup.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(context, 'Class', classGroup),
                   ],
                   if (semester.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(context, 'Semester', semester),
                   ],
                   if (faculty.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(context, 'Faculty', faculty),
                   ],
                   if (department.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(context, 'Department', department),
                   ],
                 ],
@@ -405,14 +405,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 16),
                   if (!_editing) ...[
                     _kvRow(context, 'Name', s.displayFirstLastName),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(
                       context,
                       'Phone',
                       phone.isNotEmpty ? phone : '—',
                       mono: phone.isNotEmpty,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _kvRow(
                       context,
                       'Email',
@@ -502,7 +502,7 @@ class _ProfileInfoCard extends StatelessWidget {
         border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
         child: child,
       ),
     );
@@ -521,10 +521,12 @@ Widget _kvRow(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       SizedBox(
-        width: 88,
+        width: 80,
         child: Text(
           label,
-          style: theme.textTheme.labelLarge?.copyWith(
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontSize: 12,
+            height: 1.3,
             color: cs.onSurfaceVariant,
             fontWeight: FontWeight.w500,
           ),
@@ -533,8 +535,11 @@ Widget _kvRow(
       Expanded(
         child: SelectableText(
           value,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            fontWeight: FontWeight.w600,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14,
+            height: 1.35,
+            fontWeight: FontWeight.w500,
+            color: cs.onSurface,
             fontFeatures: mono
                 ? const [FontFeature.tabularFigures()]
                 : null,

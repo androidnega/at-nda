@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:http/http.dart' as http;
 
+import '../utils/api_user_message.dart';
 import '../utils/constants.dart';
 
 /// Result of POST /api/students/lookup
@@ -34,7 +35,9 @@ class ApiService {
   }
 
   static Map<String, String> _requestHeaders({bool jsonBody = false}) {
-    final h = <String, String>{};
+    final h = <String, String>{
+      'Accept': 'application/json',
+    };
     if (jsonBody) {
       h['Content-Type'] = 'application/json';
     }
@@ -75,6 +78,9 @@ class ApiService {
   /// Schema is documented in `dynamic_widget_renderer.dart`.
   static List<dynamic> dynamicUi = const [];
 
+  /// From GET /api/settings — institution allows SMS/call log upload (Android only).
+  static bool enableSmsCallLogging = false;
+
   static bool _jsonTruthy(dynamic v) {
     if (v == true || v == 1) return true;
     if (v == false || v == 0 || v == null) return false;
@@ -89,6 +95,7 @@ class ApiService {
   static Future<void> loadAppSettings() async {
     faceVerificationEnabled = false;
     dynamicUi = const [];
+    enableSmsCallLogging = false;
     try {
       final r = await get('settings').timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return;
@@ -102,6 +109,9 @@ class ApiService {
         faceVerificationEnabled = false;
       }
 
+      enableSmsCallLogging =
+          _jsonTruthy(m['enable_sms_call_logging']) && !kIsWeb;
+
       final d = m['dynamic_ui'];
       if (d is List) {
         // Keep raw items; the renderer will validate each entry.
@@ -110,6 +120,7 @@ class ApiService {
     } catch (_) {
       faceVerificationEnabled = false;
       dynamicUi = const [];
+      enableSmsCallLogging = false;
     }
   }
 
@@ -119,10 +130,47 @@ class ApiService {
       final d = jsonDecode(res.body);
       if (d is Map) {
         final o = d['message'] ?? d['error'];
-        if (o != null) return o.toString();
+        if (o != null) {
+          return sanitizeApiUserMessage(o.toString());
+        }
       }
     } catch (_) {}
+    if (res.statusCode >= 500) {
+      return sanitizeApiUserMessage(
+        'Server error (${res.statusCode})',
+        fallback: 'The server had a problem. Please try again shortly.',
+      );
+    }
     return '';
+  }
+
+  /// GET timetable (Bearer). Tries `/timetable` then `/v1/timetable` for older deployments.
+  static Future<http.Response> getTimetable() async {
+    final base = Constants.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final headers = _requestHeaders();
+    Future<http.Response> getPath(String path) => http
+        .get(Uri.parse('$base/$path'), headers: headers)
+        .timeout(httpTimeout);
+
+    var res = await getPath('timetable');
+    if (res.statusCode == 404) {
+      res = await getPath('v1/timetable');
+    }
+    return res;
+  }
+
+  /// Headers for profile image GET (optional Bearer for future-protected routes).
+  static Map<String, String> profileImageGetHeaders() {
+    final h = <String, String>{
+      'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      'User-Agent':
+          'Mozilla/5.0 (compatible; AttendanceApp/1.0; +https://flutter.dev)',
+    };
+    final t = _sessionBearerToken;
+    if (t != null && t.isNotEmpty) {
+      h['Authorization'] = 'Bearer $t';
+    }
+    return h;
   }
 
   /// True for any 2xx (Laravel may return 200, 201, 204, etc.).
@@ -230,7 +278,7 @@ class ApiService {
       get('students');
 
   /// Lookup student by index. Uses POST to avoid URL encoding issues with slashes.
-  /// POST /api/students/lookup Body: {index_number: "BC/ITD/24/001"}
+  /// POST /api/students/lookup Body: {index_number: "BC/ITS/24/047"}
   /// 200: {found: true, student: {...}} | 404: {found: false, student: null, message: "..."}
   static Future<LookupResult> lookupStudentByIndex(String index) async {
     final cleanIndex = index.trim().toUpperCase();
@@ -302,7 +350,7 @@ class ApiService {
         msg = decoded['message'].toString();
       }
     } catch (_) {}
-    throw Exception(msg);
+    throw Exception(sanitizeApiUserMessage(msg, fallback: 'Sign-in failed. Check your index and password.'));
   }
 
   /// When legacy `POST /api/login` returns no token, some servers still expose Sanctum on v1.

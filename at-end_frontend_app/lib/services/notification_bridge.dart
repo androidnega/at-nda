@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'notification_prefs.dart';
 import 'offline_service.dart';
+import 'success_chime.dart';
 
 /// Firebase-free notifications:
 /// - Laravel cron writes pending reminders into `in_app_notifications`
@@ -69,6 +70,9 @@ abstract final class NotificationBridge {
         if (first is Map) {
           final title = first['title']?.toString() ?? 'Reminder';
           final body = first['body']?.toString() ?? '';
+          if (!kIsWeb) {
+            await SuccessChime.playNotificationTone();
+          }
           final messenger = messengerKey.currentState;
           if (messenger != null) {
             messenger.showSnackBar(

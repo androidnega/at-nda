@@ -1,11 +1,22 @@
 <?php
 
+use App\Console\Commands\DispatchClassStartReminders;
+use App\Console\Commands\MigrateSqliteToMysql;
+use App\Http\Middleware\EnsureAdminOnly;
+use App\Http\Middleware\EnsureAdminOrLecturer;
+use App\Http\Middleware\EnsureClassRep;
+use App\Http\Middleware\EnsureLecturer;
+use App\Http\Middleware\EnsureNotAdminOrLecturer;
+use App\Http\Middleware\EnsureStudentAuthenticated;
+use App\Http\Middleware\ForceHttpsForApi;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -17,8 +28,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withCommands([
-        \App\Console\Commands\MigrateSqliteToMysql::class,
-        \App\Console\Commands\DispatchClassStartReminders::class,
+        MigrateSqliteToMysql::class,
+        DispatchClassStartReminders::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Laravel defaults to route('login'), which this app does not define.
@@ -33,18 +44,18 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $middleware->alias([
-            'admin.only' => \App\Http\Middleware\EnsureAdminOnly::class,
-            'admin' => \App\Http\Middleware\EnsureAdminOrLecturer::class,
-            'classrep' => \App\Http\Middleware\EnsureClassRep::class,
-            'lecturer' => \App\Http\Middleware\EnsureLecturer::class,
-            'student.attendance' => \App\Http\Middleware\EnsureNotAdminOrLecturer::class,
-            'student.auth' => \App\Http\Middleware\EnsureStudentAuthenticated::class,
-            'api.https' => \App\Http\Middleware\ForceHttpsForApi::class,
+            'admin.only' => EnsureAdminOnly::class,
+            'admin' => EnsureAdminOrLecturer::class,
+            'classrep' => EnsureClassRep::class,
+            'lecturer' => EnsureLecturer::class,
+            'student.attendance' => EnsureNotAdminOrLecturer::class,
+            'student.auth' => EnsureStudentAuthenticated::class,
+            'api.https' => ForceHttpsForApi::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // API routes should never return HTML error pages (mobile clients expect JSON).
-        $exceptions->shouldRenderJsonWhen(function (Request $request, \Throwable $e): bool {
+        $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e): bool {
             return $request->is('api/*');
         });
 
@@ -80,5 +91,20 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => 'We could not find that session or record.',
                 ], 404);
             }
+        });
+
+        $exceptions->render(function (QueryException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            Log::error('api.query_exception', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong on our side. Please try again in a moment.',
+            ], 500);
         });
     })->create();

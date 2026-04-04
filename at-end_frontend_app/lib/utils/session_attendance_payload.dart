@@ -40,10 +40,11 @@ String? sessionQrToken(Map<String, dynamic> session) {
 }
 
 /// Backend: when false (e.g. mode `qr`), do not call Geolocator before attendance POST.
-/// Hybrid sessions always require GPS + QR (ignore a mistaken `location_required: false`).
+/// Prefer [mode] over [location_required] — the API used to send `location_required: false` for all rows.
 bool sessionLocationRequired(Map<String, dynamic> s) {
   final mode = s['mode']?.toString().trim().toLowerCase();
-  if (mode == 'hybrid') return true;
+  if (mode == 'location' || mode == 'hybrid') return true;
+  if (mode == 'qr' || mode == 'wifi') return false;
   final v = s['location_required'];
   if (v is bool) return v;
   if (v is num) return v != 0;
@@ -52,7 +53,6 @@ bool sessionLocationRequired(Map<String, dynamic> s) {
     if (t == 'true' || t == '1') return true;
     if (t == 'false' || t == '0') return false;
   }
-  if (mode == 'qr') return false;
   return true;
 }
 
@@ -72,7 +72,7 @@ bool sessionRequiresQrProof(Map<String, dynamic> s) {
 }
 
 /// Builds JSON-safe map: ids are Dart [int]s (not strings).
-/// [session_id] optional if [qr_code] or [course_id] satisfies the API contract.
+/// [session_id] optional if [qr_code], [course_id], or [sessionCode] satisfies the API contract.
 /// Omits [course_id] / [week_id] when null. Location keys only when [includeLocation].
 Map<String, dynamic> buildAttendancePostBody({
   required String indexNumber,
@@ -84,6 +84,7 @@ Map<String, dynamic> buildAttendancePostBody({
   bool includeLocation = true,
   String? qrCode,
   String? sessionToken,
+  String? sessionCode,
   dynamic faceDescriptor,
   String? deviceIp,
   String? deviceId,
@@ -111,6 +112,10 @@ Map<String, dynamic> buildAttendancePostBody({
   if (sessionToken != null && sessionToken.isNotEmpty) {
     m['session_token'] = sessionToken;
   }
+  final trimmedCode = sessionCode?.trim();
+  if (trimmedCode != null && trimmedCode.isNotEmpty) {
+    m['session_code'] = trimmedCode;
+  }
   if (faceDescriptor != null) {
     m['face_descriptor'] = faceDescriptor;
   }
@@ -121,9 +126,10 @@ Map<String, dynamic> buildAttendancePostBody({
   final hasSession = sessionId != null && sessionId > 0;
   final hasCourse = courseId != null && courseId > 0;
   final hasQr = qrCode != null && qrCode.isNotEmpty;
-  if (!hasSession && !hasCourse && !hasQr) {
+  final hasCode = trimmedCode != null && trimmedCode.isNotEmpty;
+  if (!hasSession && !hasCourse && !hasQr && !hasCode) {
     throw StateError(
-      'Attendance body needs session_id, course_id, or qr_code (per API contract).',
+      'Attendance body needs session_id, course_id, qr_code, or session_code (per API contract).',
     );
   }
   return m;

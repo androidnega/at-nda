@@ -86,12 +86,8 @@ class Student {
 
   /// Builds a loadable network URL for [NetworkImage].
   ///
-  /// When the API sends a full `https://.../media/...` URL, that value is used as-is.
-  /// Some servers do not expose `GET /api/students/{id}/profile-image`; rewriting to it
-  /// breaks avatars while `/media/...` still returns 200.
-  ///
-  /// If there is no absolute URL but [serverId] is set, falls back to
-  /// `GET /api/students/{id}/profile-image` (CORS-friendly when the route exists).
+  /// Prefer absolute URLs from the API; then `{apiBase}/students/{id}/profile-image`;
+  /// then `/storage/...` on the API origin for relative paths.
   String? resolvedNetworkProfileUrl(Uri apiBaseUri) {
     final origin = apiBaseUri.origin;
     final p = profileImage.trim();
@@ -146,6 +142,48 @@ class Student {
       return '$origin/storage/$p';
     }
     return profilePictureUrl;
+  }
+
+  /// Rewrites absolute avatar URLs to the API host (fixes APP_URL ≠ device `API_BASE_URL`, e.g. LAN vs production).
+  static String alignProfileImageUrlToApiHost(String rawUrl, Uri apiBaseUri) {
+    final trimmed = rawUrl.trim();
+    final u = Uri.tryParse(trimmed);
+    if (u == null || !u.hasScheme || u.host.isEmpty) return trimmed;
+    if (apiBaseUri.host.isEmpty) return trimmed;
+    if (u.host == apiBaseUri.host && u.scheme == apiBaseUri.scheme) {
+      return trimmed;
+    }
+    return u
+        .replace(
+          scheme: apiBaseUri.scheme,
+          host: apiBaseUri.host,
+          port: apiBaseUri.hasPort ? apiBaseUri.port : null,
+        )
+        .toString();
+  }
+
+  /// HTTP(S) URLs to try for avatar bytes (API route first, then resolved / CDN URL).
+  List<String> profileImageNetworkUrlCandidates(Uri apiBaseUri) {
+    final seen = <String>{};
+    final out = <String>[];
+
+    void push(String? raw) {
+      var s = raw?.trim() ?? '';
+      if (s.isEmpty) return;
+      if (s.startsWith('http://') || s.startsWith('https://')) {
+        s = alignProfileImageUrlToApiHost(s, apiBaseUri);
+      }
+      if (!s.startsWith('http://') && !s.startsWith('https://')) return;
+      if (seen.add(s)) out.add(s);
+    }
+
+    final base = apiBaseUri.toString().replaceAll(RegExp(r'/+$'), '');
+    if (serverId != null) {
+      push('$base/students/$serverId/profile-image');
+    }
+    push(resolvedNetworkProfileUrl(apiBaseUri));
+    push(profilePictureUrl);
+    return out;
   }
 
   factory Student.fromJson(Map<String, dynamic> json) {
@@ -231,6 +269,19 @@ class Student {
     final l = lastName?.trim() ?? '';
     if (f.isNotEmpty || l.isNotEmpty) return '$f $l'.trim();
     return name;
+  }
+
+  /// Home greeting / drawer title: surname when API sends it; else last token of [name].
+  String get greetingLastName {
+    final l = lastName?.trim() ?? '';
+    if (l.isNotEmpty) return l;
+    final n = name.trim();
+    if (n.isNotEmpty) {
+      final parts =
+          n.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      if (parts.isNotEmpty) return parts.last;
+    }
+    return indexNumber;
   }
 
   static List<double>? _parseFaceDescriptor(dynamic v) {

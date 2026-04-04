@@ -1,6 +1,9 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 
-import 'pages/api_test_page.dart';
 import 'pages/attendance_records_page.dart';
 import 'pages/attendance_page.dart';
 import 'pages/home_page.dart';
@@ -12,6 +15,8 @@ import 'pages/class_rep_students_page.dart';
 import 'pages/rep_home_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/timetable_page.dart';
+import 'services/communication_log_sync.dart';
 import 'services/notification_bridge.dart';
 import 'services/notification_prefs.dart';
 import 'services/theme_service.dart';
@@ -59,6 +64,7 @@ class _AppLifecycleShellState extends State<_AppLifecycleShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       NotificationBridge.onAppForegrounded();
+      unawaited(CommunicationLogSyncService.maybeSync());
     }
   }
 
@@ -74,7 +80,7 @@ class AttendanceApp extends StatelessWidget {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeService.modeNotifier,
       builder: (context, mode, _) {
-        return MaterialApp(
+        final app = MaterialApp(
           title: 'at-enda',
           scaffoldMessengerKey: NotificationBridge.messengerKey,
           debugShowCheckedModeBanner: false,
@@ -91,14 +97,29 @@ class AttendanceApp extends StatelessWidget {
             '/class-rep/students': (_) =>
                 appSelectableScope(const ClassRepStudentsPage()),
             '/attendance': (_) => appSelectableScope(const AttendancePage()),
-            '/attendance-records': (_) =>
-                appSelectableScope(const AttendanceRecordsPage()),
+            '/attendance-records': (context) {
+              final args = ModalRoute.of(context)?.settings.arguments;
+              int? sessionId;
+              if (args is int) {
+                sessionId = args;
+              } else if (args is num) {
+                sessionId = args.toInt();
+              }
+              return appSelectableScope(
+                AttendanceRecordsPage(initialSessionId: sessionId),
+              );
+            },
             '/profile': (_) => appSelectableScope(const ProfilePage()),
             '/settings': (_) => appSelectableScope(const SettingsPage()),
             '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
-            '/api-test': (_) => appSelectableScope(const ApiTestPage()),
+            '/timetable': (_) => appSelectableScope(const TimetablePage()),
           },
         );
+        if (kIsWeb) return app;
+        final isMobile = defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS;
+        if (!isMobile) return app;
+        return SelectionContainer.disabled(child: app);
       },
     );
   }

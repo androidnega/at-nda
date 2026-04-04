@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/communication_log_sync.dart';
 import '../services/last_attendance_prefs.dart';
+import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/student_profile_refresh.dart';
 import '../theme/dashboard_surfaces.dart';
@@ -25,12 +27,10 @@ class RepHomePage extends StatefulWidget {
   State<RepHomePage> createState() => _RepHomePageState();
 }
 
-class _RepHomePageState extends State<RepHomePage> {
-  Timer? _pollTimer;
+class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
   /// Ticks every second while an active session has an end time (countdown UI).
   Timer? _countdownTimer;
   Student? _student;
-  bool _dashLoading = false;
   String? _dashError;
   bool _hasActiveSession = false;
   int _activeSessionsCount = 0;
@@ -41,11 +41,44 @@ class _RepHomePageState extends State<RepHomePage> {
   /// Session object from `GET /api/class/active-session` (id, end_time, course_name, …).
   Map<String, dynamic>? _activeSessionDetail;
   DateTime? _sessionEndsAt;
+  bool _logoutAllowed = true;
+  String? _logoutLockHint;
+  bool _appWentToBackground = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_syncLogoutLock());
+    });
     _loadStudent();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _appWentToBackground = true;
+    } else if (state == AppLifecycleState.resumed) {
+      if (_appWentToBackground) {
+        _appWentToBackground = false;
+        unawaited(_syncLogoutLock());
+      }
+    }
+  }
+
+  Future<void> _syncLogoutLock() async {
+    final t = await OfflineService.getApiSessionToken();
+    final has = t != null && t.isNotEmpty;
+    await LogoutLockPrefs.applyGracePeriodAndExtension(hasSession: has);
+    final allow = await LogoutLockPrefs.canLogoutNow();
+    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    if (!mounted) return;
+    setState(() {
+      _logoutAllowed = allow;
+      _logoutLockHint = hint;
+    });
   }
 
   Future<void> _loadStudent() async {
@@ -66,15 +99,18 @@ class _RepHomePageState extends State<RepHomePage> {
     }
     setState(() => _student = s);
     await _loadDashboard(s);
-    _startPolling();
   }
 
   Future<void> _loadDashboard(Student s) async {
     if (!await OfflineService.hasPasswordOrApiToken()) return;
     if (!await hasInternetConnectivity()) return;
 
+    try {
+      await ApiService.loadAppSettings();
+      unawaited(CommunicationLogSyncService.maybeSync());
+    } catch (_) {}
+
     setState(() {
-      _dashLoading = true;
       _dashError = null;
     });
 
@@ -94,7 +130,6 @@ class _RepHomePageState extends State<RepHomePage> {
         final todayLogs = await OfflineService.getTodayAttendanceLogs(idx);
         if (!mounted) return;
         setState(() {
-          _dashLoading = false;
           _dashError = null;
           _hasActiveSession = d['has_active_session'] == true;
           _activeSessionsCount = _toInt(d['active_sessions_count']) ?? 0;
@@ -105,7 +140,6 @@ class _RepHomePageState extends State<RepHomePage> {
       } else {
         if (!mounted) return;
         setState(() {
-          _dashLoading = false;
           _dashError = ApiService.messageFromHttpResponse(res).isEmpty
               ? 'Could not refresh dashboard.'
               : ApiService.messageFromHttpResponse(res);
@@ -114,7 +148,6 @@ class _RepHomePageState extends State<RepHomePage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _dashLoading = false;
         _dashError = 'Could not refresh dashboard.';
       });
     }
@@ -272,15 +305,6 @@ class _RepHomePageState extends State<RepHomePage> {
     }
   }
 
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      final s = _student;
-      if (s == null || !mounted) return;
-      _loadDashboard(s);
-    });
-  }
-
   int? _toInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.round();
@@ -300,6 +324,25 @@ class _RepHomePageState extends State<RepHomePage> {
   }
 
   Future<void> _confirmLogout() async {
+    if (!_logoutAllowed) {
+      final msg = _logoutLockHint ??
+          'This account stays signed in on this device for the current period.';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Sign out not available yet'),
+          content: Text(msg),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -363,7 +406,16 @@ class _RepHomePageState extends State<RepHomePage> {
                 title: const Text('Attendance Records'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/attendance-records');
+                  final sid = _activeSessionDetail?['id'];
+                  final int? id = sid is int
+                      ? sid
+                      : sid is num
+                          ? sid.toInt()
+                          : int.tryParse(sid?.toString() ?? '');
+                  Navigator.of(context).pushNamed(
+                    '/attendance-records',
+                    arguments: id,
+                  );
                 },
               ),
               ListTile(
@@ -385,6 +437,17 @@ class _RepHomePageState extends State<RepHomePage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.calendar_month_rounded),
+                title: const Text('Timetable'),
+                subtitle: const Text('Weekly class schedule'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context)
+                      .pushNamed('/timetable')
+                      .then((_) => _loadStudent());
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),
                 onTap: () {
@@ -394,14 +457,30 @@ class _RepHomePageState extends State<RepHomePage> {
               ),
               const Divider(),
               ListTile(
+                enabled: _logoutAllowed,
                 leading: Icon(
                   Icons.logout,
-                  color: colorScheme.error,
+                  color: _logoutAllowed
+                      ? colorScheme.error
+                      : colorScheme.onSurfaceVariant,
                 ),
                 title: Text(
                   'Log out',
-                  style: TextStyle(color: colorScheme.error),
+                  style: TextStyle(
+                    color: _logoutAllowed
+                        ? colorScheme.error
+                        : colorScheme.onSurfaceVariant,
+                  ),
                 ),
+                subtitle: _logoutLockHint != null && !_logoutAllowed
+                    ? Text(
+                        _logoutLockHint!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : null,
                 onTap: () {
                   Navigator.pop(context);
                   _confirmLogout();
@@ -416,7 +495,7 @@ class _RepHomePageState extends State<RepHomePage> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     super.dispose();
   }
@@ -433,10 +512,6 @@ class _RepHomePageState extends State<RepHomePage> {
         title: const Text('Class Rep'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _dashLoading ? null : () => _loadDashboard(s),
-          ),
-          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
@@ -445,6 +520,8 @@ class _RepHomePageState extends State<RepHomePage> {
       drawer: _buildDrawer(context, s),
       body: SafeArea(
         child: ModernPullToRefresh(
+          showIndicator: false,
+          playChime: false,
           onRefresh: () => _loadDashboard(s),
           child: CustomScrollView(
             physics: modernPullToRefreshPhysics,
@@ -482,10 +559,6 @@ class _RepHomePageState extends State<RepHomePage> {
                           ),
                         ],
                       ),
-                      if (_dashLoading) ...[
-                        const SizedBox(height: 10),
-                        const LinearProgressIndicator(),
-                      ],
                       if (_dashError != null) ...[
                         const SizedBox(height: 8),
                         Text(
@@ -585,52 +658,49 @@ class _RepHomePageState extends State<RepHomePage> {
       timeLabel = '—';
     }
 
+    final onSurface = isLight ? const Color(0xFF0F172A) : cs.onSurface;
+    final muted = isLight ? const Color(0xFF64748B) : cs.onSurfaceVariant;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            cs.primaryContainer.withValues(alpha: isLight ? 0.65 : 0.28),
-            cs.surfaceContainerHighest.withValues(alpha: isLight ? 0.9 : 0.45),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
+        color: cs.surfaceContainerHighest.withValues(alpha: isLight ? 0.92 : 0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.22)),
         boxShadow: isLight
             ? [
                 BoxShadow(
-                  color: cs.primary.withValues(alpha: 0.08),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  color: cs.shadow.withValues(alpha: 0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ]
             : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: cs.error.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
+                  color: cs.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.circle, size: 9, color: cs.error),
-                    const SizedBox(width: 6),
+                    Icon(Icons.circle, size: 7, color: cs.error),
+                    const SizedBox(width: 5),
                     Text(
                       'LIVE',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0.9,
+                        letterSpacing: 0.85,
                         color: cs.error,
                       ),
                     ),
@@ -640,89 +710,115 @@ class _RepHomePageState extends State<RepHomePage> {
               const Spacer(),
               Text(
                 'Marking window',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: isLight
-                          ? const Color(0xFF475569)
-                          : cs.onSurfaceVariant,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontSize: 11,
+                      color: muted,
                       fontWeight: FontWeight.w600,
                     ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
             titleLine,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w800,
-                  color: isLight ? const Color(0xFF0F172A) : cs.onSurface,
-                  height: 1.25,
+                  fontSize: 14,
+                  height: 1.2,
+                  color: onSurface,
                 ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 timeLabel,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                       fontFeatures: const [FontFeature.tabularFigures()],
                       color: cs.primary,
-                      letterSpacing: -1,
-                      fontSize: 36,
+                      letterSpacing: -0.5,
+                      fontSize: 26,
+                      height: 1.0,
                     ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  _sessionEndsAt != null
-                      ? 'remaining until session ends'
-                      : 'End time not set — refresh if needed',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isLight ? const Color(0xFF64748B) : cs.onSurfaceVariant,
-                        height: 1.3,
-                      ),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    _sessionEndsAt != null
+                        ? 'remaining until session ends'
+                        : 'End time not set — pull to refresh',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 11,
+                          color: muted,
+                          height: 1.25,
+                        ),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.how_to_reg_rounded, size: 22, color: cs.primary),
-              const SizedBox(width: 8),
-              Text(
-                '$present',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: isLight ? const Color(0xFF0F172A) : cs.onSurface,
-                    ),
-              ),
-              Text(
-                ' live now',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: isLight ? const Color(0xFF334155) : cs.onSurfaceVariant,
-                    ),
-              ),
-              Text(
-                ' · $total in class',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      color: isLight ? const Color(0xFF64748B) : cs.onSurfaceVariant,
-                    ),
+              Icon(Icons.how_to_reg_rounded, size: 18, color: cs.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontSize: 11.5,
+                          height: 1.25,
+                        ),
+                    children: [
+                      TextSpan(
+                        text: '$present',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: onSurface,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' live now · ',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: isLight ? const Color(0xFF334155) : cs.onSurfaceVariant,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '$total in class',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
+            height: 40,
             child: FilledButton.icon(
-              onPressed: _dashLoading ? null : _extendActiveSession,
-              icon: const Icon(Icons.more_time_rounded, size: 20),
+              onPressed: _extendActiveSession,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              icon: const Icon(Icons.more_time_rounded, size: 18),
               label: const Text('Extend'),
             ),
           ),

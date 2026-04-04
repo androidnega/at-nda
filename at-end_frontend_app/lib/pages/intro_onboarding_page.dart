@@ -13,8 +13,6 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
   final PageController _controller = PageController();
   int _index = 0;
 
-  static const _flashAsset = 'assets/images/flashimage.png';
-
   /// This page uses [Scaffold.backgroundColor] white. Theme `onSurface` is light in
   /// dark mode, so headlines must use fixed dark brand tones (teal / emerald).
   static Color _headlineOnLightBg(ColorScheme cs) =>
@@ -49,33 +47,14 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
     Navigator.of(context).pushReplacementNamed('/login');
   }
 
-  /// Hero image only on slide 0; slides 1–3 use large icons with distinct motion.
+  /// Large icons with distinct motion (no bitmap splash — text-first).
   Widget _slideVisual(BuildContext context, int i, double t) {
     final cs = Theme.of(context).colorScheme;
 
-    if (i == 0) {
-      final scale = 0.93 + (0.07 * t);
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          final side = (constraints.maxWidth * 0.94).clamp(320.0, 460.0);
-          final img = Image.asset(
-            _flashAsset,
-            width: side,
-            height: side,
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.medium,
-            gaplessPlayback: true,
-          );
-          return Opacity(
-            opacity: t,
-            child: Transform.scale(scale: scale, child: img),
-          );
-        },
-      );
-    }
-
     late final IconData icon;
-    if (i == 1) {
+    if (i == 0) {
+      icon = Icons.fact_check_rounded;
+    } else if (i == 1) {
       icon = Icons.play_circle_outline_rounded;
     } else if (i == 2) {
       icon = Icons.qr_code_2_rounded;
@@ -88,6 +67,14 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
       size: 132,
       color: cs.primary.withValues(alpha: 0.92),
     );
+
+    if (i == 0) {
+      final scale = 0.88 + (0.12 * t);
+      return Opacity(
+        opacity: t,
+        child: Transform.scale(scale: scale, child: iconWidget),
+      );
+    }
 
     if (i == 1) {
       final dx = (1 - t) * 42;
