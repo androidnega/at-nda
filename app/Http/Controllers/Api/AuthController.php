@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DeletedStudentIndex;
+use App\Models\Lecturer;
 use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Support\StudentApiPayload;
@@ -27,11 +28,23 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        $indexNumber = strtoupper(trim($validated['index_number']));
+        $rawLogin = trim($validated['index_number']);
+        $indexNumber = strtoupper($rawLogin);
         $password = $validated['password'];
 
         $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
         if (! $student) {
+            $loginLower = strtolower(trim($rawLogin));
+            $lecturer = Lecturer::query()
+                ->where(function ($q) use ($loginLower) {
+                    $q->whereRaw('LOWER(TRIM(email)) = ?', [$loginLower])
+                        ->orWhereRaw('LOWER(TRIM(username)) = ?', [$loginLower]);
+                })
+                ->first();
+            if ($lecturer && ! empty($lecturer->password) && $this->validatePassword($password, $lecturer->password)) {
+                return response()->json($this->loginSuccessPayloadLecturer($lecturer, $rawLogin));
+            }
+
             $removed = DeletedStudentIndex::latestForIndex($indexNumber);
 
             return response()->json([
@@ -135,5 +148,47 @@ class AuthController extends Controller
             'token' => $token,
             'token_type' => 'Bearer',
         ]);
+    }
+
+    /**
+     * Mobile lecturer login (same POST /api/login body; match email or username when no student index matches).
+     *
+     * @return array<string, mixed>
+     */
+    private function loginSuccessPayloadLecturer(Lecturer $lecturer, string $loginId): array
+    {
+        $lecturer->tokens()->where('name', 'mobile')->delete();
+        $token = $lecturer->createToken('mobile', ['*'])->plainTextToken;
+        $uid = trim((string) ($lecturer->email ?: $lecturer->username ?: $loginId));
+        $user = [
+            'id' => null,
+            'name' => $lecturer->name,
+            'student_id' => $uid,
+            'index_number' => $uid,
+            'first_name' => null,
+            'middle_name' => null,
+            'last_name' => null,
+            'lecturer_id' => (int) $lecturer->id,
+            'primary_role' => 'lecturer',
+            'is_class_rep' => false,
+            'rep_roles' => [],
+            'profile_image' => null,
+            'profile_picture' => null,
+            'profile_image_url' => null,
+            'class_name' => null,
+            'faculty' => null,
+            'department' => null,
+            'level' => null,
+            'semester' => null,
+            'phone_number' => null,
+            'email' => $lecturer->email,
+        ];
+
+        return [
+            'user' => $user,
+            'student' => $user,
+            'token' => $token,
+            'token_type' => 'Bearer',
+        ];
     }
 }

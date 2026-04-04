@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\ClassSessionController;
 use App\Http\Controllers\Api\CommunicationLogController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
+use App\Http\Controllers\Api\LecturerMobileApiController;
+use App\Http\Controllers\Api\StudentAttendanceInsightsController;
 use App\Http\Controllers\Api\NotificationsController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\SettingsController;
@@ -31,6 +33,10 @@ Route::post('/me', [AuthController::class, 'me']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/timetable', [StudentTimetableController::class, 'show']);
+    Route::get('/student/attendance-insights', [StudentAttendanceInsightsController::class, 'show']);
+    Route::get('/lecturer/dashboard', [LecturerMobileApiController::class, 'dashboard']);
+    Route::get('/lecturer/courses/{course}', [LecturerMobileApiController::class, 'courseDetail'])
+        ->whereNumber('course');
 });
 
 Route::middleware(['auth:sanctum', 'throttle:45,1'])->group(function () {

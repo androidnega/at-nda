@@ -11,6 +11,7 @@ use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Student;
 use App\Services\ActiveSessionListBuilder;
+use App\Services\AttendanceInsightsService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use Illuminate\Http\JsonResponse;
@@ -206,6 +207,20 @@ class ClassRepApiService
             ? 0
             : (int) Student::query()->whereIn('class_id', $managed)->count();
 
+        $trend = [];
+        $insights = ['delta_pct' => 0.0, 'direction' => 'flat', 'weekly_trend_label' => '—'];
+        $flagged = [];
+        if (! $managed->isEmpty()) {
+            $courseIds = Course::query()->whereIn('class_id', $managed)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $svc = app(AttendanceInsightsService::class);
+            $trend = $svc->weeklyAttendanceTrend($courseIds, 8);
+            $insights = array_merge(
+                $svc->trendInsights($trend),
+                ['weekly_trend_label' => $trend === [] ? 'No completed sessions yet' : 'Last '.$this->trendWeeksLabel(count($trend)).' weeks'],
+            );
+            $flagged = $svc->flaggedStudents($managed, 3);
+        }
+
         return new ClassRepDashboardData(
             role: 'class_rep',
             managedClassIds: $classIds,
@@ -214,7 +229,15 @@ class ClassRepApiService
             activeSessionsCount: $activeCount,
             studentsInClassesCount: $studentsCount,
             notice: is_string($notice) ? $notice : null,
+            attendanceTrend: $trend,
+            insights: $insights,
+            flaggedStudents: $flagged,
         );
+    }
+
+    private function trendWeeksLabel(int $n): string
+    {
+        return $n <= 1 ? '1 week' : (string) $n.' weeks';
     }
 
     /**

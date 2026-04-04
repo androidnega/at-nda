@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
+use App\Models\Lecturer;
 use App\Services\Api\ClassRepApiService;
 use App\Support\ApiEnvelope;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -14,6 +15,7 @@ use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AttendanceRecordsController extends Controller
 {
@@ -26,23 +28,11 @@ class AttendanceRecordsController extends Controller
      */
     public function records(Request $request, AttendanceSession $session): JsonResponse
     {
-        $student = $this->classRepApi->authenticateFlexible($request);
-        if ($student instanceof JsonResponse) {
-            return $student;
+        $auth = $this->authorizeRepForSession($request, $session);
+        if ($auth instanceof JsonResponse) {
+            return $auth;
         }
-
-        $course = $session->course()->first();
-        if (! $course) {
-            return ApiEnvelope::error('Course not found', 404);
-        }
-
-        $managed = $student->repManagedClassIds();
-        if (! $course->class_id || ! $managed->contains((int) $course->class_id)) {
-            return ApiEnvelope::error(
-                'You do not have permission to view attendance for this session.',
-                403
-            );
-        }
+        $course = $auth['course'];
 
         $rows = $this->attendanceRowsForSession($session->id);
 
@@ -155,25 +145,43 @@ class AttendanceRecordsController extends Controller
      */
     private function authorizeRepForSession(Request $request, AttendanceSession $session): array|JsonResponse
     {
-        $student = $this->classRepApi->authenticateFlexible($request);
-        if ($student instanceof JsonResponse) {
-            return $student;
-        }
-
         $course = $session->course()->first();
         if (! $course) {
             return ApiEnvelope::error('Course not found', 404);
         }
 
-        $managed = $student->repManagedClassIds();
-        if (! $course->class_id || ! $managed->contains((int) $course->class_id)) {
-            return ApiEnvelope::error(
-                'You do not have permission to view attendance for this session.',
-                403
-            );
+        $student = $this->classRepApi->authenticateFlexible($request);
+        if (! $student instanceof JsonResponse) {
+            $managed = $student->repManagedClassIds();
+            if ($course->class_id && $managed->contains((int) $course->class_id)) {
+                return ['course' => $course];
+            }
         }
 
-        return ['course' => $course];
+        $lecturer = $this->lecturerFromBearer($request);
+        if ($lecturer instanceof Lecturer
+            && (int) ($course->lecturer_id ?? 0) === (int) $lecturer->id) {
+            return ['course' => $course];
+        }
+
+        return ApiEnvelope::error(
+            'You do not have permission to view attendance for this session.',
+            403
+        );
+    }
+
+    private function lecturerFromBearer(Request $request): Lecturer|JsonResponse|null
+    {
+        $bearer = $request->bearerToken();
+        if ($bearer === null || $bearer === '') {
+            return null;
+        }
+        $pat = PersonalAccessToken::findToken($bearer);
+        if (! $pat || ! $pat->tokenable instanceof Lecturer) {
+            return null;
+        }
+
+        return $pat->tokenable;
     }
 }
 

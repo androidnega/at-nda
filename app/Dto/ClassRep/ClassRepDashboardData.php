@@ -12,6 +12,9 @@ final readonly class ClassRepDashboardData
     /**
      * @param  list<int>  $managedClassIds
      * @param  list<CourseRow>  $courses
+     * @param  list<array<string, mixed>>  $attendanceTrend
+     * @param  array<string, mixed>  $insights
+     * @param  list<array<string, mixed>>  $flaggedStudents
      */
     public function __construct(
         public string $role,
@@ -21,6 +24,9 @@ final readonly class ClassRepDashboardData
         public int $activeSessionsCount,
         public int $studentsInClassesCount,
         public ?string $notice = null,
+        public array $attendanceTrend = [],
+        public array $insights = [],
+        public array $flaggedStudents = [],
     ) {}
 
     /**
@@ -36,6 +42,10 @@ final readonly class ClassRepDashboardData
             'has_active_session' => $this->hasActiveSession,
             'active_sessions_count' => $this->activeSessionsCount,
             'students_in_classes_count' => $this->studentsInClassesCount,
+            'attendance_trend' => $this->attendanceTrend,
+            'insights' => $this->insights,
+            'flagged_students' => $this->flaggedStudents,
+            'flagged_students_count' => count($this->flaggedStudents),
         ];
         if ($this->notice !== null && $this->notice !== '') {
             $out['notice'] = $this->notice;
