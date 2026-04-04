@@ -1,5 +1,9 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# mobile_scanner (MLKit) requires iOS 15.5+
+platform :ios, '15.5'
+
+# Notes:
+# - First `pod install` may clone tensorflow for TensorFlowLiteSwift (tflite_flutter); CocoaPods caches it after that.
+# - ML Kit does not support arm64 iOS Simulator on Apple Silicon; use a physical iPhone for QR/ML features, or expect sim limits.
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
