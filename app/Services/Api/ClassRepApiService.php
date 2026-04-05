@@ -510,4 +510,80 @@ class ClassRepApiService
             'end_time' => $session->end_time?->toIso8601String(),
         ]);
     }
+
+    /**
+     * Class-scoped student profile + attendance summary for class-rep mobile detail screen.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildStudentDetailPayload(Student $target): array
+    {
+        $target->loadMissing(['schoolClass.faculty', 'schoolClass.department', 'department.faculty']);
+
+        $classId = $target->class_id ? (int) $target->class_id : null;
+        $courseIds = $classId
+            ? Course::query()->where('class_id', $classId)->pluck('id')->all()
+            : [];
+
+        $present = 0;
+        $total = 0;
+        if ($courseIds !== []) {
+            $present = (int) Attendance::query()
+                ->where('student_id', $target->id)
+                ->whereIn('course_id', $courseIds)
+                ->where('status', 'present')
+                ->count();
+            $total = (int) Attendance::query()
+                ->where('student_id', $target->id)
+                ->whereIn('course_id', $courseIds)
+                ->count();
+        }
+
+        $rate = $total > 0 ? round(100.0 * $present / $total, 1) : null;
+
+        $recent = [];
+        if ($courseIds !== []) {
+            $recent = Attendance::query()
+                ->where('student_id', $target->id)
+                ->whereIn('course_id', $courseIds)
+                ->with(['course', 'attendanceWeek'])
+                ->latest('attendance_time')
+                ->limit(25)
+                ->get()
+                ->map(static function (Attendance $a): array {
+                    return [
+                        'course_name' => $a->course?->course_name,
+                        'course_code' => $a->course?->course_code,
+                        'week_number' => $a->attendanceWeek?->week_number,
+                        'status' => $a->status,
+                        'attendance_time' => $a->attendance_time?->toIso8601String(),
+                    ];
+                })->values()->all();
+        }
+
+        $facultyName = $target->schoolClass?->faculty?->name
+            ?? $target->department?->faculty?->name;
+        $deptName = $target->schoolClass?->department?->name
+            ?? $target->department?->name;
+
+        return [
+            'student' => [
+                'id' => (int) $target->id,
+                'index_number' => (string) $target->index_number,
+                'name' => $target->getDisplayNameOrIndex(),
+                'class_name' => $target->schoolClass?->name,
+                'class_id' => $classId,
+                'phone_number' => $target->phone_number,
+                'faculty_name' => $facultyName,
+                'department_name' => $deptName,
+                'profile_image' => $target->profile_image ? (string) $target->profile_image : null,
+            ],
+            'stats' => [
+                'present_count' => $present,
+                'total_marked' => $total,
+                'attendance_rate_pct' => $rate,
+            ],
+            'recent_attendance' => $recent,
+        ];
+    }
 }

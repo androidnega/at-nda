@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Student;
 use App\Services\Api\ClassRepApiService;
 use App\Support\ApiEnvelope;
 use Illuminate\Http\JsonResponse;
@@ -48,6 +49,39 @@ class ClassRepRestController extends Controller
             'students' => $list,
             'count' => count($list),
         ], 'Students loaded');
+    }
+
+    /**
+     * GET|POST /api/class-rep/student-detail — body/query: index_number, password, student_id.
+     */
+    public function studentDetail(Request $request): JsonResponse
+    {
+        $rep = $this->classRepApi->authenticateFlexible($request);
+        if ($rep instanceof JsonResponse) {
+            return $rep;
+        }
+
+        $studentId = $request->input('student_id') ?? $request->query('student_id');
+        if ($studentId === null || $studentId === '') {
+            return ApiEnvelope::error('student_id is required', 422);
+        }
+        if (! is_numeric($studentId)) {
+            return ApiEnvelope::error('student_id must be an integer', 422);
+        }
+
+        $target = Student::query()->find((int) $studentId);
+        if ($target === null) {
+            return ApiEnvelope::error('Student not found', 404);
+        }
+
+        $classIds = $rep->repManagedClassIds();
+        if (! $target->class_id || ! $classIds->contains($target->class_id)) {
+            return ApiEnvelope::error('You can only view students in your classes.', 403);
+        }
+
+        $payload = $this->classRepApi->buildStudentDetailPayload($target);
+
+        return ApiEnvelope::success($payload, 'Student loaded');
     }
 
     /**
