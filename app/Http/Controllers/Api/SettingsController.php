@@ -31,6 +31,12 @@ class SettingsController extends Controller
                 && (bool) ($settings->enable_sms_call_logging ?? false),
             // Optional, safe: Flutter only renders when present and correctly shaped.
             'dynamic_ui' => $dynamicUi,
+            'rep_dashboard_theme' => SystemSetting::hasRepDashboardThemeColumn()
+                ? (string) ($settings->rep_dashboard_theme ?: 'classic')
+                : 'classic',
+            'student_dashboard_theme' => SystemSetting::hasStudentDashboardThemeColumn()
+                ? (string) ($settings->student_dashboard_theme ?: 'classic')
+                : 'classic',
         ]);
     }
 }

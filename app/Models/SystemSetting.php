@@ -20,6 +20,8 @@ class SystemSetting extends Model
         // Optional JSON list for backend-driven small UI updates (Flutter renders only when present).
         'dynamic_ui',
         'enable_sms_call_logging',
+        'rep_dashboard_theme',
+        'student_dashboard_theme',
     ];
 
     protected $casts = [
@@ -48,6 +50,16 @@ class SystemSetting extends Model
     public static function hasDynamicUiColumn(): bool
     {
         return Schema::hasColumn('system_settings', 'dynamic_ui');
+    }
+
+    public static function hasRepDashboardThemeColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'rep_dashboard_theme');
+    }
+
+    public static function hasStudentDashboardThemeColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'student_dashboard_theme');
     }
 
     public function requiresProfileImageOnOnboarding(): bool
@@ -80,6 +92,12 @@ class SystemSetting extends Model
             }
             if (static::hasSmsCallLoggingColumn()) {
                 $payload['enable_sms_call_logging'] = false;
+            }
+            if (static::hasRepDashboardThemeColumn()) {
+                $payload['rep_dashboard_theme'] = 'classic';
+            }
+            if (static::hasStudentDashboardThemeColumn()) {
+                $payload['student_dashboard_theme'] = 'classic';
             }
 
             $setting = static::create($payload);

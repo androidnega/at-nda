@@ -109,6 +109,31 @@
         </div>
         @endif
 
+        @if(session()->has('admin_id') && \App\Models\SystemSetting::hasRepDashboardThemeColumn() && \App\Models\SystemSetting::hasStudentDashboardThemeColumn())
+        <div class="space-y-4 pt-2 border-t border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-800">Mobile app dashboards</h2>
+            <p class="text-sm text-gray-500">Choose the layout students and class reps see in the Flutter app (classic stays the default).</p>
+
+            <div class="p-4 rounded-xl border border-gray-100 space-y-3">
+                <label for="rep_dashboard_theme" class="font-medium text-gray-800 block">Class rep home</label>
+                <select name="rep_dashboard_theme" id="rep_dashboard_theme"
+                    class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
+                    <option value="classic" {{ ($settings->rep_dashboard_theme ?? 'classic') === 'classic' ? 'selected' : '' }}>Classic (original)</option>
+                    <option value="pastel_analytics" {{ ($settings->rep_dashboard_theme ?? '') === 'pastel_analytics' ? 'selected' : '' }}>Pastel analytics</option>
+                </select>
+            </div>
+
+            <div class="p-4 rounded-xl border border-gray-100 space-y-3">
+                <label for="student_dashboard_theme" class="font-medium text-gray-800 block">Student home</label>
+                <select name="student_dashboard_theme" id="student_dashboard_theme"
+                    class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
+                    <option value="classic" {{ ($settings->student_dashboard_theme ?? 'classic') === 'classic' ? 'selected' : '' }}>Classic (original)</option>
+                    <option value="pastel_profile" {{ ($settings->student_dashboard_theme ?? '') === 'pastel_profile' ? 'selected' : '' }}>Pastel profile</option>
+                </select>
+            </div>
+        </div>
+        @endif
+
         <div class="pt-4 border-t border-gray-100">
             <button type="submit" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
                 Save Settings

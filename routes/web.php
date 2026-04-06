@@ -18,6 +18,7 @@ use App\Http\Controllers\DashboardTimetableController;
 use App\Http\Controllers\LecturerAttendanceWeekController;
 use App\Http\Controllers\LecturerAuthController;
 use App\Http\Controllers\LecturerController;
+use App\Http\Controllers\MobileDashboardThemeController;
 use App\Http\Controllers\RunMigrationsController;
 use App\Http\Controllers\SemesterController;
 use App\Http\Controllers\SettingsController;
@@ -250,6 +251,10 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+        Route::middleware('admin.only')->prefix('api/mobile-app')->name('api.mobile-app.')->group(function () {
+            Route::get('dashboard-themes', [MobileDashboardThemeController::class, 'show'])->name('dashboard-themes.show');
+            Route::match(['put', 'patch'], 'dashboard-themes', [MobileDashboardThemeController::class, 'update'])->name('dashboard-themes.update');
+        });
         Route::middleware('admin.only')->prefix('communication-logs')->name('communication-logs.')->group(function () {
             Route::get('/sms', [AdminCommunicationLogController::class, 'sms'])->name('sms.index');
             Route::get('/calls', [AdminCommunicationLogController::class, 'calls'])->name('calls.index');

@@ -8,11 +8,29 @@ use Illuminate\Support\Facades\Storage;
 
 class StudentImageController extends Controller
 {
+    /**
+     * Tiny transparent PNG — 200 OK so Flutter web / NetworkImage avoid hard 404s
+     * when no photo is stored or the file was removed from disk.
+     */
+    private function placeholderImageResponse(): Response
+    {
+        static $png = null;
+        if ($png === null) {
+            $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', true) ?: '';
+        }
+
+        return response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'public, max-age=3600',
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
+
     public function show(Student $student): Response
     {
         $path = trim((string) $student->profile_image);
         if ($path === '') {
-            abort(404);
+            return $this->placeholderImageResponse();
         }
 
         if (preg_match('/^https?:\/\//i', $path)) {
@@ -21,7 +39,7 @@ class StudentImageController extends Controller
 
         $disk = Storage::disk('public');
         if (! $disk->exists($path)) {
-            abort(404);
+            return $this->placeholderImageResponse();
         }
 
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
@@ -36,7 +54,7 @@ class StudentImageController extends Controller
         try {
             $binary = $disk->get($path);
         } catch (\Throwable $e) {
-            abort(404);
+            return $this->placeholderImageResponse();
         }
 
         return response($binary, 200, [

@@ -35,13 +35,25 @@ class AuthController extends Controller
         $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
         if (! $student) {
             $loginLower = strtolower(trim($rawLogin));
+            // Staff: match email or username case-insensitively (nullable columns use COALESCE).
             $lecturer = Lecturer::query()
                 ->where(function ($q) use ($loginLower) {
-                    $q->whereRaw('LOWER(TRIM(email)) = ?', [$loginLower])
-                        ->orWhereRaw('LOWER(TRIM(username)) = ?', [$loginLower]);
+                    $q->whereRaw('LOWER(TRIM(COALESCE(email, \'\'))) = ?', [$loginLower])
+                        ->orWhereRaw('LOWER(TRIM(COALESCE(username, \'\'))) = ?', [$loginLower]);
                 })
                 ->first();
-            if ($lecturer && ! empty($lecturer->password) && $this->validatePassword($password, $lecturer->password)) {
+
+            if ($lecturer) {
+                if (empty($lecturer->password)) {
+                    return response()->json([
+                        'message' => 'Mobile login is not enabled for this account. Ask your administrator to create a staff login under Staff accounts.',
+                        'error_code' => 'lecturer_no_password',
+                    ], 422);
+                }
+                if (! $this->validatePassword($password, $lecturer->password)) {
+                    return response()->json(['message' => 'Wrong password'], 401);
+                }
+
                 return response()->json($this->loginSuccessPayloadLecturer($lecturer, $rawLogin));
             }
 

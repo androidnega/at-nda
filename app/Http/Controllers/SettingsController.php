@@ -19,7 +19,7 @@ class SettingsController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
+        $rules = [
             'enable_face_verification' => 'nullable|boolean',
             'enable_ip_binding' => 'nullable|boolean',
             'enable_qr' => 'nullable|boolean',
@@ -27,7 +27,12 @@ class SettingsController extends Controller
             'require_profile_image_on_onboarding' => 'nullable|boolean',
             'allow_multiple_index_on_device' => 'nullable|boolean',
             'face_match_threshold' => 'nullable|numeric|min:0.2|max:1.0',
-        ]);
+        ];
+        if ($request->session()->has('admin_id')) {
+            $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics';
+            $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile';
+        }
+        $validated = $request->validate($rules);
 
         $settings = SystemSetting::get();
         $payload = [
@@ -43,6 +48,16 @@ class SettingsController extends Controller
         }
         if (SystemSetting::hasSmsCallLoggingColumn() && $request->session()->has('admin_id')) {
             $payload['enable_sms_call_logging'] = $request->boolean('enable_sms_call_logging');
+        }
+        if ($request->session()->has('admin_id')) {
+            if (SystemSetting::hasRepDashboardThemeColumn() && $request->has('rep_dashboard_theme')) {
+                $v = $validated['rep_dashboard_theme'] ?? 'classic';
+                $payload['rep_dashboard_theme'] = $v ?: 'classic';
+            }
+            if (SystemSetting::hasStudentDashboardThemeColumn() && $request->has('student_dashboard_theme')) {
+                $v = $validated['student_dashboard_theme'] ?? 'classic';
+                $payload['student_dashboard_theme'] = $v ?: 'classic';
+            }
         }
 
         $settings->update($payload);

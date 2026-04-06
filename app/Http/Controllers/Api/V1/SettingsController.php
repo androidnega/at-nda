@@ -30,6 +30,12 @@ class SettingsController extends Controller
                 'last_attendance_reset_at' => $settings->last_attendance_reset_at?->toIso8601String(),
                 'enable_sms_call_logging' => SystemSetting::hasSmsCallLoggingColumn()
                     && (bool) ($settings->enable_sms_call_logging ?? false),
+                'rep_dashboard_theme' => SystemSetting::hasRepDashboardThemeColumn()
+                    ? (string) ($settings->rep_dashboard_theme ?: 'classic')
+                    : 'classic',
+                'student_dashboard_theme' => SystemSetting::hasStudentDashboardThemeColumn()
+                    ? (string) ($settings->student_dashboard_theme ?: 'classic')
+                    : 'classic',
                 'cached_seconds' => 60,
             ];
         });
