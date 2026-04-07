@@ -29,6 +29,31 @@ Visit http://localhost:8000
 **Option B – XAMPP:**
 Point your browser to `http://localhost/at-nda/public/` (or configure a vhost).
 
+## Flutter Web CORS (API)
+
+If Flutter web runs from `http://localhost:8082` (or `http://0.0.0.0:8082`), configure:
+
+- Laravel env: `CORS_ALLOWED_ORIGINS` in `.env`
+- Reverse proxy (Nginx/OpenResty): allow `OPTIONS` preflight on `/api/*` and return CORS headers
+
+Example Nginx/OpenResty snippet:
+
+```nginx
+location /api/ {
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin "$http_origin" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With" always;
+        add_header Access-Control-Max-Age 86400 always;
+        return 204;
+    }
+
+    add_header Access-Control-Allow-Origin "$http_origin" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+    proxy_pass http://php_backend;
+}
+```
+
 ## Flow
 
 ### Student

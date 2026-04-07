@@ -1,5 +1,10 @@
 <?php
 
+$corsAllowedOrigins = array_values(array_filter(array_map(
+    static fn ($origin) => trim($origin),
+    explode(',', (string) env('CORS_ALLOWED_ORIGINS', 'http://localhost:8082,http://127.0.0.1:8082,http://0.0.0.0:8082'))
+)));
+
 return [
 
     /*
@@ -19,7 +24,8 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // Keep this explicit for production safety and predictable preflight behavior.
+    'allowed_origins' => $corsAllowedOrigins,
 
     'allowed_origins_patterns' => [],
 
@@ -29,6 +35,7 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => false,
+    // Needed when browser sends credentials/authorization headers.
+    'supports_credentials' => true,
 
 ];
