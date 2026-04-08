@@ -135,6 +135,22 @@
                     <option value="team_reach" {{ ($settings->student_dashboard_theme ?? '') === 'team_reach' ? 'selected' : '' }}>Team Reach (new)</option>
                 </select>
             </div>
+
+            @if(\App\Models\SystemSetting::hasMobileAppThemeSeedColumn())
+            <div class="p-4 rounded-xl border border-gray-100 space-y-3">
+                <label for="mobile_app_theme_seed" class="font-medium text-gray-800 block">App color variant</label>
+                <select name="mobile_app_theme_seed" id="mobile_app_theme_seed"
+                    class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
+                    <option value="teal" {{ ($settings->mobile_app_theme_seed ?? 'teal') === 'teal' ? 'selected' : '' }}>Teal (default)</option>
+                    <option value="blue" {{ ($settings->mobile_app_theme_seed ?? '') === 'blue' ? 'selected' : '' }}>Blue</option>
+                    <option value="indigo" {{ ($settings->mobile_app_theme_seed ?? '') === 'indigo' ? 'selected' : '' }}>Indigo</option>
+                    <option value="emerald" {{ ($settings->mobile_app_theme_seed ?? '') === 'emerald' ? 'selected' : '' }}>Emerald</option>
+                    <option value="rose" {{ ($settings->mobile_app_theme_seed ?? '') === 'rose' ? 'selected' : '' }}>Rose</option>
+                    <option value="amber" {{ ($settings->mobile_app_theme_seed ?? '') === 'amber' ? 'selected' : '' }}>Amber</option>
+                </select>
+                <p class="text-xs text-gray-500">Applies one consistent app-wide feel across pages in light and dark mode.</p>
+            </div>
+            @endif
         </div>
         @endif
 

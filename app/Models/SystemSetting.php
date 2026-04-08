@@ -22,6 +22,7 @@ class SystemSetting extends Model
         'enable_sms_call_logging',
         'rep_dashboard_theme',
         'student_dashboard_theme',
+        'mobile_app_theme_seed',
     ];
 
     protected $casts = [
@@ -62,6 +63,11 @@ class SystemSetting extends Model
         return Schema::hasColumn('system_settings', 'student_dashboard_theme');
     }
 
+    public static function hasMobileAppThemeSeedColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'mobile_app_theme_seed');
+    }
+
     public function requiresProfileImageOnOnboarding(): bool
     {
         if (! static::hasRequireProfileImageColumn()) {
@@ -98,6 +104,9 @@ class SystemSetting extends Model
             }
             if (static::hasStudentDashboardThemeColumn()) {
                 $payload['student_dashboard_theme'] = 'classic';
+            }
+            if (static::hasMobileAppThemeSeedColumn()) {
+                $payload['mobile_app_theme_seed'] = 'teal';
             }
 
             $setting = static::create($payload);

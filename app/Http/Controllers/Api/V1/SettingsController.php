@@ -36,6 +36,9 @@ class SettingsController extends Controller
                 'student_dashboard_theme' => SystemSetting::hasStudentDashboardThemeColumn()
                     ? (string) ($settings->student_dashboard_theme ?: 'classic')
                     : 'classic',
+                'mobile_app_theme_seed' => SystemSetting::hasMobileAppThemeSeedColumn()
+                    ? (string) ($settings->mobile_app_theme_seed ?: 'teal')
+                    : 'teal',
                 'cached_seconds' => 60,
             ];
         });

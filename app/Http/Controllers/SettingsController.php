@@ -31,6 +31,7 @@ class SettingsController extends Controller
         if ($request->session()->has('admin_id')) {
             $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task,team_reach';
             $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task,team_reach';
+            $rules['mobile_app_theme_seed'] = 'nullable|in:teal,blue,indigo,emerald,rose,amber';
         }
         $validated = $request->validate($rules);
 
@@ -57,6 +58,10 @@ class SettingsController extends Controller
             if (SystemSetting::hasStudentDashboardThemeColumn() && $request->has('student_dashboard_theme')) {
                 $v = $validated['student_dashboard_theme'] ?? 'classic';
                 $payload['student_dashboard_theme'] = $v ?: 'classic';
+            }
+            if (SystemSetting::hasMobileAppThemeSeedColumn() && $request->has('mobile_app_theme_seed')) {
+                $v = $validated['mobile_app_theme_seed'] ?? 'teal';
+                $payload['mobile_app_theme_seed'] = $v ?: 'teal';
             }
         }
 
