@@ -29,19 +29,19 @@
         .sidebar-overlay { @apply fixed inset-0 bg-black/40 z-40 lg:hidden; }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen text-gray-900 antialiased font-sans">
+<body class="bg-[#f3f5f8] min-h-screen text-slate-900 antialiased font-sans">
     {{-- Mobile sidebar overlay --}}
     <div id="sidebar-overlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
 
     {{-- Sidebar --}}
-    <aside id="sidebar" class="fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200 sidebar-transition -translate-x-full lg:translate-x-0">
+    <aside id="sidebar" class="fixed top-0 left-0 z-50 h-full w-64 bg-[#f7f8fb] border-r border-slate-200 sidebar-transition -translate-x-full lg:translate-x-0">
         <div class="flex flex-col h-full">
-            <div class="p-5 border-b border-gray-100">
+            <div class="p-5 border-b border-slate-200">
                 <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-2.5">
-                    <span class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                    <span class="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600">
                         <i class="fas fa-clipboard-check text-lg"></i>
                     </span>
-                    <span class="font-bold text-gray-800 text-lg">{{ config('app.name') }}</span>
+                    <span class="font-bold text-slate-800 text-lg">{{ config('app.name') }}</span>
                 </a>
             </div>
             <nav class="flex-1 overflow-y-auto py-4 px-3">
@@ -49,58 +49,58 @@
                 @php
                     $isLecturerView = session()->has('lecturer_id') && !session()->has('admin_id');
                 @endphp
-                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{{ $isLecturerView ? 'Lecturer' : 'Manage' }}</p>
-                <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.dashboard') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <p class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">{{ $isLecturerView ? 'Lecturer' : 'Main menu' }}</p>
+                <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.dashboard') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-th-large w-5 text-center"></i>
                     <span>Dashboard</span>
                 </a>
                 @if($isLecturerView)
-                <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.students.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.students.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-user-graduate w-5 text-center"></i>
                     <span>Students</span>
                 </a>
                 @endif
                 @if(!$isLecturerView)
-                <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.classes.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.classes.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-layer-group w-5 text-center"></i>
                     <span>Classes</span>
                 </a>
-                <a href="{{ route('dashboard.universities.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.universities.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.universities.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.universities.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-school w-5 text-center"></i>
                     <span>Schools</span>
                 </a>
-                <a href="{{ route('dashboard.semesters.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.semesters.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.semesters.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.semesters.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-calendar-alt w-5 text-center"></i>
                     <span>Semesters</span>
                 </a>
-                <a href="{{ route('dashboard.courses.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.courses.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.courses.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.courses.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-book w-5 text-center"></i>
                     <span>Courses</span>
                 </a>
-                <a href="{{ route('dashboard.attendance-weeks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.attendance-weeks.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.attendance-weeks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.attendance-weeks.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-calendar-week w-5 text-center"></i>
                     <span>Attendance weeks</span>
                 </a>
-                <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-6">System</p>
+                <p class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 mt-6">Settings</p>
                 @if(session()->has('admin_id'))
-                <a href="{{ route('dashboard.staff-accounts.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.staff-accounts.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.staff-accounts.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.staff-accounts.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-users-cog w-5 text-center"></i>
                     <span>User management</span>
                 </a>
-                <a href="{{ route('dashboard.communication-logs.sms.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.communication-logs.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.communication-logs.sms.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.communication-logs.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-mobile-screen-button w-5 text-center"></i>
                     <span>SMS &amp; call logs</span>
                 </a>
                 @endif
-                <a href="{{ route('dashboard.venues.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.venues.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.venues.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.venues.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-map-marker-alt w-5 text-center"></i>
                     <span>Venues</span>
                 </a>
-                <a href="{{ route('dashboard.lecturers.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.lecturers.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.lecturers.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.lecturers.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-chalkboard-teacher w-5 text-center"></i>
                     <span>Lecturers</span>
                 </a>
-                <a href="{{ route('dashboard.settings.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 {{ request()->routeIs('dashboard.settings.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.settings.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.settings.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-cog w-5 text-center"></i>
                     <span>Settings</span>
                 </a>
@@ -112,9 +112,9 @@
     {{-- Main content wrapper --}}
     <div class="lg:pl-64 min-h-screen flex flex-col w-full min-w-0">
         {{-- Top bar --}}
-        <header class="sticky top-0 z-30 w-full bg-white border-b border-gray-200">
+        <header class="sticky top-0 z-30 w-full bg-white/95 border-b border-slate-200">
             <div class="flex items-center justify-between gap-3 w-full max-w-[100vw] px-4 sm:px-6 lg:px-8 py-3 min-h-[3.25rem]">
-                <button type="button" id="sidebar-toggle" class="lg:hidden p-2 -ml-2 rounded-lg text-gray-600 hover:bg-gray-100" aria-label="Toggle menu">
+                <button type="button" id="sidebar-toggle" class="lg:hidden p-2 -ml-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Toggle menu">
                     <i class="fas fa-bars text-lg"></i>
                 </button>
                 <div class="flex-1 min-w-0"></div>
@@ -127,7 +127,7 @@
                     $logoutRoute = $isLecturerView ? route('lecturer.logout') : route('admin.logout');
                 @endphp
                 <div class="relative shrink-0" id="staff-profile-wrap">
-                    <button type="button" id="staff-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                    <button type="button" id="staff-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                         @if($profileName)
                             <span class="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{{ strtoupper(substr($profileName, 0, 1)) }}</span>
                         @else
