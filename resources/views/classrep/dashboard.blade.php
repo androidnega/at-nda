@@ -17,7 +17,28 @@
     .float-in-up {
         animation: floatInUp 420ms cubic-bezier(.2,.8,.2,1) both;
     }
+
+    .rep-glass {
+        background: linear-gradient(160deg, #ffffff 0%, #f8fbff 100%);
+        border: 1px solid #e5edf8;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    }
 </style>
+
+<div class="mb-6 rounded-3xl rep-glass px-6 py-5">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Class rep control center</p>
+            <h1 class="mt-1 text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Manage attendance sessions</h1>
+            <p class="text-slate-500 text-sm mt-1">Open, monitor, and close live sessions quickly for your class.</p>
+        </div>
+        <a href="#open-session-form"
+           class="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90">
+            <i class="fas fa-plus"></i>
+            Start session
+        </a>
+    </div>
+</div>
 
 <div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
     <div class="order-2 sm:order-1">
@@ -519,4 +540,10 @@
 </script>
 @endif
 @include('partials.session-countdown-script')
+
+<a href="#open-session-form"
+   class="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-xl ring-4 ring-primary/20 hover:bg-primary/90"
+   title="Start session">
+    <i class="fas fa-plus text-lg"></i>
+</a>
 @endsection
