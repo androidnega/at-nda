@@ -29,8 +29,8 @@ class SettingsController extends Controller
             'face_match_threshold' => 'nullable|numeric|min:0.2|max:1.0',
         ];
         if ($request->session()->has('admin_id')) {
-            $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics';
-            $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile';
+            $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task';
+            $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task';
         }
         $validated = $request->validate($rules);
 

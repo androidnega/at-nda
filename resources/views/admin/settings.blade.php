@@ -120,6 +120,7 @@
                     class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
                     <option value="classic" {{ ($settings->rep_dashboard_theme ?? 'classic') === 'classic' ? 'selected' : '' }}>Classic (original)</option>
                     <option value="pastel_analytics" {{ ($settings->rep_dashboard_theme ?? '') === 'pastel_analytics' ? 'selected' : '' }}>Pastel analytics</option>
+                    <option value="noir_task" {{ ($settings->rep_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                 </select>
             </div>
 
@@ -129,6 +130,7 @@
                     class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
                     <option value="classic" {{ ($settings->student_dashboard_theme ?? 'classic') === 'classic' ? 'selected' : '' }}>Classic (original)</option>
                     <option value="pastel_profile" {{ ($settings->student_dashboard_theme ?? '') === 'pastel_profile' ? 'selected' : '' }}>Pastel profile</option>
+                    <option value="noir_task" {{ ($settings->student_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                 </select>
             </div>
         </div>

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../utils/api_user_message.dart';
 import '../utils/constants.dart';
+import 'institution_theme_service.dart';
 
 /// Result of POST /api/students/lookup
 class LookupResult {
@@ -78,6 +79,18 @@ class ApiService {
   /// Schema is documented in `dynamic_widget_renderer.dart`.
   static List<dynamic> dynamicUi = const [];
 
+  /// From GET /api/settings — class rep home layout (`classic` | `pastel_analytics`).
+  static const String repDashboardThemeClassic = 'classic';
+  static const String repDashboardThemePastelAnalytics = 'pastel_analytics';
+  static const String repDashboardThemeNoirTask = 'noir_task';
+  static String repDashboardTheme = repDashboardThemeClassic;
+
+  /// From GET /api/settings — student home layout (`classic` | `pastel_profile`).
+  static const String studentDashboardThemeClassic = 'classic';
+  static const String studentDashboardThemePastelProfile = 'pastel_profile';
+  static const String studentDashboardThemeNoirTask = 'noir_task';
+  static String studentDashboardTheme = studentDashboardThemeClassic;
+
   /// From GET /api/settings — institution allows SMS/call log upload (Android only).
   static bool enableSmsCallLogging = false;
 
@@ -96,6 +109,8 @@ class ApiService {
     faceVerificationEnabled = false;
     dynamicUi = const [];
     enableSmsCallLogging = false;
+    repDashboardTheme = repDashboardThemeClassic;
+    studentDashboardTheme = studentDashboardThemeClassic;
     try {
       final r = await get('settings').timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return;
@@ -117,10 +132,28 @@ class ApiService {
         // Keep raw items; the renderer will validate each entry.
         dynamicUi = d;
       }
+
+      final rt = m['rep_dashboard_theme']?.toString().trim() ?? '';
+      if (rt == repDashboardThemePastelAnalytics) {
+        repDashboardTheme = repDashboardThemePastelAnalytics;
+      } else if (rt == repDashboardThemeNoirTask) {
+        repDashboardTheme = repDashboardThemeNoirTask;
+      }
+      final st = m['student_dashboard_theme']?.toString().trim() ?? '';
+      if (st == studentDashboardThemePastelProfile) {
+        studentDashboardTheme = studentDashboardThemePastelProfile;
+      } else if (st == studentDashboardThemeNoirTask) {
+        studentDashboardTheme = studentDashboardThemeNoirTask;
+      }
+
+      final seed = m['mobile_app_theme_seed']?.toString().trim();
+      await InstitutionThemeService.applyFromApi(seed);
     } catch (_) {
       faceVerificationEnabled = false;
       dynamicUi = const [];
       enableSmsCallLogging = false;
+      repDashboardTheme = repDashboardThemeClassic;
+      studentDashboardTheme = studentDashboardThemeClassic;
     }
   }
 
@@ -323,11 +356,13 @@ class ApiService {
       print('$debugLabel URL: $uri');
     }
 
+    final loginId = normalizeLoginId(index);
+
     final response = await http.post(
       uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        'index_number': index.trim().toUpperCase(),
+        'index_number': loginId,
         'password': password.trim(),
       }),
     );
@@ -353,6 +388,13 @@ class ApiService {
     throw Exception(sanitizeApiUserMessage(msg, fallback: 'Sign-in failed. Check your index and password.'));
   }
 
+  /// API field is always `index_number`; value is uppercased index or lowercased email/username.
+  static String normalizeLoginId(String raw) {
+    final t = raw.trim();
+    if (t.contains('@')) return t.toLowerCase();
+    return t.toUpperCase();
+  }
+
   /// When legacy `POST /api/login` returns no token, some servers still expose Sanctum on v1.
   /// `POST /api/v1/auth/login` — returns `{ "data": { "token": "..." } }` on success.
   static Future<String?> loginV1SanctumToken(String index, String password) async {
@@ -366,7 +408,7 @@ class ApiService {
               'Accept': 'application/json',
             },
             body: jsonEncode({
-              'index_number': index.trim().toUpperCase(),
+              'index_number': normalizeLoginId(index),
               'password': password.trim(),
             }),
           )
@@ -621,9 +663,52 @@ class ApiService {
     required String password,
   }) =>
       post('class-rep/students', {
-        'index_number': indexNumber.trim().toUpperCase(),
+        'index_number': normalizeLoginId(indexNumber),
         'password': password.trim(),
       });
+
+  /// `POST /api/class-rep/student-detail` — roster student profile + recent attendance.
+  ///
+  /// Tries JSON first, then `x-www-form-urlencoded` if the server returns 404 (some
+  /// proxies strip JSON bodies; route is registered for both in `routes/api.php`).
+  static Future<http.Response> classRepStudentDetail({
+    required String indexNumber,
+    required String password,
+    required int studentId,
+  }) async {
+    final base = Constants.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final uri = Uri.parse('$base/class-rep/student-detail');
+    final idx = normalizeLoginId(indexNumber);
+    final pwd = password.trim();
+
+    var res = await http
+        .post(
+          uri,
+          headers: _requestHeaders(jsonBody: true),
+          body: jsonEncode({
+            'index_number': idx,
+            'password': pwd,
+            'student_id': studentId,
+          }),
+        )
+        .timeout(httpTimeout);
+
+    if (res.statusCode != 404) {
+      return res;
+    }
+
+    return http
+        .post(
+          uri,
+          headers: _requestHeaders(jsonBody: false),
+          body: <String, String>{
+            'index_number': idx,
+            'password': pwd,
+            'student_id': studentId.toString(),
+          },
+        )
+        .timeout(httpTimeout);
+  }
 
   /// `POST /api/class-rep/sessions/open` (or `/api/attendance/open`) — response uses envelope.
   static Future<http.Response> classRepOpenSession(Map<String, dynamic> body) =>
@@ -688,4 +773,34 @@ class ApiService {
         'index_number': indexNumber.trim().toUpperCase(),
         'password': password.trim(),
       });
+
+  /// GET /api/student/attendance-insights — Bearer (student).
+  static Future<http.Response> studentAttendanceInsights() async {
+    return await http
+        .get(
+          Uri.parse('${Constants.baseUrl}/student/attendance-insights'),
+          headers: _requestHeaders(),
+        )
+        .timeout(httpTimeout);
+  }
+
+  /// GET /api/lecturer/dashboard — Bearer (lecturer Sanctum).
+  static Future<http.Response> lecturerDashboard() async {
+    return await http
+        .get(
+          Uri.parse('${Constants.baseUrl}/lecturer/dashboard'),
+          headers: _requestHeaders(),
+        )
+        .timeout(httpTimeout);
+  }
+
+  /// GET /api/lecturer/courses/{id}
+  static Future<http.Response> lecturerCourseDetail(int courseId) async {
+    return await http
+        .get(
+          Uri.parse('${Constants.baseUrl}/lecturer/courses/$courseId'),
+          headers: _requestHeaders(),
+        )
+        .timeout(httpTimeout);
+  }
 }

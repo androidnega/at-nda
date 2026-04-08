@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../widgets/app_drawer_shell.dart';
-import '../widgets/course_book_icon.dart';
 import '../widgets/modern_pull_to_refresh.dart';
 
 import '../models/student.dart';
@@ -22,8 +21,11 @@ import '../utils/absence_warning_format.dart';
 import '../utils/connectivity_util.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/constants.dart';
-import '../utils/greeting_util.dart';
-import '../widgets/profile_avatar.dart';
+import '../theme/flat_dashboard.dart';
+import '../theme/student_soft_ui.dart';
+import '../widgets/student_noir_task_dashboard.dart';
+import '../widgets/student_pastel_profile_dashboard.dart';
+import '../widgets/student_today_dashboard.dart';
 import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
@@ -32,6 +34,7 @@ import 'attendance_stats_page.dart';
 import 'login_page.dart';
 import 'rep_home_page.dart';
 import 'sync_status_page.dart';
+import 'timetable_page.dart';
 
 /// Attendance-focused home: primary session + actions; everything else in the drawer.
 class HomePage extends StatefulWidget {
@@ -42,6 +45,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+
   /// Active sessions from API `sessions` array (see [ApiService.getActiveSessions]).
   List<Map<String, dynamic>> _activeSessions = [];
   Student? _student;
@@ -64,6 +68,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _logoutAllowed = true;
   String? _logoutLockHint;
   bool _appWentToBackground = false;
+
+  /// From `GET /api/student/attendance-insights` (non–class-rep students only).
+  bool _studentAtRisk = false;
+  int _studentConsecutiveMissed = 0;
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Today's timetable slots from `GET /api/timetable` (`by_day` for current weekday).
+  List<Map<String, dynamic>> _todayTimetable = [];
+
+  String _lastCheckInLine =
+      'Your last check-in: mark when your class session is live.';
+
+  static const List<String> _weekdayApi = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
 
   @override
   void initState() {
@@ -107,7 +133,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _appWentToBackground = false;
         unawaited(_syncLogoutLock());
       }
-      _load();
+      _load(silent: true);
     }
   }
 
@@ -208,7 +234,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _syncPendingOnStart() async {
     await SyncService.syncAttendance();
-    if (mounted) _load();
+    if (mounted) _load(silent: true);
   }
 
   /// If login payload missed rep flags, `POST /api/rep/courses` confirms class rep access.
@@ -241,7 +267,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final online = await hasInternetConnectivity();
     _dynamicUi = const [];
     if (online) {
@@ -252,12 +278,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await SessionCachePrefs.clear();
     _sessionUiTicker?.cancel();
     _sessionUiTicker = null;
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _activeSessions = [];
-      _markedSessionIdsToday = {};
-    });
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _activeSessions = [];
+        _markedSessionIdsToday = {};
+        _studentAtRisk = false;
+        _studentConsecutiveMissed = 0;
+        _todayTimetable = [];
+      });
+    }
 
     try {
       _student = await OfflineService.getCurrentStudent();
@@ -276,6 +307,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _syncClassRepFlagFromApi();
     }
 
+    if (online && _student != null) {
+      await OfflineService.hasPasswordOrApiToken();
+    }
+
     var pendingSync = 0;
     try {
       pendingSync = await OfflineService.getPendingAttendanceCount();
@@ -292,6 +327,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _error = 'Offline — connect to the internet to load active sessions.';
           _showAbsenceWarning = false;
           _absenceWarningsSnapshot = [];
+          _studentAtRisk = false;
+          _studentConsecutiveMissed = 0;
         });
       }
     } else {
@@ -380,9 +417,348 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
     _restartSessionUiTicker();
 
-    if (mounted) {
-      setState(() => _isLoading = false);
+    if (online && _student != null) {
+      await _loadStudentAttendanceInsights();
+      await _loadTodayTimetable();
     }
+
+    var lastLine = _lastCheckInLine;
+    try {
+      lastLine = await _computeLastCheckInLine();
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _lastCheckInLine = lastLine;
+      });
+    }
+  }
+
+  Future<void> _loadTodayTimetable() async {
+    final s = _student;
+    if (s == null) return;
+    final tok = await OfflineService.getApiSessionToken();
+    if (tok == null || tok.isEmpty) return;
+    ApiService.setSessionBearerToken(tok);
+    try {
+      final res = await ApiService.getTimetable();
+      if (!ApiService.isSuccessfulHttp(res.statusCode)) return;
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) return;
+      var root = Map<String, dynamic>.from(decoded);
+      if (!root.containsKey('by_day') &&
+          !root.containsKey('ordered_days') &&
+          root['data'] is Map) {
+        root = Map<String, dynamic>.from(root['data'] as Map);
+      }
+      final by = root['by_day'];
+      if (by is! Map) return;
+      final dayKey = _weekdayApi[DateTime.now().weekday - 1];
+      final rawList = by[dayKey];
+      final out = <Map<String, dynamic>>[];
+      if (rawList is List) {
+        for (final e in rawList) {
+          if (e is Map) out.add(Map<String, dynamic>.from(e));
+        }
+      }
+      out.sort((a, b) => _slotMinutes(a['start_time']?.toString())
+          .compareTo(_slotMinutes(b['start_time']?.toString())));
+      if (!mounted) return;
+      setState(() => _todayTimetable = out);
+    } catch (_) {}
+  }
+
+  int _slotMinutes(String? hhmm) {
+    if (hhmm == null || !hhmm.contains(':')) return 0;
+    final p = hhmm.split(':');
+    final h = int.tryParse(p[0].trim()) ?? 0;
+    final m = int.tryParse(p[1].trim()) ?? 0;
+    return h * 60 + m;
+  }
+
+  DateTime? _todayAtTime(String? hhmm) {
+    if (hhmm == null || !hhmm.contains(':')) return null;
+    final p = hhmm.split(':');
+    final h = int.tryParse(p[0].trim());
+    final m = int.tryParse(p[1].trim());
+    if (h == null || m == null) return null;
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day, h, m);
+  }
+
+  List<String> _dashboardClockSegmentsFrom(String tl) {
+    if (tl == '—' || tl == '--:--') {
+      return ['—', '—', '—'];
+    }
+    if (tl == 'Session ended') {
+      return ['—', '—', '—'];
+    }
+    final parts = tl.split(':');
+    if (parts.length == 3) {
+      return [
+        parts[0].trim().padLeft(2, '0'),
+        parts[1].trim().padLeft(2, '0'),
+        parts[2].trim().padLeft(2, '0'),
+      ];
+    }
+    if (parts.length == 2) {
+      return [
+        '00',
+        parts[0].trim().padLeft(2, '0'),
+        parts[1].trim().padLeft(2, '0'),
+      ];
+    }
+    return ['—', '—', '—'];
+  }
+
+  /// Label + three segments for the summary clock: live session or next class.
+  ({String label, List<String> parts}) _dashboardFocusClockRow() {
+    final um = _unmarkedSessions;
+    final first = um.isNotEmpty ? um.first : null;
+    if (first != null && !_sessionEndedFor(first)) {
+      final tl = _timeLeftLabel(first);
+      if (tl != '—' && tl != '--:--' && tl != 'Session ended') {
+        return (
+          label: 'Session ends in',
+          parts: _dashboardClockSegmentsFrom(tl),
+        );
+      }
+    }
+
+    final now = DateTime.now();
+    for (final slot in _todayTimetable) {
+      final st = _todayAtTime(slot['start_time']?.toString());
+      if (st != null && now.isBefore(st)) {
+        final diff = st.difference(now);
+        if (!diff.isNegative) {
+          final tl = _formatDurationRemaining(diff);
+          return (
+            label: 'Next class starts in',
+            parts: _dashboardClockSegmentsFrom(tl),
+          );
+        }
+      }
+    }
+    for (final slot in _todayTimetable) {
+      final st = _todayAtTime(slot['start_time']?.toString());
+      final en = _todayAtTime(slot['end_time']?.toString());
+      if (st != null &&
+          en != null &&
+          !now.isBefore(st) &&
+          !now.isAfter(en)) {
+        final diff = en.difference(now);
+        if (!diff.isNegative) {
+          final tl = _formatDurationRemaining(diff);
+          return (
+            label: 'Class ends in',
+            parts: _dashboardClockSegmentsFrom(tl),
+          );
+        }
+      }
+    }
+
+    return (label: '', parts: const []);
+  }
+
+  String? _firstTodayVenueHint() {
+    for (final slot in _todayTimetable) {
+      final v = (slot['venue']?.toString() ?? '').trim();
+      if (v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  /// 0–1 between 9:00 and 18:00 local time.
+  double _workingDayProgressFraction() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 9);
+    final end = DateTime(now.year, now.month, now.day, 18);
+    if (now.isBefore(start)) return 0;
+    if (!now.isBefore(end)) return 1;
+    final t = now.difference(start).inMinutes / end.difference(start).inMinutes;
+    return t.clamp(0.0, 1.0);
+  }
+
+  Map<String, String> _heroDashboardCopy() {
+    if (_student?.isClassRep == true) {
+      return {
+        'title': 'Class rep',
+        'subtitle': 'Use Class rep tools for sessions & attendance.',
+      };
+    }
+    final first = _unmarkedSessions.isNotEmpty ? _unmarkedSessions.first : null;
+    if (first != null && !_sessionEndedFor(first)) {
+      final tl = _timeLeftLabel(first);
+      if (tl != '—' && tl != '--:--' && tl != 'Session ended') {
+        return {'title': tl, 'subtitle': 'Time left to mark this session'};
+      }
+    }
+    final now = DateTime.now();
+    for (final slot in _todayTimetable) {
+      final st = _todayAtTime(slot['start_time']?.toString());
+      final en = _todayAtTime(slot['end_time']?.toString());
+      if (st != null && en != null && now.isBefore(st)) {
+        final diff = st.difference(now);
+        if (diff.inMinutes < 60) {
+          return {
+            'title': 'In ${diff.inMinutes} min',
+            'subtitle':
+                '${slot['course_code'] ?? slot['course_name']} · starts ${slot['start_time']}',
+          };
+        }
+        return {
+          'title': _formatTimeAmPm(slot['start_time']?.toString()),
+          'subtitle': 'Next class today',
+        };
+      }
+    }
+    if (_todayTimetable.isNotEmpty) {
+      return {
+        'title': 'On track',
+        'subtitle': 'No session to mark right now',
+      };
+    }
+    return {
+      'title': 'Welcome',
+      'subtitle': 'Pull to refresh for sessions & timetable',
+    };
+  }
+
+  String _formatTimeAmPm(String? hhmm) {
+    if (hhmm == null || !hhmm.contains(':')) return '—';
+    final p = hhmm.split(':');
+    var h = int.tryParse(p[0].trim()) ?? 0;
+    final m = int.tryParse(p[1].trim()) ?? 0;
+    final pm = h >= 12;
+    if (h > 12) h -= 12;
+    if (h == 0) h = 12;
+    return '$h:${m.toString().padLeft(2, '0')} ${pm ? 'PM' : 'AM'}';
+  }
+
+  Future<String> _computeLastCheckInLine() async {
+    final ids = <int>{};
+    for (final s in _activeSessions) {
+      final id = _parseSessionId(s);
+      if (id != null) ids.add(id);
+    }
+    final last = await LastAttendancePrefs.load(
+      currentActiveSessionIds: ids.isNotEmpty ? ids : null,
+    );
+    if (last == null) {
+      return 'Your last check-in: mark when your class session is live.';
+    }
+    final tStr = last['time']?.toString();
+    if (tStr == null) {
+      return 'Your last check-in: mark when your class session is live.';
+    }
+    try {
+      final t = DateTime.parse(tStr);
+      final diff = DateTime.now().difference(t);
+      String rel;
+      if (diff.inMinutes < 1) {
+        rel = 'just now';
+      } else if (diff.inMinutes < 60) {
+        rel = '${diff.inMinutes} min ago';
+      } else if (diff.inHours < 24) {
+        rel = '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+      } else {
+        rel = '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+      }
+      final course = last['course']?.toString() ?? 'class';
+      return 'Your last check-in was: $rel · $course';
+    } catch (_) {
+      return 'Your last check-in: mark when your class session is live.';
+    }
+  }
+
+  void _onTimetableSlotTap(Map<String, dynamic> slot) {
+    if (_student?.isClassRep == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Class reps are marked automatically when sessions run.'),
+        ),
+      );
+      return;
+    }
+    final code = slot['course_code']?.toString().trim() ?? '';
+    for (final s in _unmarkedSessions) {
+      final sc = s['course_code']?.toString().trim() ?? '';
+      if (code.isNotEmpty && sc == code) {
+        _openAttendancePage(s);
+        return;
+      }
+    }
+    final label = code.isNotEmpty ? code : (slot['course_name'] ?? 'This class');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Mark attendance when your lecturer opens a live session for $label.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _onDashboardBell() {
+    if (_showAbsenceWarning && _absenceWarningsSnapshot.isNotEmpty) {
+      setState(() => _showAbsenceWarning = true);
+    }
+    if (_pendingSyncCount > 0) {
+      _openOfflineQueue();
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('You will see alerts here for absences and pending sync.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _loadStudentAttendanceInsights() async {
+    final s = _student;
+    if (s == null || s.isClassRep) {
+      if (mounted) {
+        setState(() {
+          _studentAtRisk = false;
+          _studentConsecutiveMissed = 0;
+        });
+      }
+      return;
+    }
+    final tok = await OfflineService.getApiSessionToken();
+    if (tok == null || tok.isEmpty) return;
+    ApiService.setSessionBearerToken(tok);
+    try {
+      final res = await ApiService.studentAttendanceInsights();
+      if (!mounted) return;
+      if (res.statusCode < 200 || res.statusCode >= 300) return;
+      final raw = jsonDecode(res.body);
+      if (raw is! Map ||
+          raw['success'] != true ||
+          raw['data'] is! Map) {
+        return;
+      }
+      final d = Map<String, dynamic>.from(raw['data'] as Map);
+      final ins = d['insights'];
+      final i = ins is Map ? Map<String, dynamic>.from(ins) : <String, dynamic>{};
+      final atRisk = i['at_risk'] == true;
+      final cm = i['consecutive_missed_sessions'];
+      int streak = 0;
+      if (cm is int) {
+        streak = cm;
+      } else if (cm is num) {
+        streak = cm.round();
+      } else {
+        streak = int.tryParse(cm?.toString() ?? '') ?? 0;
+      }
+      if (!mounted) return;
+      setState(() {
+        _studentAtRisk = atRisk;
+        _studentConsecutiveMissed = streak;
+      });
+    } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -434,12 +810,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     if (ok == true) _logout();
-  }
-
-  String _greetingDisplayName() {
-    final s = _student;
-    if (s == null) return 'there';
-    return s.greetingLastName;
   }
 
   void _syncAbsenceWarningsUi() {
@@ -546,137 +916,271 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      drawer: _buildDrawer(context),
-      appBar: AppBar(
-        title: const Text('Attendance'),
-      ),
-      body: ModernPullToRefresh(
-        onRefresh: _load,
-        child: _isLoading
-            ? LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    physics: modernPullToRefreshPhysics,
-                    child: SizedBox(
-                      height: constraints.maxHeight,
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-                  );
-                },
-              )
-            : SingleChildScrollView(
-                physics: modernPullToRefreshPhysics,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (Constants.debugShowSessionApiResponseOnHome)
-                      _buildSessionApiDebugPanel(context),
-                    _buildGreetingRow(context),
-                    if (_dynamicUi.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                    ],
-                    if (_student?.isClassRep == true) ...[
-                      const SizedBox(height: 12),
-                      _buildClassRepEntryCard(context),
-                    ],
-                    if (_showAbsenceWarning && _absenceWarningsSnapshot.isNotEmpty)
-                      _buildAbsenceWarningBanner(context),
-                    if (_pendingSyncCount > 0) ...[
-                      const SizedBox(height: 10),
-                      _buildPendingSyncChip(context),
-                    ],
-                    const SizedBox(height: 20),
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(
-                          _error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
+    final s = _student;
+    if (_isLoading || s == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final hero = _heroDashboardCopy();
+    final um = _unmarkedSessions;
+    final showMark = !s.isClassRep &&
+        um.isNotEmpty &&
+        !_sessionEndedFor(um.first);
+    final focusClock = _dashboardFocusClockRow();
+
+    final extraSessions =
+        !s.isClassRep && um.length > 1
+            ? Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  '${um.length - 1} other open session(s) — pull to refresh.',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
                       ),
-                    if (Constants.useDemoActiveSessionWhenEmpty &&
+                ),
+              )
+            : null;
+
+    final light = Theme.of(context).brightness == Brightness.light;
+    final cs = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: light ? StudentSoftUi.cream(cs) : cs.surface,
+      drawer: _buildDrawer(context),
+      body: ModernPullToRefresh(
+        onRefresh: () => _load(silent: true),
+        child: !s.isClassRep &&
+                ApiService.studentDashboardTheme ==
+                    ApiService.studentDashboardThemePastelProfile
+            ? StudentPastelProfileDashboard(
+                student: s,
+                todaySlots: _todayTimetable,
+                unmarkedSessions: um,
+                heroTitle: hero['title']!,
+                heroSubtitle: hero['subtitle']!,
+                showMarkButton: showMark,
+                onMarkAttendance: () => _openAttendancePage(um.first),
+                lastCheckInLine: _lastCheckInLine,
+                dayProgress: _workingDayProgressFraction(),
+                onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                onBell: _onDashboardBell,
+                onOpenFullTimetable: _openTimetable,
+                onSeeAllClasses: _openTimetable,
+                onSlotTap: _onTimetableSlotTap,
+                statsClassesToday: _todayTimetable.length,
+                statsLiveSessions: um.length,
+                statsMarkedToday: _markedSessionIdsToday.length,
+                dashboardClockLabel: focusClock.label,
+                dashboardClockSegments: focusClock.parts,
+                todayVenueHint: _firstTodayVenueHint(),
+                classRepCard: null,
+                dynamicBlocks: [
+                  if (Constants.debugShowSessionApiResponseOnHome) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildSessionApiDebugPanel(context),
+                    ),
+                  ],
+                  if (_dynamicUi.isNotEmpty) ...[
+                    ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                  ],
+                  if (extraSessions != null) extraSessions,
+                ],
+                warningBanner: _showAbsenceWarning &&
+                        _absenceWarningsSnapshot.isNotEmpty
+                    ? _buildAbsenceWarningBanner(context)
+                    : null,
+                pendingSyncChip: _pendingSyncCount > 0
+                    ? _buildPendingSyncChip(context)
+                    : null,
+                errorText: _error,
+                riskSection:
+                    _studentAtRisk ? _buildConsecutiveMissWarning(context) : null,
+                demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
                         _activeSessions.isNotEmpty &&
-                        _activeSessions.first['course_code'] == 'DEMO-101')
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
+                        _activeSessions.first['course_code'] == 'DEMO-101'
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           'Demo session · API unavailable or empty',
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                 color: Theme.of(context).colorScheme.tertiary,
                               ),
                         ),
-                      ),
-                    if (_student?.isClassRep == true)
-                      _buildNoActiveSessionCard()
-                    else if (_unmarkedSessions.isNotEmpty) ...[
-                      _buildPrimarySessionCard(context, _unmarkedSessions.first),
-                      if (_unmarkedSessions.length > 1) ...[
-                        const SizedBox(height: 20),
-                        Text(
-                          'Other sessions (${_unmarkedSessions.length - 1})',
-                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
+                      )
+                    : null,
+              )
+            : !s.isClassRep &&
+                    ApiService.studentDashboardTheme ==
+                        ApiService.studentDashboardThemeNoirTask
+                ? StudentNoirTaskDashboard(
+                    student: s,
+                    todaySlots: _todayTimetable,
+                    unmarkedSessions: um,
+                    heroTitle: hero['title']!,
+                    heroSubtitle: hero['subtitle']!,
+                    showMarkButton: showMark,
+                    onMarkAttendance: () => _openAttendancePage(um.first),
+                    lastCheckInLine: _lastCheckInLine,
+                    dayProgress: _workingDayProgressFraction(),
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    onOpenFullTimetable: _openTimetable,
+                    onSeeAllClasses: _openTimetable,
+                    onSlotTap: _onTimetableSlotTap,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: um.length,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    dashboardClockLabel: focusClock.label,
+                    dashboardClockSegments: focusClock.parts,
+                    todayVenueHint: _firstTodayVenueHint(),
+                    classRepCard: null,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
+                        ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner: _showAbsenceWarning &&
+                            _absenceWarningsSnapshot.isNotEmpty
+                        ? _buildAbsenceWarningBanner(context)
+                        : null,
+                    pendingSyncChip: _pendingSyncCount > 0
+                        ? _buildPendingSyncChip(context)
+                        : null,
+                    errorText: _error,
+                    riskSection: _studentAtRisk
+                        ? _buildConsecutiveMissWarning(context)
+                        : null,
+                    demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
+                            _activeSessions.isNotEmpty &&
+                            _activeSessions.first['course_code'] == 'DEMO-101'
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Demo session · API unavailable or empty',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.tertiary,
+                                  ),
+                            ),
+                          )
+                        : null,
+                  )
+                : StudentTodayDashboard(
+                student: s,
+                todaySlots: _todayTimetable,
+                unmarkedSessions: um,
+                heroTitle: hero['title']!,
+                heroSubtitle: hero['subtitle']!,
+                showMarkButton: showMark,
+                onMarkAttendance: () => _openAttendancePage(um.first),
+                lastCheckInLine: _lastCheckInLine,
+                dayProgress: _workingDayProgressFraction(),
+                onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                onBell: _onDashboardBell,
+                onOpenFullTimetable: _openTimetable,
+                onSeeAllClasses: _openTimetable,
+                onSlotTap: _onTimetableSlotTap,
+                statsClassesToday: _todayTimetable.length,
+                statsLiveSessions: um.length,
+                statsMarkedToday: _markedSessionIdsToday.length,
+                dashboardClockLabel: focusClock.label,
+                dashboardClockSegments: focusClock.parts,
+                todayVenueHint: _firstTodayVenueHint(),
+                classRepCard:
+                    s.isClassRep ? _buildClassRepEntryCard(context) : null,
+                dynamicBlocks: [
+                  if (Constants.debugShowSessionApiResponseOnHome) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _buildSessionApiDebugPanel(context),
+                    ),
+                  ],
+                  if (_dynamicUi.isNotEmpty) ...[
+                    ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                  ],
+                  if (extraSessions != null) extraSessions,
+                ],
+                warningBanner: _showAbsenceWarning &&
+                        _absenceWarningsSnapshot.isNotEmpty
+                    ? _buildAbsenceWarningBanner(context)
+                    : null,
+                pendingSyncChip: _pendingSyncCount > 0
+                    ? _buildPendingSyncChip(context)
+                    : null,
+                errorText: _error,
+                riskSection: !s.isClassRep && _studentAtRisk
+                    ? _buildConsecutiveMissWarning(context)
+                    : null,
+                demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
+                        _activeSessions.isNotEmpty &&
+                        _activeSessions.first['course_code'] == 'DEMO-101'
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Demo session · API unavailable or empty',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.tertiary,
                               ),
                         ),
-                        const SizedBox(height: 10),
-                        ..._unmarkedSessions.skip(1).map(
-                              (s) => Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: _buildSecondarySessionCard(context, s),
-                              ),
-                            ),
-                      ],
-                    ] else if (_activeSessions.isNotEmpty)
-                      _buildAllMarkedOrEmptyState(context)
-                    else
-                      _buildNoActiveSessionCard(),
-                  ],
-                ),
+                      )
+                    : null,
               ),
       ),
     );
   }
 
-  Widget _buildGreetingRow(BuildContext context) {
-    final s = _student;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        if (s != null)
-          ProfileAvatar(student: s, radius: 28)
-        else
-          CircleAvatar(
-            radius: 28,
-            child: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
-          ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${getGreeting()}, ${_greetingDisplayName()}',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              if (s != null)
+  Widget _buildConsecutiveMissWarning(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDBA74)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Color(0xFFC2410C)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  s.indexNumber,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  'Attendance alert',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: FlatDashboard.textPrimary,
                       ),
                 ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  'You have missed $_studentConsecutiveMissed consecutive '
+                  'session${_studentConsecutiveMissed == 1 ? '' : 's'}. '
+                  'Attend the next sessions to avoid falling further behind.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: FlatDashboard.textPrimary,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -747,235 +1251,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAllMarkedOrEmptyState(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outline.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline_rounded, color: cs.outline, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'No sessions to mark — you are up to date.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    fontSize: 13,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPrimarySessionCard(BuildContext context, Map<String, dynamic> s) {
-    final courseName =
-        (s['course_name'] ?? s['course_title'] ?? 'Active session').toString();
-    final courseCode = (s['course_code'] ?? '').toString().trim();
-    final lecturer = (s['lecturer_name'] ?? '').toString().trim();
-    final ended = _sessionEndedFor(s);
-    final canMark = !ended;
-    final timeLabel = _timeLeftLabel(s);
-    final showCountdown = canMark &&
-        timeLabel != '--:--' &&
-        timeLabel != '—';
-
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accent = canMark
-        ? (isDark ? cs.primary : const Color(0xFF1B5E20))
-        : cs.outline;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: canMark
-            ? (isDark
-                ? cs.primary.withValues(alpha: 0.18)
-                : const Color(0xFF1B5E20).withValues(alpha: 0.08))
-            : cs.surfaceContainerHighest.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: canMark
-              ? accent.withValues(alpha: isDark ? 0.55 : 0.5)
-              : cs.outline.withValues(alpha: 0.35),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.circle,
-                size: 10,
-                color: canMark
-                    ? (isDark ? cs.primary : Colors.green.shade700)
-                    : cs.outline,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'ACTIVE SESSION',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.4,
-                      fontSize: 11,
-                      color: accent,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CourseBookIcon(size: 20, color: accent),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  courseName,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        height: 1.25,
-                        fontSize: 17,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          if (courseCode.isNotEmpty || lecturer.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              [
-                if (courseCode.isNotEmpty) courseCode,
-                if (lecturer.isNotEmpty) '· $lecturer',
-              ].join(' '),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 12,
-                  ),
-            ),
-          ],
-          if (showCountdown) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Time left: $timeLabel',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
-            ),
-          ] else if (ended)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Session ended',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-              ),
-            ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: canMark ? () => _openAttendancePage(s) : null,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              child: const Text('Mark attendance'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSecondarySessionCard(BuildContext context, Map<String, dynamic> s) {
-    final courseName =
-        (s['course_name'] ?? s['course_title'] ?? 'Session').toString();
-    final courseCode = (s['course_code'] ?? '').toString().trim();
-    final ended = _sessionEndedFor(s);
-    final canOpen = !ended;
-
-    return Opacity(
-      opacity: canOpen ? 1.0 : 0.55,
-      child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: canOpen ? () => _openAttendancePage(s) : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.circle,
-                  size: 8,
-                  color: canOpen
-                      ? Colors.green.shade600
-                      : Theme.of(context).colorScheme.outline,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        courseName,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                      ),
-                      if (courseCode.isNotEmpty)
-                        Text(
-                          courseCode,
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                fontSize: 11,
-                              ),
-                        ),
-                    ],
-                  ),
-                ),
-                Text(
-                  ended ? 'Ended' : 'Open',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                        color: canOpen
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outline,
-                      ),
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -1091,7 +1366,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Profile'),
                 subtitle: const Text('Details & photo'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   Navigator.of(context).pushNamed('/profile').then((_) => _load());
                 },
               ),
@@ -1100,7 +1375,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Timetable'),
                 subtitle: const Text('Weekly class schedule'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   Navigator.of(context)
                       .pushNamed('/timetable')
                       .then((_) => _load());
@@ -1113,7 +1388,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   title: const Text('Class rep dashboard'),
                   subtitle: const Text('Sessions, QR & tools'),
                   onTap: () {
-                    Navigator.pop(context);
+                    _scaffoldKey.currentState?.closeDrawer();
                     Navigator.of(context)
                         .push(
                           MaterialPageRoute<void>(
@@ -1129,7 +1404,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Attendance history'),
                 subtitle: const Text('Past sessions & status'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   _openAttendanceHistory();
                 },
               ),
@@ -1138,7 +1413,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Statistics'),
                 subtitle: const Text('Marks per course'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   _openStats();
                 },
               ),
@@ -1147,7 +1422,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Offline queue'),
                 subtitle: const Text('Pending sync'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   _openOfflineQueue();
                 },
               ),
@@ -1156,7 +1431,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 title: const Text('Settings'),
                 subtitle: const Text('Theme & refresh'),
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   Navigator.of(context).pushNamed('/settings').then((_) => _load());
                 },
               ),
@@ -1189,7 +1464,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       )
                     : null,
                 onTap: () {
-                  Navigator.pop(context);
+                  _scaffoldKey.currentState?.closeDrawer();
                   _confirmLogout();
                 },
               ),
@@ -1218,37 +1493,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) _load();
   }
 
-  Widget _buildNoActiveSessionCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.event_busy_outlined,
-            color: Theme.of(context).colorScheme.outline,
-            size: 26,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'No active session',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ),
-        ],
+  Future<void> _openTimetable() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => appSelectableScope(const TimetablePage()),
       ),
     );
+    if (mounted) _load(silent: true);
   }
 
   void _openAttendanceHistory() {
