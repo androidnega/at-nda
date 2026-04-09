@@ -519,14 +519,20 @@ class StudentDashboardController extends Controller
             ->orderBy('expires_at')
             ->get()
             ->map(function (AttendanceSession $session) use ($student) {
-                $alreadyMarked = Attendance::where('student_id', $student->id)
+                $attendance = Attendance::where('student_id', $student->id)
                     ->where('attendance_session_id', $session->id)
-                    ->exists();
+                    ->first();
+                $alreadyMarked = $attendance !== null;
+                if ($session->isCheckInCheckoutMode()) {
+                    $alreadyMarked = $attendance !== null
+                        && ! empty($attendance->check_out_time);
+                }
 
                 return [
                     'session' => $session,
                     'course' => $session->course,
                     'already_marked' => $alreadyMarked,
+                    'my_attendance' => $attendance,
                 ];
             });
     }

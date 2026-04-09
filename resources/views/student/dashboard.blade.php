@@ -80,6 +80,11 @@
                 @php
                     $session = $row['session'];
                     $course = $row['course'];
+                    $myAttendance = $row['my_attendance'] ?? null;
+                    $attendanceMode = (string) ($session->attendance_mode ?? 'instant');
+                    $isCheckMode = $attendanceMode === 'checkin_checkout';
+                    $checkedIn = $myAttendance && ! empty($myAttendance->check_in_time);
+                    $checkedOut = $myAttendance && ! empty($myAttendance->check_out_time);
                     $mode = $session->mode ?? 'location';
                     $modeLabel = match ($mode) {
                         'qr' => 'QR code',
@@ -110,11 +115,41 @@
                         </div>
                     </div>
                     <div class="w-full pt-0.5">
-                        <a href="{{ route('web.attendance.form', $course) }}"
-                           class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
-                            <i class="fas fa-arrow-right-to-bracket"></i>
-                            Mark attendance
-                        </a>
+                        @if($isCheckMode)
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button type="button"
+                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedIn ? 'bg-emerald-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700' }}"
+                                        data-action="checkin"
+                                        data-course-id="{{ $course->id }}"
+                                        data-session-id="{{ $session->id }}"
+                                        {{ $checkedIn ? 'disabled' : '' }}>
+                                    <i class="fas fa-hand-pointer"></i>
+                                    {{ $checkedIn ? 'Checked in' : 'Check-in' }}
+                                </button>
+                                <button type="button"
+                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedOut ? 'bg-rose-300 cursor-not-allowed' : (($session->checkout_enabled || !$checkedIn) ? 'bg-rose-500 hover:bg-rose-600' : 'bg-rose-300 cursor-not-allowed') }}"
+                                        data-action="checkout"
+                                        data-course-id="{{ $course->id }}"
+                                        data-session-id="{{ $session->id }}"
+                                        {{ ($checkedOut || !($session->checkout_enabled && $checkedIn)) ? 'disabled' : '' }}>
+                                    <i class="fas fa-hand-pointer"></i>
+                                    {{ $checkedOut ? 'Checked out' : 'Check-out' }}
+                                </button>
+                            </div>
+                            @if($checkedIn && !$checkedOut)
+                                <p class="mt-2 text-xs text-slate-600 attendance-countdown"
+                                   data-end-at="{{ optional($session->expected_end_time)->toIso8601String() }}"
+                                   data-session-id="{{ $session->id }}">
+                                    Waiting for checkout...
+                                </p>
+                            @endif
+                        @else
+                            <a href="{{ route('web.attendance.form', $course) }}"
+                               class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
+                                <i class="fas fa-arrow-right-to-bracket"></i>
+                                Mark attendance
+                            </a>
+                        @endif
                     </div>
                 </li>
             @endforeach
@@ -189,4 +224,114 @@
 </div>
 @endif
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+    function toast(msg, isError) {
+        const cls = isError ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-emerald-100 text-emerald-800 border-emerald-200';
+        const wrap = document.createElement('div');
+        wrap.className = 'fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] px-4 py-2 rounded-lg border text-sm font-medium shadow ' + cls;
+        wrap.textContent = msg;
+        document.body.appendChild(wrap);
+        setTimeout(() => wrap.remove(), 2600);
+    }
+
+    function formatRemaining(ms) {
+        if (ms <= 0) return 'Checkout enabled now';
+        const s = Math.floor(ms / 1000);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        if (h > 0) return `Checkout opens in ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+        return `Checkout opens in ${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+
+    document.querySelectorAll('.attendance-countdown').forEach((el) => {
+        const endAt = el.dataset.endAt ? new Date(el.dataset.endAt) : null;
+        if (!endAt || Number.isNaN(endAt.getTime())) return;
+        const tick = () => {
+            const diff = endAt.getTime() - Date.now();
+            el.textContent = formatRemaining(diff);
+            if (diff <= 0) {
+                const sid = el.dataset.sessionId || '';
+                const checkoutBtn = document.querySelector(`.attendance-run-btn[data-action="checkout"][data-session-id="${sid}"]`);
+                if (checkoutBtn && checkoutBtn.hasAttribute('disabled')) {
+                    checkoutBtn.removeAttribute('disabled');
+                    checkoutBtn.classList.remove('bg-rose-300', 'cursor-not-allowed');
+                    checkoutBtn.classList.add('bg-rose-500', 'hover:bg-rose-600');
+                }
+            }
+        };
+        tick();
+        setInterval(tick, 1000);
+    });
+
+    async function withLocation() {
+        return await new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject(new Error('Location is not supported on this browser.'));
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+                () => reject(new Error('Allow location access and try again.')),
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        });
+    }
+
+    async function submitCheckRun(btn) {
+        const courseId = Number(btn.dataset.courseId || 0);
+        const sessionId = Number(btn.dataset.sessionId || 0);
+        if (!courseId || !sessionId) return;
+        const indexMeta = document.querySelector('meta[name="student-index-number"]');
+        const indexNumber = indexMeta ? indexMeta.getAttribute('content') : '';
+        if (!indexNumber) {
+            toast('Missing student session. Sign in again.', true);
+            return;
+        }
+        btn.disabled = true;
+        try {
+            const loc = await withLocation();
+            const payload = {
+                index_number: indexNumber,
+                course_id: courseId,
+                session_id: sessionId,
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+            };
+            const res = await fetch('{{ route('web.attendance.mark') }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.success !== true) {
+                throw new Error(data.message || 'Attendance action failed.');
+            }
+            toast(data.message || 'Saved.', false);
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e) {
+            toast((e && e.message) ? e.message : 'Could not submit attendance.', true);
+            btn.disabled = false;
+        }
+    }
+
+    document.querySelectorAll('.attendance-run-btn').forEach((btn) => {
+        btn.addEventListener('click', function () {
+            submitCheckRun(btn);
+        });
+    });
+})();
+</script>
+@endpush
 

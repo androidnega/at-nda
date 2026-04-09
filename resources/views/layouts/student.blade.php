@@ -8,6 +8,7 @@
         @if($student->class_id)
             <meta name="broadcast-class-id" content="{{ $student->class_id }}">
         @endif
+        <meta name="student-index-number" content="{{ $student->index_number }}">
     @endisset
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/js/realtime.js'])

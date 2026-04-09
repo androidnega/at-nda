@@ -322,7 +322,80 @@ class AttendanceController extends Controller
         $existing = Attendance::where('student_id', $student->id)
             ->where('course_id', $course->id)
             ->where('attendance_session_id', $session->id)
-            ->exists();
+            ->first();
+
+        if ($session->isCheckInCheckoutMode()) {
+            $now = now();
+            if (! $existing) {
+                $status = 'present';
+                $start = $session->start_time ? Carbon::parse($session->start_time) : null;
+                if ($start !== null && $now->greaterThan($start->copy()->addMinutes(20))) {
+                    $status = 'late';
+                }
+
+                Attendance::create([
+                    'student_id' => $student->id,
+                    'course_id' => $course->id,
+                    'attendance_session_id' => $session->id,
+                    'attendance_week_id' => $session->attendance_week_id,
+                    'attendance_time' => $now,
+                    'check_in_time' => $now,
+                    'status' => $status,
+                    'synced' => true,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'phase' => 'checkin',
+                    'message' => 'Check-in recorded. Wait for checkout time.',
+                ]);
+            }
+
+            if (! empty($existing->check_out_time)) {
+                return response()->json([
+                    'success' => true,
+                    'phase' => 'checkout',
+                    'message' => 'Already checked out.',
+                ]);
+            }
+
+            if (! $session->checkout_enabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Checkout is not enabled yet.',
+                ], 422);
+            }
+
+            $outsideRange = false;
+            if ($session->hasLocation() && ! empty($validated['latitude']) && ! empty($validated['longitude'])) {
+                $distance = $this->distance(
+                    (float) $session->location_lat,
+                    (float) $session->location_lng,
+                    (float) $validated['latitude'],
+                    (float) $validated['longitude']
+                );
+                $outsideRange = $distance > $session->allowedGeofenceRadiusMeters($course);
+            }
+
+            $checkOutAt = $now;
+            $checkInAt = $existing->check_in_time ? Carbon::parse($existing->check_in_time) : null;
+            $timeSpent = $checkInAt ? max(0, $checkOutAt->diffInSeconds($checkInAt)) : null;
+            $finalStatus = $outsideRange ? 'absent' : ($existing->status ?: 'present');
+
+            $existing->update([
+                'check_out_time' => $checkOutAt,
+                'time_spent_seconds' => $timeSpent,
+                'status' => $finalStatus,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'phase' => 'checkout',
+                'message' => $outsideRange
+                    ? 'Checked out outside range. Marked absent.'
+                    : 'Checkout recorded.',
+            ]);
+        }
 
         if ($existing) {
             return response()->json([
