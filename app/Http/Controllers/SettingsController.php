@@ -27,6 +27,8 @@ class SettingsController extends Controller
             'require_profile_image_on_onboarding' => 'nullable|boolean',
             'allow_multiple_index_on_device' => 'nullable|boolean',
             'face_match_threshold' => 'nullable|numeric|min:0.2|max:1.0',
+            'attendance_mode' => 'nullable|in:instant,checkin_checkout',
+            'instant_mode_type' => 'nullable|in:location,location_qr,wifi',
         ];
         if ($request->session()->has('admin_id')) {
             $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task,team_reach';
@@ -34,6 +36,9 @@ class SettingsController extends Controller
             $rules['mobile_app_theme_seed'] = 'nullable|in:teal,blue,indigo,emerald,rose,amber';
         }
         $validated = $request->validate($rules);
+        if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+            $validated['instant_mode_type'] = SystemSetting::INSTANT_MODE_LOCATION;
+        }
 
         $settings = SystemSetting::get();
         $payload = [
@@ -63,6 +68,15 @@ class SettingsController extends Controller
                 $v = $validated['mobile_app_theme_seed'] ?? 'teal';
                 $payload['mobile_app_theme_seed'] = $v ?: 'teal';
             }
+        }
+        if (SystemSetting::hasAttendanceModeColumns()) {
+            $mode = $validated['attendance_mode'] ?? SystemSetting::ATTENDANCE_MODE_INSTANT;
+            $instant = $validated['instant_mode_type'] ?? SystemSetting::INSTANT_MODE_LOCATION_QR;
+            if ($mode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+                $instant = SystemSetting::INSTANT_MODE_LOCATION;
+            }
+            $payload['attendance_mode'] = $mode;
+            $payload['instant_mode_type'] = $instant;
         }
 
         $settings->update($payload);

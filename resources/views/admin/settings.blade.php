@@ -154,6 +154,30 @@
         </div>
         @endif
 
+        @if(\App\Models\SystemSetting::hasAttendanceModeColumns())
+        <div class="space-y-4 pt-2 border-t border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-800">Attendance runtime mode</h2>
+            <div class="p-4 rounded-xl border border-gray-100 space-y-3">
+                <label for="attendance_mode" class="font-medium text-gray-800 block">Global attendance mode</label>
+                <select name="attendance_mode" id="attendance_mode"
+                    class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
+                    <option value="instant" {{ ($settings->attendance_mode ?? 'instant') === 'instant' ? 'selected' : '' }}>Instant attendance</option>
+                    <option value="checkin_checkout" {{ ($settings->attendance_mode ?? '') === 'checkin_checkout' ? 'selected' : '' }}>Check-in / Check-out</option>
+                </select>
+            </div>
+            <div class="p-4 rounded-xl border border-gray-100 space-y-3">
+                <label for="instant_mode_type" class="font-medium text-gray-800 block">Instant mode type</label>
+                <select name="instant_mode_type" id="instant_mode_type"
+                    class="w-full max-w-md border-2 border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary">
+                    <option value="location" {{ ($settings->instant_mode_type ?? '') === 'location' ? 'selected' : '' }}>Location only</option>
+                    <option value="location_qr" {{ ($settings->instant_mode_type ?? 'location_qr') === 'location_qr' ? 'selected' : '' }}>Location + QR</option>
+                    <option value="wifi" {{ ($settings->instant_mode_type ?? '') === 'wifi' ? 'selected' : '' }}>Wi-Fi</option>
+                </select>
+                <p class="text-xs text-gray-500">Ignored automatically when global mode is Check-in / Check-out (that mode is always location-based).</p>
+            </div>
+        </div>
+        @endif
+
         <div class="pt-4 border-t border-gray-100">
             <button type="submit" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
                 Save Settings

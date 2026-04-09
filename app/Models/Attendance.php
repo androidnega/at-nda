@@ -25,6 +25,9 @@ class Attendance extends Model
         'attendance_week_id',
         'attendance_time',
         'status',
+        'check_in_time',
+        'check_out_time',
+        'time_spent_seconds',
         'synced',
         'lat',
         'lng',
@@ -40,6 +43,8 @@ class Attendance extends Model
 
     protected $casts = [
         'attendance_time' => 'datetime',
+        'check_in_time' => 'datetime',
+        'check_out_time' => 'datetime',
         'synced' => 'boolean',
         'lat' => 'decimal:7',
         'lng' => 'decimal:7',

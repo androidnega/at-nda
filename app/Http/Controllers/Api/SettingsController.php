@@ -40,6 +40,12 @@ class SettingsController extends Controller
             'mobile_app_theme_seed' => SystemSetting::hasMobileAppThemeSeedColumn()
                 ? (string) ($settings->mobile_app_theme_seed ?: 'teal')
                 : 'teal',
+            'attendance_mode' => SystemSetting::hasAttendanceModeColumns()
+                ? (string) ($settings->attendance_mode ?: SystemSetting::ATTENDANCE_MODE_INSTANT)
+                : SystemSetting::ATTENDANCE_MODE_INSTANT,
+            'instant_mode_type' => SystemSetting::hasAttendanceModeColumns()
+                ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
+                : SystemSetting::INSTANT_MODE_LOCATION_QR,
         ]);
     }
 }

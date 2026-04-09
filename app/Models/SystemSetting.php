@@ -23,6 +23,8 @@ class SystemSetting extends Model
         'rep_dashboard_theme',
         'student_dashboard_theme',
         'mobile_app_theme_seed',
+        'attendance_mode',
+        'instant_mode_type',
     ];
 
     protected $casts = [
@@ -37,6 +39,13 @@ class SystemSetting extends Model
         'dynamic_ui' => 'array',
         'enable_sms_call_logging' => 'boolean',
     ];
+
+    public const ATTENDANCE_MODE_INSTANT = 'instant';
+    public const ATTENDANCE_MODE_CHECKIN_CHECKOUT = 'checkin_checkout';
+
+    public const INSTANT_MODE_LOCATION = 'location';
+    public const INSTANT_MODE_LOCATION_QR = 'location_qr';
+    public const INSTANT_MODE_WIFI = 'wifi';
 
     public static function hasSmsCallLoggingColumn(): bool
     {
@@ -66,6 +75,12 @@ class SystemSetting extends Model
     public static function hasMobileAppThemeSeedColumn(): bool
     {
         return Schema::hasColumn('system_settings', 'mobile_app_theme_seed');
+    }
+
+    public static function hasAttendanceModeColumns(): bool
+    {
+        return Schema::hasColumn('system_settings', 'attendance_mode')
+            && Schema::hasColumn('system_settings', 'instant_mode_type');
     }
 
     public function requiresProfileImageOnOnboarding(): bool
@@ -107,6 +122,10 @@ class SystemSetting extends Model
             }
             if (static::hasMobileAppThemeSeedColumn()) {
                 $payload['mobile_app_theme_seed'] = 'teal';
+            }
+            if (static::hasAttendanceModeColumns()) {
+                $payload['attendance_mode'] = self::ATTENDANCE_MODE_INSTANT;
+                $payload['instant_mode_type'] = self::INSTANT_MODE_LOCATION_QR;
             }
 
             $setting = static::create($payload);

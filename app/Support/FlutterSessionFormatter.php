@@ -62,6 +62,7 @@ class FlutterSessionFormatter
             'venue' => $venue,
             'lecturer_name' => $lecturerName,
             'mode' => $mode,
+            'attendance_mode' => (string) ($session->attendance_mode ?? 'instant'),
             'location_required' => $session->requiresLocation(),
             'requires_qr_proof' => $session->requiresQrProof(),
             'wifi_required' => $session->requiresWifiSsidProof(),
@@ -74,6 +75,8 @@ class FlutterSessionFormatter
             'range_meters' => $range,
             'qr_token' => $session->requiresQrProof() ? $session->qr_token : null,
             'end_time' => $end?->toIso8601String(),
+            'expected_end_time' => $session->expected_end_time?->toIso8601String(),
+            'checkout_enabled' => (bool) ($session->checkout_enabled ?? false),
             'updated_at' => $session->updated_at?->toIso8601String(),
         ];
     }

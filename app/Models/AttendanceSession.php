@@ -16,7 +16,9 @@ class AttendanceSession extends Model
         'session_index',
         'attendance_week_id',
         'mode',
+        'attendance_mode',
         'is_active',
+        'checkout_enabled',
         'session_token',
         'qr_token',
         'expires_at',
@@ -28,6 +30,7 @@ class AttendanceSession extends Model
         'venue_id',
         'start_time',
         'end_time',
+        'expected_end_time',
         'allowed_wifi_ssid',
         'lecturer_status',
         'session_code',
@@ -43,6 +46,8 @@ class AttendanceSession extends Model
         'expires_at' => 'datetime',
         'start_time' => 'datetime',
         'end_time' => 'datetime',
+        'expected_end_time' => 'datetime',
+        'checkout_enabled' => 'boolean',
         'location_lat' => 'decimal:7',
         'location_lng' => 'decimal:7',
         'gps_accuracy' => 'float',
@@ -262,6 +267,11 @@ class AttendanceSession extends Model
     public function isWifiMode(): bool
     {
         return $this->mode === 'wifi';
+    }
+
+    public function isCheckInCheckoutMode(): bool
+    {
+        return $this->attendance_mode === 'checkin_checkout';
     }
 
     /**

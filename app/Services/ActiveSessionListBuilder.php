@@ -49,7 +49,22 @@ class ActiveSessionListBuilder
             }
             try {
                 $row = FlutterSessionFormatter::format($session);
-                $row['already_marked'] = self::alreadyMarkedForSession($session, $student);
+                $mine = null;
+                if ($student) {
+                    $mine = Attendance::query()
+                        ->where('student_id', $student->id)
+                        ->where('attendance_session_id', $session->id)
+                        ->first();
+                }
+                $row['already_marked'] = $mine !== null;
+                $row['my_status'] = $mine?->status;
+                $row['check_in_time'] = $mine?->check_in_time?->toIso8601String();
+                $row['check_out_time'] = $mine?->check_out_time?->toIso8601String();
+                $row['time_spent_seconds'] = $mine?->time_spent_seconds;
+                $row['can_check_out'] = $session->isCheckInCheckoutMode()
+                    && $session->checkout_enabled
+                    && $mine !== null
+                    && $mine->check_out_time === null;
                 $list[] = $row;
             } catch (\Throwable $e) {
                 Log::error('Flutter session row failed', [

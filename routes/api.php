@@ -80,6 +80,7 @@ Route::get('/sessions/current-qr/{session}', [SessionController::class, 'current
 Route::get('/settings', [SettingsController::class, 'index']);
 Route::post('/notifications/pending', [NotificationsController::class, 'pending']);
 Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
+Route::post('/attendance/checkout', [AttendanceController::class, 'checkout']);
 Route::get('/attendance/sync', [AttendanceController::class, 'sync']);
 Route::post('/attendance/sync', [AttendanceController::class, 'syncPush']);
 Route::get('/attendance/missed-warnings', [AttendanceController::class, 'missedWarnings']);

@@ -23,6 +23,7 @@ use Illuminate\Validation\Rule;
 
 class AttendanceController extends Controller
 {
+    private const LATE_MINUTES_THRESHOLD = 20;
     /**
      * POST /api/attendance — record attendance (server-side geofence, duplicate check, etc.).
      *
@@ -211,6 +212,46 @@ class AttendanceController extends Controller
             ->where('attendance_session_id', $session->id)
             ->first();
 
+        if ($session->isCheckInCheckoutMode()) {
+            if ($existing) {
+                return response()->json([
+                    'message' => $existing->check_out_time
+                        ? 'Attendance already completed'
+                        : 'Already checked in. Wait for checkout to open.',
+                    'checkout_enabled' => (bool) $session->checkout_enabled,
+                ], 200);
+            }
+
+            $checkInAt = $attendanceTime;
+            $lateBoundary = ($session->start_time ?? $session->created_at ?? now())
+                ->copy()
+                ->addMinutes(self::LATE_MINUTES_THRESHOLD);
+            $status = $checkInAt->greaterThan($lateBoundary) ? 'late' : 'present';
+
+            Attendance::create([
+                'student_id' => $student->id,
+                'course_id' => $course->id,
+                'attendance_session_id' => $session->id,
+                'attendance_week_id' => $session->attendance_week_id,
+                'attendance_time' => $checkInAt,
+                'check_in_time' => $checkInAt,
+                'status' => $status,
+                'synced' => true,
+                'lat' => $latitude,
+                'lng' => $longitude,
+                'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
+                'device_ip' => $deviceIp,
+                'device_id' => $deviceId,
+            ]);
+
+            return response()->json([
+                'message' => 'Check-in recorded successfully',
+                'status' => 'success',
+                'attendance_status' => $status,
+                'checkout_enabled' => (bool) $session->checkout_enabled,
+            ]);
+        }
+
         if ($existing) {
             $existingDeviceId = $existing->device_id;
             if ($existingDeviceId !== null && $deviceId !== null && $existingDeviceId !== $deviceId) {
@@ -244,6 +285,113 @@ class AttendanceController extends Controller
         return response()->json([
             'message' => 'Attendance recorded successfully',
             'status' => 'success',
+        ]);
+    }
+
+    /**
+     * POST /api/attendance/checkout — finalize a check-in/check-out attendance session.
+     */
+    public function checkout(Request $request): JsonResponse
+    {
+        $payload = $this->normalizeAttendanceRequestPayload($request->all());
+        $validated = Validator::make($payload, [
+            'index_number' => 'required|string',
+            'course_id' => ['nullable', 'integer', Rule::exists('courses', 'id')],
+            'session_id' => 'nullable',
+            'qr_code' => 'nullable|string',
+            'session_code' => 'nullable|string|max:48',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
+        ])->validate();
+
+        $indexUpper = strtoupper(trim($validated['index_number']));
+        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
+        if (! $student) {
+            return response()->json(['message' => 'Student not found'], 404);
+        }
+
+        $course = !empty($validated['course_id']) ? Course::find($validated['course_id']) : null;
+        $sessionToken = isset($validated['qr_code']) && (string) $validated['qr_code'] !== ''
+            ? trim((string) $validated['qr_code'])
+            : null;
+        $session = $this->resolveSession($validated, $course, $sessionToken, $student);
+        if (! $session) {
+            return response()->json(['message' => 'Session not found'], 404);
+        }
+        if (! $session->isCheckInCheckoutMode()) {
+            return response()->json(['message' => 'Checkout is available only in check-in/check-out mode'], 422);
+        }
+        if (! $session->checkout_enabled) {
+            return response()->json(['message' => 'Checkout is not enabled yet'], 422);
+        }
+
+        $course = $session->course ?? Course::find($session->course_id);
+        if (! $course) {
+            return response()->json(['message' => 'Course not found'], 404);
+        }
+
+        $lat = isset($validated['lat']) ? (float) $validated['lat'] : null;
+        $lng = isset($validated['lng']) ? (float) $validated['lng'] : null;
+        $outsideRadius = $this->isOutsideSessionRadius($session, $course, $lat, $lng);
+
+        $row = Attendance::query()
+            ->where('student_id', $student->id)
+            ->where('attendance_session_id', $session->id)
+            ->first();
+
+        $now = now();
+        if (! $row) {
+            $row = Attendance::create([
+                'student_id' => $student->id,
+                'course_id' => $course->id,
+                'attendance_session_id' => $session->id,
+                'attendance_week_id' => $session->attendance_week_id,
+                'attendance_time' => $now,
+                'check_out_time' => $now,
+                'status' => 'absent',
+                'synced' => true,
+                'lat' => $lat,
+                'lng' => $lng,
+                'device_ip' => $request->input('device_ip'),
+                'device_id' => $request->input('device_id'),
+            ]);
+            return response()->json([
+                'message' => 'Checkout recorded. No check-in found; marked absent.',
+                'status' => 'success',
+                'attendance_status' => $row->status,
+            ]);
+        }
+
+        if ($row->check_out_time !== null) {
+            return response()->json([
+                'message' => 'Already checked out',
+                'status' => 'success',
+                'attendance_status' => $row->status,
+            ], 200);
+        }
+
+        $finalStatus = $outsideRadius ? 'absent' : ($row->status ?: 'present');
+        $timeSpent = null;
+        if ($row->check_in_time !== null && ! $outsideRadius) {
+            $timeSpent = max(0, $now->diffInSeconds($row->check_in_time));
+        }
+        if ($row->check_in_time !== null && $outsideRadius) {
+            $timeSpent = max(0, $now->diffInSeconds($row->check_in_time));
+        }
+
+        $row->update([
+            'check_out_time' => $now,
+            'status' => $finalStatus,
+            'time_spent_seconds' => $timeSpent,
+            'lat' => $lat ?? $row->lat,
+            'lng' => $lng ?? $row->lng,
+        ]);
+
+        return response()->json([
+            'message' => 'Checkout recorded successfully',
+            'status' => 'success',
+            'attendance_status' => $finalStatus,
+            'time_spent_seconds' => $timeSpent,
         ]);
     }
 
@@ -479,6 +627,28 @@ class AttendanceController extends Controller
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
         return $R * $c;
+    }
+
+    private function isOutsideSessionRadius(
+        AttendanceSession $session,
+        Course $course,
+        ?float $lat,
+        ?float $lng
+    ): bool {
+        if (! $session->requiresLocation() || ! $session->hasLocation()) {
+            return false;
+        }
+        if ($lat === null || $lng === null) {
+            return true;
+        }
+        $distanceMeters = $this->haversineDistanceMeters(
+            (float) $session->location_lat,
+            (float) $session->location_lng,
+            $lat,
+            $lng
+        );
+        $allowedMeters = $session->allowedGeofenceRadiusMeters($course);
+        return $distanceMeters > $allowedMeters;
     }
 
     private function resolveSession(array $validated, ?Course $course, ?string $sessionToken, Student $student): ?AttendanceSession

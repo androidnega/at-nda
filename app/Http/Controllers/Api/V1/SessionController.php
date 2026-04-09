@@ -75,6 +75,12 @@ class SessionController extends Controller
     {
         try {
             AttendanceSession::deactivateExpiredSessions();
+            AttendanceSession::query()
+                ->where('attendance_mode', 'checkin_checkout')
+                ->where('checkout_enabled', false)
+                ->whereNotNull('expected_end_time')
+                ->where('expected_end_time', '<=', now())
+                ->update(['checkout_enabled' => true]);
 
             $now = Carbon::now();
 

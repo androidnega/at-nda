@@ -10,6 +10,7 @@ use App\Models\AttendanceSession;
 use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Student;
+use App\Models\SystemSetting;
 use App\Services\ActiveSessionListBuilder;
 use App\Services\AttendanceInsightsService;
 use App\Services\ClassSessionScopeService;
@@ -272,9 +273,27 @@ class ClassRepApiService
 
     public function openSession(Request $request, Student $student): JsonResponse
     {
+        $system = SystemSetting::get();
+        $globalAttendanceMode = SystemSetting::hasAttendanceModeColumns()
+            ? (string) ($system->attendance_mode ?: SystemSetting::ATTENDANCE_MODE_INSTANT)
+            : SystemSetting::ATTENDANCE_MODE_INSTANT;
+        $forcedMode = null;
+        if ($globalAttendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+            $forcedMode = 'location';
+        } else {
+            $instantType = SystemSetting::hasAttendanceModeColumns()
+                ? (string) ($system->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
+                : SystemSetting::INSTANT_MODE_LOCATION_QR;
+            $forcedMode = match ($instantType) {
+                SystemSetting::INSTANT_MODE_LOCATION => 'location',
+                SystemSetting::INSTANT_MODE_WIFI => 'wifi',
+                default => 'hybrid',
+            };
+        }
+
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
-            'mode' => 'required|in:location,qr,hybrid,wifi',
+            'mode' => 'nullable|in:location,qr,hybrid,wifi',
             'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
             // Optional override: rep can choose a week number; otherwise use the course's default "next_week_number".
@@ -284,6 +303,7 @@ class ClassRepApiService
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
         ]);
+        $validated['mode'] = $forcedMode;
 
         $course = Course::findOrFail($validated['course_id']);
         $classIds = $student->repManagedClassIds();
@@ -333,7 +353,11 @@ class ClassRepApiService
         }
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expiresAt = $course->computeSessionExpiresAt($duration);
+        $expectedEnd = $course->computeSessionExpiresAt($duration);
+        $expiresAt = $expectedEnd->copy();
+        if ($globalAttendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+            $expiresAt = $expiresAt->copy()->addHours(3);
+        }
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
@@ -358,13 +382,16 @@ class ClassRepApiService
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
             'mode' => $validated['mode'],
+            'attendance_mode' => $globalAttendanceMode,
             'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
             'is_active' => true,
+            'checkout_enabled' => false,
             'session_token' => Str::random(32),
             'lecturer_id' => $course->lecturer_id,
             'venue_id' => $course->venue_id,
             'start_time' => now(),
             'end_time' => $expiresAt,
+            'expected_end_time' => $expectedEnd,
             'expires_at' => $expiresAt,
             'lecturer_status' => $validated['lecturer_status'],
             'location_lat' => $needsAnchor ? $lat : null,
@@ -410,7 +437,11 @@ class ClassRepApiService
             return response()->json(['message' => 'Only main reps can close sessions'], 403);
         }
 
-        $session->update(['is_active' => false]);
+        if ($session->isCheckInCheckoutMode()) {
+            $session->update(['checkout_enabled' => true]);
+        } else {
+            $session->update(['is_active' => false]);
+        }
         $session->refresh();
         $session->load('course');
         $presentCount = Attendance::where('attendance_session_id', $session->id)
@@ -420,7 +451,9 @@ class ClassRepApiService
 
         return response()->json([
             'success' => true,
-            'message' => 'Session closed.',
+            'message' => $session->isCheckInCheckoutMode()
+                ? 'Class ended. Checkout is now enabled.'
+                : 'Session closed.',
         ]);
     }
 
