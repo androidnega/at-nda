@@ -17,10 +17,13 @@ import '../services/offline_service.dart';
 import '../services/session_cache_prefs.dart';
 import '../services/student_profile_refresh.dart';
 import '../services/sync_service.dart';
+import '../services/location_service.dart';
 import '../utils/absence_warning_format.dart';
 import '../utils/connectivity_util.dart';
 import '../utils/app_selectable_scope.dart';
+import '../utils/app_state.dart';
 import '../utils/constants.dart';
+import '../utils/session_attendance_payload.dart';
 import '../theme/flat_dashboard.dart';
 import '../theme/student_soft_ui.dart';
 import '../widgets/student_noir_task_dashboard.dart';
@@ -153,7 +156,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Prefer `end_time` / `ends_at` (ISO8601). Fallback: now + `remaining_minutes`.
   DateTime? _parseSessionEndTime(Map<String, dynamic> session) {
-    final raw = session['end_time'] ?? session['ends_at'];
+    final isCheckInCheckout =
+        (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
+        ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+    final raw = isCheckInCheckout
+        ? (session['expected_end_time'] ?? session['end_time'] ?? session['ends_at'])
+        : (session['end_time'] ?? session['ends_at']);
     if (raw != null) {
       try {
         return DateTime.parse(raw.toString());
@@ -210,10 +218,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   bool _isSessionMarked(Map<String, dynamic> session) {
+    final isCheckInCheckout =
+        (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
+        ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+    if (isCheckInCheckout) {
+      final out = session['check_out_time']?.toString() ?? '';
+      if (out.trim().isNotEmpty) return true;
+      return false;
+    }
     if (session['already_marked'] == true) return true;
     final id = _parseSessionId(session);
     if (id == null) return false;
     return _markedSessionIdsToday.contains(id);
+  }
+
+  bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
+    return (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
+        ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+  }
+
+  bool _hasCheckedIn(Map<String, dynamic> session) {
+    final t = session['check_in_time']?.toString() ?? '';
+    return t.trim().isNotEmpty;
+  }
+
+  bool _hasCheckedOut(Map<String, dynamic> session) {
+    final t = session['check_out_time']?.toString() ?? '';
+    return t.trim().isNotEmpty;
+  }
+
+  bool _isCheckoutEnabled(Map<String, dynamic> session) {
+    return session['checkout_enabled'] == true || session['can_check_out'] == true;
   }
 
   String _timeLeftLabel(Map<String, dynamic> session) {
@@ -863,6 +898,76 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _handleDashboardAttendanceAction(Map<String, dynamic> session) async {
+    if (!_isCheckInCheckoutSession(session)) {
+      _openAttendancePage(session);
+      return;
+    }
+    final s = _student;
+    if (s == null) return;
+    final inDone = _hasCheckedIn(session);
+    final outDone = _hasCheckedOut(session);
+    if (outDone) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You already checked out for this session.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    try {
+      final pos = await LocationService.getCurrentLocation();
+      final payload = buildAttendancePostBody(
+        indexNumber: AppState.studentIndex ?? s.indexNumber,
+        sessionId: parseSessionId(Map<String, dynamic>.from(session)),
+        courseId: parseOptionalCourseId(Map<String, dynamic>.from(session)),
+        weekId: parseOptionalWeekId(Map<String, dynamic>.from(session)),
+        lat: pos.latitude,
+        lng: pos.longitude,
+        includeLocation: true,
+        timestamp: DateTime.now().toIso8601String(),
+      );
+      final endpoint = inDone ? 'attendance/checkout' : 'attendance';
+      if (inDone && !_isCheckoutEnabled(session)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Checkout is not enabled yet.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      final res = await ApiService.post(endpoint, payload);
+      if (!mounted) return;
+      if (ApiService.isSuccessfulHttp(res.statusCode)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(inDone ? 'Checkout recorded.' : 'Check-in recorded.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        await _load(silent: true);
+      } else {
+        final msg = ApiService.messageFromHttpResponse(res);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg.isEmpty ? 'Could not submit attendance.' : msg),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Location/attendance error: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Widget _buildClassRepEntryCard(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
@@ -926,9 +1031,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final hero = _heroDashboardCopy();
     final um = _unmarkedSessions;
+    final primaryActionLabel = (!s.isClassRep && um.isNotEmpty && _isCheckInCheckoutSession(um.first))
+        ? (_hasCheckedIn(um.first) ? 'Check-out' : 'Check-in')
+        : 'Mark attendance';
     final showMark = !s.isClassRep &&
         um.isNotEmpty &&
-        !_sessionEndedFor(um.first);
+        (!_sessionEndedFor(um.first) || _isCheckInCheckoutSession(um.first));
     final focusClock = _dashboardFocusClockRow();
 
     final extraSessions =
@@ -964,7 +1072,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 heroTitle: hero['title']!,
                 heroSubtitle: hero['subtitle']!,
                 showMarkButton: showMark,
-                onMarkAttendance: () => _openAttendancePage(um.first),
+                onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
                 lastCheckInLine: _lastCheckInLine,
                 dayProgress: _workingDayProgressFraction(),
                 onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1025,7 +1133,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     heroTitle: hero['title']!,
                     heroSubtitle: hero['subtitle']!,
                     showMarkButton: showMark,
-                    onMarkAttendance: () => _openAttendancePage(um.first),
+                    onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
                     onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1087,7 +1195,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         heroTitle: hero['title']!,
                         heroSubtitle: hero['subtitle']!,
                         showMarkButton: showMark,
-                        onMarkAttendance: () => _openAttendancePage(um.first),
+                        onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
                         lastCheckInLine: _lastCheckInLine,
                         dayProgress: _workingDayProgressFraction(),
                         onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1146,7 +1254,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 heroTitle: hero['title']!,
                 heroSubtitle: hero['subtitle']!,
                 showMarkButton: showMark,
-                onMarkAttendance: () => _openAttendancePage(um.first),
+                onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                primaryActionLabel: primaryActionLabel,
                 lastCheckInLine: _lastCheckInLine,
                 dayProgress: _workingDayProgressFraction(),
                 onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),

@@ -81,6 +81,7 @@ class StudentTodayDashboard extends StatelessWidget {
     required this.heroSubtitle,
     required this.showMarkButton,
     required this.onMarkAttendance,
+    this.primaryActionLabel = 'Mark attendance',
     required this.lastCheckInLine,
     required this.dayProgress, // 0–1 through "working day" window
     required this.onOpenDrawer,
@@ -110,6 +111,7 @@ class StudentTodayDashboard extends StatelessWidget {
   final String heroSubtitle;
   final bool showMarkButton;
   final VoidCallback onMarkAttendance;
+  final String primaryActionLabel;
   final String lastCheckInLine;
   final double dayProgress;
   final VoidCallback onOpenDrawer;
@@ -267,6 +269,7 @@ class StudentTodayDashboard extends StatelessWidget {
                     heroSubtitle: heroSubtitle,
                     showMarkButton: showMarkButton,
                     onMarkAttendance: onMarkAttendance,
+                    primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: lastCheckInLine,
                     dayProgress: dayProgress,
                     onOpenFullTimetable: onOpenFullTimetable,
@@ -352,6 +355,7 @@ class _SummaryOverlapCard extends StatelessWidget {
     required this.heroSubtitle,
     required this.showMarkButton,
     required this.onMarkAttendance,
+    required this.primaryActionLabel,
     required this.lastCheckInLine,
     required this.dayProgress,
     required this.onOpenFullTimetable,
@@ -366,6 +370,7 @@ class _SummaryOverlapCard extends StatelessWidget {
   final String heroSubtitle;
   final bool showMarkButton;
   final VoidCallback onMarkAttendance;
+  final String primaryActionLabel;
   final String lastCheckInLine;
   final double dayProgress;
   final VoidCallback onOpenFullTimetable;
@@ -506,9 +511,9 @@ class _SummaryOverlapCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(18),
                       ),
                     ),
-                    label: const Text(
-                      'Mark attendance',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                    label: Text(
+                      primaryActionLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                   ),
                   const Positioned(
