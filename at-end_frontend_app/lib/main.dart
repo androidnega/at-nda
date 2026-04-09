@@ -12,11 +12,14 @@ import 'pages/lecturer_dashboard_page.dart';
 import 'pages/login_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/class_rep_students_page.dart';
+import 'pages/rep_flagged_students_page.dart';
 import 'pages/rep_home_page.dart';
+import 'pages/rep_insights_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/timetable_page.dart';
 import 'services/communication_log_sync.dart';
+import 'services/institution_theme_service.dart';
 import 'services/notification_bridge.dart';
 import 'services/notification_prefs.dart';
 import 'services/theme_service.dart';
@@ -26,6 +29,7 @@ import 'utils/app_selectable_scope.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeService.load();
+  await InstitutionThemeService.loadCached();
   await NotificationPrefs.load();
   await NotificationBridge.initialize();
   runApp(
@@ -77,49 +81,58 @@ class AttendanceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeService.modeNotifier,
-      builder: (context, mode, _) {
-        final app = MaterialApp(
-          title: 'at-enda',
-          scaffoldMessengerKey: NotificationBridge.messengerKey,
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light(),
-          darkTheme: AppTheme.dark(),
-          themeMode: mode,
-          initialRoute: '/',
-          routes: {
-            '/': (_) => appSelectableScope(const LaunchGatePage()),
-            '/login': (_) => appSelectableScope(const LoginPage()),
-            '/home': (_) => appSelectableScope(const HomePage()),
-            '/rep-home': (_) => appSelectableScope(const RepHomePage()),
-            '/lecturer-home': (_) => appSelectableScope(const LecturerDashboardPage()),
-            '/class-rep/students': (_) =>
-                appSelectableScope(const ClassRepStudentsPage()),
-            '/attendance': (_) => appSelectableScope(const AttendancePage()),
-            '/attendance-records': (context) {
-              final args = ModalRoute.of(context)?.settings.arguments;
-              int? sessionId;
-              if (args is int) {
-                sessionId = args;
-              } else if (args is num) {
-                sessionId = args.toInt();
-              }
-              return appSelectableScope(
-                AttendanceRecordsPage(initialSessionId: sessionId),
-              );
-            },
-            '/profile': (_) => appSelectableScope(const ProfilePage()),
-            '/settings': (_) => appSelectableScope(const SettingsPage()),
-            '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
-            '/timetable': (_) => appSelectableScope(const TimetablePage()),
+    return ValueListenableBuilder<String>(
+      valueListenable: InstitutionThemeService.seedNotifier,
+      builder: (context, seed, __) {
+        return ValueListenableBuilder<ThemeMode>(
+          valueListenable: ThemeService.modeNotifier,
+          builder: (context, mode, _) {
+            final app = MaterialApp(
+              title: 'at-enda',
+              scaffoldMessengerKey: NotificationBridge.messengerKey,
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.lightForSeed(seed),
+              darkTheme: AppTheme.darkForSeed(seed),
+              themeMode: mode,
+              initialRoute: '/',
+              routes: {
+                '/': (_) => appSelectableScope(const LaunchGatePage()),
+                '/login': (_) => appSelectableScope(const LoginPage()),
+                '/home': (_) => appSelectableScope(const HomePage()),
+                '/rep-home': (_) => appSelectableScope(const RepHomePage()),
+                '/lecturer-home': (_) => appSelectableScope(const LecturerDashboardPage()),
+                '/class-rep/students': (_) =>
+                    appSelectableScope(const ClassRepStudentsPage()),
+                '/class-rep/flagged': (_) =>
+                    appSelectableScope(const RepFlaggedStudentsPage()),
+                '/class-rep/insights': (_) =>
+                    appSelectableScope(const RepInsightsPage()),
+                '/attendance': (_) => appSelectableScope(const AttendancePage()),
+                '/attendance-records': (context) {
+                  final args = ModalRoute.of(context)?.settings.arguments;
+                  int? sessionId;
+                  if (args is int) {
+                    sessionId = args;
+                  } else if (args is num) {
+                    sessionId = args.toInt();
+                  }
+                  return appSelectableScope(
+                    AttendanceRecordsPage(initialSessionId: sessionId),
+                  );
+                },
+                '/profile': (_) => appSelectableScope(const ProfilePage()),
+                '/settings': (_) => appSelectableScope(const SettingsPage()),
+                '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
+                '/timetable': (_) => appSelectableScope(const TimetablePage()),
+              },
+            );
+            if (kIsWeb) return app;
+            final isMobile = defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS;
+            if (!isMobile) return app;
+            return SelectionContainer.disabled(child: app);
           },
         );
-        if (kIsWeb) return app;
-        final isMobile = defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS;
-        if (!isMobile) return app;
-        return SelectionContainer.disabled(child: app);
       },
     );
   }

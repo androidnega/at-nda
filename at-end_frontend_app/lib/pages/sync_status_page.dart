@@ -6,6 +6,7 @@ import '../models/attendance_record.dart';
 import '../services/api_service.dart';
 import '../services/device_service.dart';
 import '../services/offline_service.dart';
+import '../theme/soft_ui.dart';
 import '../widgets/custom_button.dart';
 
 /// Shows pending offline attendance and sync progress.
@@ -89,7 +90,11 @@ class _SyncStatusPageState extends State<SyncStatusPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync status')),
+      backgroundColor: SoftUi.scaffoldBackground(context),
+      appBar: AppBar(
+        backgroundColor: SoftUi.scaffoldBackground(context),
+        title: const Text('Sync status'),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),

@@ -152,6 +152,8 @@ class DynamicWidgetRenderer {
         '/attendance',
         '/attendance-records',
         '/class-rep/students',
+        '/class-rep/flagged',
+        '/class-rep/insights',
         '/lecturer-home',
         '/login',
       };

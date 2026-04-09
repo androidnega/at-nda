@@ -101,7 +101,7 @@ class AppTheme {
 
   /// Light theme for dashboard / system light mode.
   static ThemeData light() {
-    const bg = Color(0xFFF8FAFC);
+    const bg = Colors.white;
     const surface = Color(0xFFFFFFFF);
     const surfaceVariant = Color(0xFFF1F5F9);
     const accent = Color(0xFF0D9488);
@@ -193,6 +193,68 @@ class AppTheme {
         bodyColor: Color(0xFF0F172A),
         displayColor: Color(0xFF0F172A),
       ),
+    );
+  }
+
+  static Color seedColorFor(String seed) {
+    switch (seed) {
+      case 'blue':
+        return const Color(0xFF2563EB);
+      case 'indigo':
+        return const Color(0xFF4F46E5);
+      case 'emerald':
+        return const Color(0xFF059669);
+      case 'rose':
+        return const Color(0xFFE11D48);
+      case 'amber':
+        return const Color(0xFFD97706);
+      case 'teal':
+      default:
+        return const Color(0xFF0D9488);
+    }
+  }
+
+  static ThemeData lightForSeed(String seed) {
+    final c = seedColorFor(seed);
+    final scheme = ColorScheme.fromSeed(
+      seedColor: c,
+      brightness: Brightness.light,
+    );
+    return light().copyWith(
+      colorScheme: scheme,
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+      appBarTheme: light().appBarTheme.copyWith(
+            foregroundColor: scheme.onSurface,
+          ),
+    );
+  }
+
+  static ThemeData darkForSeed(String seed) {
+    final c = seedColorFor(seed);
+    final scheme = ColorScheme.fromSeed(
+      seedColor: c,
+      brightness: Brightness.dark,
+    );
+    return dark().copyWith(
+      colorScheme: scheme,
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+      appBarTheme: dark().appBarTheme.copyWith(
+            foregroundColor: scheme.onSurface,
+          ),
     );
   }
 

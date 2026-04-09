@@ -24,6 +24,7 @@ class ProfileAvatar extends StatefulWidget {
 class _ProfileAvatarState extends State<ProfileAvatar> {
   ImageProvider? _provider;
   bool _loading = true;
+  bool _networkLoading = true;
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
     setState(() {
       _provider = p;
       _loading = false;
+      _networkLoading = true;
     });
   }
 
@@ -82,31 +84,44 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
     final fallbackUrl = _networkFallbackUrl();
     if (fallbackUrl != null) {
       return ClipOval(
-        child: Image.network(
-          fallbackUrl,
-          headers: ApiService.profileImageGetHeaders(),
-          width: d,
-          height: d,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => CircleAvatar(
-            radius: r,
-            child: Icon(Icons.person, size: r * 1.25),
-          ),
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return SizedBox(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
               width: d,
               height: d,
-              child: Center(
-                child: SizedBox(
-                  width: r,
-                  height: r,
-                  child: const CircularProgressIndicator(strokeWidth: 2),
-                ),
+              child: CircleAvatar(
+                radius: r,
+                child: Icon(Icons.person, size: r * 1.25),
               ),
-            );
-          },
+            ),
+            Image.network(
+              fallbackUrl,
+              headers: ApiService.profileImageGetHeaders(),
+              width: d,
+              height: d,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                if (wasSynchronouslyLoaded || frame != null) {
+                  if (_networkLoading) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _networkLoading = false);
+                    });
+                  }
+                  return child;
+                }
+                return const SizedBox.shrink();
+              },
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+            if (_networkLoading)
+              SizedBox(
+                width: r,
+                height: r,
+                child: const CircularProgressIndicator(strokeWidth: 2),
+              ),
+          ],
         ),
       );
     }

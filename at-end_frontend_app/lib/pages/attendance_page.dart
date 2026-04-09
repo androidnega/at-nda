@@ -18,9 +18,12 @@ import '../services/success_chime.dart';
 import '../services/sync_service.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/app_state.dart';
+import '../utils/connectivity_util.dart';
 import '../utils/attendance_flow_mode.dart';
 import '../utils/constants.dart';
 import '../utils/session_attendance_payload.dart';
+import '../widgets/attendance_soft_location_panel.dart';
+import 'attendance_history_page.dart';
 import 'qr_scan_page.dart';
 
 /// Step 1: range check → Step 2 (if QR required): scan → submit.
@@ -55,6 +58,7 @@ class _AttendancePageState extends State<AttendancePage> {
   bool _checkingRange = false;
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _isCheckingOut = false;
   String? _error;
   bool _showSuccessOverlay = false;
   String _successSubtitle = 'You have successfully marked attendance';
@@ -66,11 +70,96 @@ class _AttendancePageState extends State<AttendancePage> {
   bool _sessionEnded = false;
   Timer? _countTimer;
 
+  /// Soft location UI: 0 = today check-in, 1 = recent list.
+  int _softLocationTab = 0;
+
   AttendanceFlowMode get _mode => resolveAttendanceFlowMode(_session);
+  bool get _isCheckInCheckoutMode =>
+      (_session?['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
+      ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+  bool get _isCheckedIn => (_session?['check_in_time']?.toString().isNotEmpty ?? false);
+  bool get _isCheckedOut => (_session?['check_out_time']?.toString().isNotEmpty ?? false);
+  bool get _canCheckOut => _isCheckInCheckoutMode &&
+      (_session?['checkout_enabled'] == true || _session?['can_check_out'] == true) &&
+      _isCheckedIn &&
+      !_isCheckedOut;
 
   double get _allowedRangeMeters {
     final r = (_session?['range_meters'] as num?)?.toDouble();
     return r ?? Constants.defaultRangeMeters;
+  }
+
+  /// Time shown on the soft location card (session start or “now”).
+  DateTime _sessionReferenceDateTime() {
+    final s = _session;
+    if (s == null) return DateTime.now();
+    for (final k in [
+      'start_time',
+      'starts_at',
+      'scheduled_at',
+      'opened_at',
+      'created_at',
+    ]) {
+      final v = s[k];
+      if (v == null) continue;
+      final str = v.toString();
+      if (str.contains(':') &&
+          !str.contains('T') &&
+          str.length <= 12) {
+        try {
+          final parts = str.split(':');
+          final h = int.parse(parts[0].trim());
+          final m = int.parse(
+            parts[1].replaceAll(RegExp(r'[^0-9]'), ''),
+          );
+          final n = DateTime.now();
+          return DateTime(n.year, n.month, n.day, h, m);
+        } catch (_) {}
+      }
+      try {
+        return DateTime.parse(str);
+      } catch (_) {}
+    }
+    return DateTime.now();
+  }
+
+  String _formatSoftCardDate(DateTime d) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${d.day} ${months[d.month - 1]}, ${d.year}';
+  }
+
+  String _softVenueLine() {
+    final v = (_session?['venue']?.toString() ?? '').trim();
+    if (v.isNotEmpty) return v;
+    final venue = _sessionVenueLatLng();
+    if (venue != null) {
+      return 'Class location · ${venue.lat.toStringAsFixed(4)}, ${venue.lng.toStringAsFixed(4)}';
+    }
+    return 'Venue will appear here when the session includes an address.';
+  }
+
+  String? _softCourseLine() {
+    final s = _session;
+    if (s == null) return null;
+    final code = (s['course_code']?.toString() ?? '').trim();
+    final name = (s['course_name'] ?? s['course_title'] ?? '').toString().trim();
+    if (code.isNotEmpty && name.isNotEmpty) return '$code · $name';
+    if (name.isNotEmpty) return name;
+    if (code.isNotEmpty) return code;
+    return null;
   }
 
   /// Venue point from session (supports `lat`/`lng` or `latitude`/`longitude`, string or num).
@@ -172,7 +261,13 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _load() async {
+    try {
+      await ApiService.loadAppSettings();
+    } catch (_) {}
     await SessionCachePrefs.clear();
+    if (await hasInternetConnectivity()) {
+      await OfflineService.hasPasswordOrApiToken();
+    }
     setState(() {
       _isLoading = true;
       _error = null;
@@ -289,6 +384,9 @@ class _AttendancePageState extends State<AttendancePage> {
     final wantId = parseSessionId(Map<String, dynamic>.from(cur));
     if (wantId == null) return;
     try {
+      if (await hasInternetConnectivity()) {
+        await OfflineService.hasPasswordOrApiToken();
+      }
       final st = await OfflineService.getCurrentStudent();
       final list = await ApiService.getActiveSessions(
         indexNumber: st?.indexNumber,
@@ -406,6 +504,48 @@ class _AttendancePageState extends State<AttendancePage> {
     await Future.delayed(const Duration(milliseconds: 450));
     if (!mounted) return;
     await _submitAttendance();
+  }
+
+  Future<void> _submitCheckout() async {
+    if (_session == null || _student == null || _isCheckingOut) return;
+    setState(() {
+      _isCheckingOut = true;
+      _error = null;
+    });
+    try {
+      final venue = _sessionVenueLatLng();
+      if (venue == null) {
+        setState(() {
+          _isCheckingOut = false;
+          _error = 'Session venue is missing coordinates.';
+        });
+        return;
+      }
+      final position = await LocationService.getCurrentLocation();
+      final payload = buildAttendancePostBody(
+        indexNumber: AppState.studentIndex ?? _student!.indexNumber,
+        sessionId: parseSessionId(Map<String, dynamic>.from(_session!)),
+        courseId: parseOptionalCourseId(Map<String, dynamic>.from(_session!)),
+        weekId: parseOptionalWeekId(Map<String, dynamic>.from(_session!)),
+        lat: position.latitude,
+        lng: position.longitude,
+        includeLocation: true,
+        timestamp: DateTime.now().toIso8601String(),
+      );
+      final res = await ApiService.post('attendance/checkout', payload);
+      if (ApiService.isSuccessfulHttp(res.statusCode)) {
+        await _refreshSessionFromActiveList();
+        if (!mounted) return;
+        _showErrorSnackBar('Checkout recorded.');
+      } else {
+        final msg = ApiService.messageFromHttpResponse(res);
+        if (mounted) setState(() => _error = msg.isEmpty ? 'Checkout failed.' : msg);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Checkout error: $e');
+    } finally {
+      if (mounted) setState(() => _isCheckingOut = false);
+    }
   }
 
   Future<void> _proceedToQr() async {
@@ -736,20 +876,36 @@ class _AttendancePageState extends State<AttendancePage> {
           if (!mounted) return;
           final already = status == 'already_marked' ||
               body?['already_marked'] == true;
-          _presentSuccessAndPop(
-            subtitle: already
-                ? 'Your attendance was already recorded.'
-                : 'You have successfully marked attendance',
-          );
+          if (_isCheckInCheckoutMode) {
+            await _refreshSessionFromActiveList();
+            if (!mounted) return;
+            _showErrorSnackBar(
+              already
+                  ? 'Already checked in for this session.'
+                  : 'Check-in recorded. Wait for checkout to open.',
+            );
+          } else {
+            _presentSuccessAndPop(
+              subtitle: already
+                  ? 'Your attendance was already recorded.'
+                  : 'You have successfully marked attendance',
+            );
+          }
         } else if (res.statusCode == 409 && mounted) {
           await _persistAttendanceLog(ts);
           try {
             await SyncService.syncAttendance();
           } catch (_) {}
           if (!mounted) return;
-          _presentSuccessAndPop(
-            subtitle: 'Your attendance was already recorded.',
-          );
+          if (_isCheckInCheckoutMode) {
+            await _refreshSessionFromActiveList();
+            if (!mounted) return;
+            _showErrorSnackBar('Already checked in for this session.');
+          } else {
+            _presentSuccessAndPop(
+              subtitle: 'Your attendance was already recorded.',
+            );
+          }
         } else if (mounted) {
           String msg = 'Attendance failed';
           try {
@@ -769,9 +925,13 @@ class _AttendancePageState extends State<AttendancePage> {
         await OfflineService.insert(record, deviceIp: dip);
         await _persistAttendanceLog(ts);
         if (mounted) {
-          _presentSuccessAndPop(
-            subtitle: 'Saved offline. Will sync when online.',
-          );
+          if (_isCheckInCheckoutMode) {
+            _showErrorSnackBar('Saved offline. Will sync when online.');
+          } else {
+            _presentSuccessAndPop(
+              subtitle: 'Saved offline. Will sync when online.',
+            );
+          }
         }
       }
     } catch (e) {
@@ -1117,36 +1277,6 @@ class _AttendancePageState extends State<AttendancePage> {
     ];
   }
 
-  List<Widget> _buildLocationModeBody(BuildContext context) {
-    return [
-      Text(
-        'Location mode',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w700,
-            ),
-      ),
-      const SizedBox(height: 8),
-      Text(
-        "We'll verify you're within the allowed radius, then submit — no QR scan.",
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-      ),
-      const SizedBox(height: 16),
-      ..._buildRangeFeedbackWidgets(context),
-      const SizedBox(height: 20),
-      FilledButton(
-        onPressed: _student != null && !_checkingRange && !_isSubmitting
-            ? _runLocationOnlyMarkAndSubmit
-            : null,
-        child: Text(_checkingRange ? 'Checking…' : 'Mark attendance'),
-      ),
-    ];
-  }
-
   List<Widget> _buildHybridModeBody(BuildContext context) {
     return [
       Text(
@@ -1220,6 +1350,420 @@ class _AttendancePageState extends State<AttendancePage> {
     ];
   }
 
+  void _openSoftAttendanceHistory() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => appSelectableScope(const AttendanceHistoryPage()),
+      ),
+    );
+  }
+
+  Future<void> _refreshSoftLocation() async {
+    if (_session == null) return;
+    await _measureRangeAndUpdateState();
+    if (!mounted) return;
+    if (_rangeChecked && _withinRange) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You are within the class radius.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _showSoftSessionScheduleInfo() {
+    if (_session == null) return;
+    final end = _sessionEndTime ?? _parseSessionEndTime(_session!);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Session'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (end != null)
+              Text(
+                'Ends: ${end.toLocal()}',
+                style: const TextStyle(height: 1.35),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              _sessionEnded
+                  ? 'Session has ended.'
+                  : 'Time left: $_remainingText',
+              style: const TextStyle(height: 1.35),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSoftLocationStatusForCard(BuildContext context) {
+    if (_checkingRange) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.2,
+              color: AttendanceSoftPalette.orange,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Checking your location…',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF616161),
+                ),
+          ),
+        ],
+      );
+    }
+    if (!_rangeChecked) {
+      return Text(
+        'Tap Check in to confirm you are at the class location.',
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF757575),
+              height: 1.45,
+            ),
+      );
+    }
+    if (_distanceMeters != null) {
+      final ok = _withinRange;
+      return Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+            decoration: BoxDecoration(
+              color: ok
+                  ? AttendanceSoftPalette.green.withValues(alpha: 0.12)
+                  : const Color(0xFFC62828).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              ok
+                  ? 'Within range · ${_distanceMeters!.round()} m from class point'
+                  : 'Outside range · ${_distanceMeters!.round()} m away',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: ok ? const Color(0xFF1B5E20) : const Color(0xFFB71C1C),
+                  ),
+            ),
+          ),
+          if (_effectiveRangeMeters != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Allowed radius (with GPS margin): '
+              '${_effectiveRangeMeters!.toStringAsFixed(0)} m',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF9E9E9E),
+                  ),
+            ),
+          ],
+        ],
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildSoftLocationListTab(BuildContext context) {
+    final st = _student;
+    if (st == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Sign in to see your attendance list.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+        ),
+      );
+    }
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: OfflineService.getAllAttendanceLogsForIndex(st.indexNumber),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: AttendanceSoftPalette.orange),
+          );
+        }
+        final logs = snap.data ?? [];
+        if (logs.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Text(
+                'No saved marks yet. They will appear here after you check in.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF616161),
+                      height: 1.4,
+                    ),
+              ),
+            ),
+          );
+        }
+        final show = logs.length > 30 ? logs.sublist(0, 30) : logs;
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+          itemCount: show.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, i) {
+            final row = show[i];
+            final at = row['marked_at']?.toString() ?? '—';
+            final course = row['course_code']?.toString() ?? 'Course';
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.06),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline_rounded,
+                    color: AttendanceSoftPalette.green.withValues(alpha: 0.85),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          course,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          at,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF757575),
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _successOverlayLayer() {
+    if (!_showSuccessOverlay) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.4),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            margin: const EdgeInsets.symmetric(horizontal: 30),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 80),
+                const SizedBox(height: 15),
+                const Text(
+                  'Attendance Recorded',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111111),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _successSubtitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF212121),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSoftLocationModeScaffold(BuildContext context) {
+    final ref = _sessionReferenceDateTime();
+    final hasVenueCoords = _sessionVenueLatLng() != null;
+
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          AttendanceSoftLocationBackground(
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 2, 8, 0),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                          color: const Color(0xFF424242),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Attendance',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(width: 48),
+                      ],
+                    ),
+                  ),
+                  AttendancePillTabBar(
+                    selectedIndex: _softLocationTab,
+                    onSelect: (i) => setState(() => _softLocationTab = i),
+                  ),
+                  Expanded(
+                    child: _softLocationTab == 0
+                        ? SingleChildScrollView(
+                            padding: const EdgeInsets.only(top: 2, bottom: 28),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (!hasVenueCoords)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      0,
+                                      24,
+                                      12,
+                                    ),
+                                    child: Text(
+                                      'This session has no map coordinates yet. '
+                                      'Ask your lecturer to set a venue location.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Theme.of(context).colorScheme.error,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ),
+                                SoftLocationCheckInCard(
+                                  dateLabel: _formatSoftCardDate(ref),
+                                  countdownRemainingText: _remainingText,
+                                  venueLine: _softVenueLine(),
+                                  courseLine: _softCourseLine(),
+                                  statusWidget:
+                                      _buildSoftLocationStatusForCard(context),
+                                  onCheckIn: _isCheckInCheckoutMode
+                                      ? _runLocationOnlyMarkAndSubmit
+                                      : _runLocationOnlyMarkAndSubmit,
+                                  checkInEnabled: _student != null &&
+                                      (!_isCheckInCheckoutMode
+                                          ? (!_alreadyMarkedForSession && !_sessionEnded)
+                                          : (!_isCheckedIn && !_sessionEnded)) &&
+                                      hasVenueCoords,
+                                  checkInBusy:
+                                      _checkingRange || _isSubmitting,
+                                  checkInLabel: _isCheckInCheckoutMode
+                                      ? (_isCheckedIn ? 'Checked in' : 'Check-in')
+                                      : (_alreadyMarkedForSession
+                                          ? 'Done'
+                                          : (_sessionEnded
+                                              ? 'Ended'
+                                              : 'Check in')),
+                                  onCheckOut: _isCheckInCheckoutMode ? _submitCheckout : null,
+                                  checkOutEnabled: _student != null &&
+                                      _canCheckOut &&
+                                      hasVenueCoords,
+                                  checkOutBusy: _isCheckingOut,
+                                  checkOutLabel: _isCheckedOut ? 'Done' : 'Check-out',
+                                  onHistory: _openSoftAttendanceHistory,
+                                  onRefreshLocation: () =>
+                                      unawaited(_refreshSoftLocation()),
+                                  onScheduleInfo: _showSoftSessionScheduleInfo,
+                                ),
+                                if (_student == null)
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Text(
+                                      'No student profile loaded. Log in again.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error,
+                                      ),
+                                    ),
+                                  ),
+                                if (_error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      10,
+                                      24,
+                                      0,
+                                    ),
+                                    child: Text(
+                                      _error!,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          )
+                        : _buildSoftLocationListTab(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _successOverlayLayer(),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1239,6 +1783,10 @@ class _AttendancePageState extends State<AttendancePage> {
           ),
         ),
       );
+    }
+
+    if (_mode == AttendanceFlowMode.location) {
+      return _buildSoftLocationModeScaffold(context);
     }
 
     final hasEnd = _parseSessionEndTime(_session!) != null;
@@ -1309,7 +1857,6 @@ class _AttendancePageState extends State<AttendancePage> {
                 ),
                 const SizedBox(height: 24),
                 if (_mode == AttendanceFlowMode.qr) ..._buildQrModeBody(context),
-                if (_mode == AttendanceFlowMode.location) ..._buildLocationModeBody(context),
                 if (_mode == AttendanceFlowMode.hybrid) ..._buildHybridModeBody(context),
                 if (_student == null)
                   Padding(
@@ -1335,47 +1882,7 @@ class _AttendancePageState extends State<AttendancePage> {
               ],
             ),
           ),
-          if (_showSuccessOverlay)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.4),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(24),
-                    margin: const EdgeInsets.symmetric(horizontal: 30),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.check_circle, color: Colors.green, size: 80),
-                        const SizedBox(height: 15),
-                        const Text(
-                          'Attendance Recorded',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF111111),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _successSubtitle,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF212121),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          _successOverlayLayer(),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/attendance_record.dart';
+import '../theme/soft_ui.dart';
 import '../models/student.dart';
 import '../services/offline_service.dart';
 
@@ -147,7 +148,9 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: SoftUi.scaffoldBackground(context),
       appBar: AppBar(
+        backgroundColor: SoftUi.scaffoldBackground(context),
         title: const Text('Attendance'),
         bottom: TabBar(
           controller: _tabController,
@@ -201,7 +204,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _courseFilter,
+                    initialValue: _courseFilter,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       isDense: true,

@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use App\Support\SessionQrPng;
 use App\Models\SchoolClass;
 use App\Models\Student;
+use App\Models\SystemSetting;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use Illuminate\Http\JsonResponse;
@@ -135,7 +136,21 @@ class ClassRepController extends Controller
                 'canOpenSession' => $this->requireMainRep($student, $c->id),
             ]);
 
-        return view('classrep.dashboard', ['student' => $student, 'courses' => $courses, 'dashboardRole' => 'classrep']);
+        $settings = SystemSetting::get();
+        $attendanceMode = SystemSetting::hasAttendanceModeColumns()
+            ? (string) ($settings->attendance_mode ?: SystemSetting::ATTENDANCE_MODE_INSTANT)
+            : SystemSetting::ATTENDANCE_MODE_INSTANT;
+        $instantModeType = SystemSetting::hasAttendanceModeColumns()
+            ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
+            : SystemSetting::INSTANT_MODE_LOCATION_QR;
+
+        return view('classrep.dashboard', [
+            'student' => $student,
+            'courses' => $courses,
+            'dashboardRole' => 'classrep',
+            'attendanceMode' => $attendanceMode,
+            'instantModeType' => $instantModeType,
+        ]);
     }
 
     public function openSession(Request $request): RedirectResponse
@@ -143,9 +158,27 @@ class ClassRepController extends Controller
         $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
+        $settings = SystemSetting::get();
+        $attendanceMode = SystemSetting::hasAttendanceModeColumns()
+            ? (string) ($settings->attendance_mode ?: SystemSetting::ATTENDANCE_MODE_INSTANT)
+            : SystemSetting::ATTENDANCE_MODE_INSTANT;
+        $forcedMode = null;
+        if ($attendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+            $forcedMode = 'location';
+        } else {
+            $instantType = SystemSetting::hasAttendanceModeColumns()
+                ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
+                : SystemSetting::INSTANT_MODE_LOCATION_QR;
+            $forcedMode = match ($instantType) {
+                SystemSetting::INSTANT_MODE_LOCATION => 'location',
+                SystemSetting::INSTANT_MODE_WIFI => 'wifi',
+                default => 'hybrid',
+            };
+        }
+
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
-            'mode' => 'required|in:location,qr,hybrid,wifi',
+            'mode' => 'nullable|in:location,qr,hybrid,wifi',
             'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
             'location_lat' => 'nullable|numeric',
@@ -153,6 +186,7 @@ class ClassRepController extends Controller
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
         ]);
+        $validated['mode'] = $forcedMode;
 
         $course = Course::findOrFail($validated['course_id']);
         $classIds = $this->getRepClassIds($student);
@@ -174,7 +208,11 @@ class ClassRepController extends Controller
         $week = $course->createOrGetAttendanceWeekForToday();
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expiresAt = $course->computeSessionExpiresAt($duration);
+        $expectedEnd = $course->computeSessionExpiresAt($duration);
+        $expiresAt = $expectedEnd->copy();
+        if ($attendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
+            $expiresAt = $expiresAt->copy()->addHours(3);
+        }
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
@@ -197,13 +235,16 @@ class ClassRepController extends Controller
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
             'mode' => $validated['mode'],
+            'attendance_mode' => $attendanceMode,
             'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
             'is_active' => true,
+            'checkout_enabled' => false,
             'session_token' => Str::random(32),
             'lecturer_id' => $course->lecturer_id,
             'venue_id' => $course->venue_id,
             'start_time' => now(),
             'end_time' => $expiresAt,
+            'expected_end_time' => $expectedEnd,
             'expires_at' => $expiresAt,
             'lecturer_status' => $validated['lecturer_status'],
             'location_lat' => $needsAnchor ? $lat : null,
@@ -262,7 +303,11 @@ class ClassRepController extends Controller
         if (!$this->requireMainRep($student, $session->course_id)) {
             return back()->with('error', 'Only main reps can close sessions');
         }
-        $session->update(['is_active' => false]);
+        if ($session->isCheckInCheckoutMode()) {
+            $session->update(['checkout_enabled' => true]);
+        } else {
+            $session->update(['is_active' => false]);
+        }
         $session->refresh();
         $session->load('course');
         $presentCount = Attendance::where('attendance_session_id', $session->id)
@@ -270,7 +315,9 @@ class ClassRepController extends Controller
             ->count();
         event(new SessionLiveEvent($session, 'session_closed', ['present_count' => $presentCount]));
 
-        return back()->with('success', 'Session closed.');
+        return back()->with('success', $session->isCheckInCheckoutMode()
+            ? 'Class ended. Checkout is now enabled.'
+            : 'Session closed.');
     }
 
     public function qr(AttendanceSession $session, Request $request)

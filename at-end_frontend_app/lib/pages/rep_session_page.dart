@@ -9,8 +9,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../models/rep_course.dart';
 import '../services/api_service.dart';
 import '../services/session_qr_host_guard.dart';
+import '../services/notification_bridge.dart';
 import '../services/offline_service.dart';
 import '../theme/dashboard_surfaces.dart';
+import '../theme/soft_ui.dart';
 import '../utils/constants.dart';
 import '../widgets/modern_pull_to_refresh.dart';
 
@@ -191,7 +193,21 @@ class _RepSessionPageState extends State<RepSessionPage> {
     final pwd = await OfflineService.getApiSessionPassword();
     if (!mounted) return;
 
+    try {
+      await ApiService.loadAppSettings();
+    } catch (_) {}
     String mode = 'qr';
+    final isCheckInCheckout =
+        ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+    if (isCheckInCheckout) {
+      mode = 'location';
+    } else {
+      mode = switch (ApiService.instantModeType) {
+        ApiService.instantModeLocation => 'location',
+        ApiService.instantModeWifi => 'wifi',
+        _ => 'hybrid',
+      };
+    }
     String lecturerStatus = 'present';
     int durationMinutes = 60;
     String weekNumberText = '';
@@ -207,7 +223,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
         builder: (context, setLocal) {
           Future<void> captureGps() async {
             if (kIsWeb) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              NotificationBridge.showSnackBar(
                 const SnackBar(
                   content: Text('On web, enter coordinates manually if required.'),
                 ),
@@ -218,7 +234,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
               final enabled = await Geolocator.isLocationServiceEnabled();
               if (!enabled) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  NotificationBridge.showSnackBar(
                     const SnackBar(content: Text('Turn on location services.')),
                   );
                 }
@@ -231,7 +247,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
               if (perm == LocationPermission.denied ||
                   perm == LocationPermission.deniedForever) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  NotificationBridge.showSnackBar(
                     const SnackBar(content: Text('Location permission denied.')),
                   );
                 }
@@ -245,7 +261,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
                 lng = pos.longitude;
               });
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                NotificationBridge.showSnackBar(
                   SnackBar(
                     content: Text(
                       'GPS: ${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}',
@@ -255,7 +271,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
               }
             } catch (e) {
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                NotificationBridge.showSnackBar(
                   SnackBar(content: Text('GPS error: $e')),
                 );
               }
@@ -278,24 +294,28 @@ class _RepSessionPageState extends State<RepSessionPage> {
                   DropdownButtonFormField<String>(
                     key: ValueKey<String>('open-session-mode-$mode'),
                     initialValue: mode,
-                    items: const [
-                      DropdownMenuItem(value: 'qr', child: Text('QR only')),
+                    items: [
                       DropdownMenuItem(
-                        value: 'location',
-                        child: Text('Location only'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'hybrid',
-                        child: Text('Hybrid (GPS + QR)'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'wifi',
-                        child: Text('Wi‑Fi SSID'),
+                        value: mode,
+                        child: Text(
+                          mode == 'location'
+                              ? 'Location only'
+                              : (mode == 'wifi'
+                                  ? 'Wi‑Fi SSID'
+                                  : 'Hybrid (GPS + QR)'),
+                        ),
                       ),
                     ],
-                    onChanged: (v) {
-                      if (v != null) setLocal(() => mode = v);
-                    },
+                    onChanged: null,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    isCheckInCheckout
+                        ? 'Admin set Check-in/Check-out mode: this session is location-only.'
+                        : 'Mode is locked by admin Instant Mode setting.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   const Text('Lecturer'),
@@ -406,7 +426,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
 
     if (mode == 'wifi' && wifiCtrl.text.trim().isEmpty) {
       wifiCtrl.dispose();
-      ScaffoldMessenger.of(context).showSnackBar(
+      NotificationBridge.showSnackBar(
         const SnackBar(content: Text('Enter the Wi‑Fi network name (SSID).')),
       );
       return;
@@ -415,7 +435,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
     if ((mode == 'location' || mode == 'hybrid') &&
         (lat == null || lng == null)) {
       wifiCtrl.dispose();
-      ScaffoldMessenger.of(context).showSnackBar(
+      NotificationBridge.showSnackBar(
         const SnackBar(
           content: Text('Use GPS (or ensure the course has a default venue).'),
         ),
@@ -436,7 +456,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
       final parsed = int.tryParse(trimmedWeek);
       if (parsed == null) {
         wifiCtrl.dispose();
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           const SnackBar(content: Text('Invalid week number.')),
         );
         return;
@@ -484,13 +504,13 @@ class _RepSessionPageState extends State<RepSessionPage> {
         final msg = data is Map && data['message'] != null
             ? data['message'].toString()
             : ApiService.messageFromHttpResponse(res);
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           SnackBar(content: Text(msg.isEmpty ? 'Could not open session' : msg)),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }
@@ -632,12 +652,12 @@ class _RepSessionPageState extends State<RepSessionPage> {
             : 'Could not close (${res.statusCode})';
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        NotificationBridge.showSnackBar(SnackBar(content: Text(msg)));
         _refresh();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }
@@ -706,25 +726,25 @@ class _RepSessionPageState extends State<RepSessionPage> {
       if (res.statusCode >= 200 && res.statusCode < 300 && data is Map) {
         final success = data['success'] == true || data['data']?['success'] == true;
         if (success && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          NotificationBridge.showSnackBar(
             const SnackBar(content: Text('Session extended.')),
           );
           _refresh();
         } else if (mounted) {
           final msg = data['message']?.toString() ??
               ApiService.messageFromHttpResponse(res).toString();
-          ScaffoldMessenger.of(context).showSnackBar(
+          NotificationBridge.showSnackBar(
             SnackBar(content: Text(msg.isEmpty ? 'Could not extend session' : msg)),
           );
         }
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           SnackBar(content: Text(ApiService.messageFromHttpResponse(res))),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        NotificationBridge.showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }
@@ -734,7 +754,7 @@ class _RepSessionPageState extends State<RepSessionPage> {
   void _showQrForCourse(RepCourse course) {
     final t = course.qrToken;
     if (t == null || t.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      NotificationBridge.showSnackBar(
         const SnackBar(content: Text('No QR token for this session.')),
       );
       return;
@@ -906,7 +926,9 @@ class _RepSessionPageState extends State<RepSessionPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: SoftUi.scaffoldBackground(context),
       appBar: AppBar(
+        backgroundColor: SoftUi.scaffoldBackground(context),
         title: const Text('Session management'),
         actions: [
           IconButton(

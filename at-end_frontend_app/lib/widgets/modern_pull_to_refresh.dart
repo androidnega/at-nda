@@ -1,4 +1,5 @@
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -45,6 +46,16 @@ class ModernPullToRefresh extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return RefreshIndicator(
+        onRefresh: () async {
+          await onRefresh();
+          if (playChime) await SuccessChime.playRefreshComplete();
+        },
+        child: child,
+      );
+    }
+
     final cs = Theme.of(context).colorScheme;
 
     return CustomRefreshIndicator(

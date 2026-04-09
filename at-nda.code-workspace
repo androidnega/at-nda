@@ -1,0 +1,15 @@
+{
+  "folders": [
+    {
+      "name": "Flutter app",
+      "path": "at-end_frontend_app"
+    },
+    {
+      "name": "Laravel (repo root)",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "dart.runPubGetOnPubspecChanges": "always"
+  }
+}

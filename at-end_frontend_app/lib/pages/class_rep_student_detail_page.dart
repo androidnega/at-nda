@@ -120,8 +120,14 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
     final s = _student;
     final idx = (s?['index_number'] ?? p['index_number'])?.toString() ?? '';
     final name = (s?['name'] ?? p['name'])?.toString() ?? 'Student';
-    final pic = (s?['profile_image'] ?? p['profile_image'] ?? p['profile_picture'])
-        ?.toString();
+    final serverPic = s?['profile_image']?.toString().trim();
+    final previewPic = p['profile_image']?.toString().trim();
+    final previewProfilePicture = p['profile_picture']?.toString().trim();
+    final pic = (serverPic != null && serverPic.isNotEmpty)
+        ? serverPic
+        : ((previewPic != null && previewPic.isNotEmpty)
+              ? previewPic
+              : previewProfilePicture);
     final id = int.tryParse('${s?['id'] ?? p['id']}');
     return Student(
       serverId: id,
@@ -189,7 +195,7 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
     final light = Theme.of(context).brightness == Brightness.light;
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final bg = light ? StudentSoftUi.cream(cs) : cs.surface;
+    final bg = Colors.white;
     final merged = _mergedStudent();
     final s = _student;
     final rate = _stats?['attendance_rate_pct'];

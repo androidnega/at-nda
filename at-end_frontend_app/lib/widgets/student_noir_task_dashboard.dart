@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/student.dart';
 import '../widgets/profile_avatar.dart';
@@ -69,12 +70,15 @@ class StudentNoirTaskDashboard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0D0F14) : const Color(0xFFF5F6FA);
-    final panel = isDark ? const Color(0xFF171B24) : const Color(0xFF1A1F2B);
-    final panelSoft = isDark ? const Color(0xFF1E2430) : const Color(0xFF262E3E);
-    final textPrimary = Colors.white;
-    final textMuted = const Color(0xFFB5BDCB);
-    final accent = const Color(0xFFF3DFC1);
+    final bg = isDark ? const Color(0xFF0D0F14) : const Color(0xFFF4F7F6);
+    final panel = isDark ? const Color(0xFF171B24) : const Color(0xFFEAF2EE);
+    final panelSoft = isDark ? const Color(0xFF1E2430) : const Color(0xFFFFFFFF);
+    final panelBorder = isDark ? const Color(0xFF2A3345) : const Color(0xFFD7E5DF);
+    final textPrimary = isDark ? Colors.white : const Color(0xFF15201D);
+    final textMuted = isDark ? const Color(0xFFB5BDCB) : const Color(0xFF4E5D58);
+    final accent = isDark ? const Color(0xFFF3DFC1) : const Color(0xFF8FE0BC);
+    final onAccent = isDark ? const Color(0xFF131722) : const Color(0xFF0D3F31);
+    final topBarText = isDark ? Colors.white : const Color(0xFF15201D);
 
     String clockValue() {
       if (dashboardClockSegments.length < 3) return '';
@@ -90,13 +94,7 @@ class StudentNoirTaskDashboard extends StatelessWidget {
         decoration: BoxDecoration(
           color: panel,
           borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
+          border: Border.all(color: panelBorder),
         ),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
         child: Column(
@@ -156,7 +154,7 @@ class StudentNoirTaskDashboard extends StatelessWidget {
                 ),
                 style: FilledButton.styleFrom(
                   backgroundColor: accent,
-                  foregroundColor: const Color(0xFF131722),
+                  foregroundColor: onAccent,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
@@ -187,20 +185,20 @@ class StudentNoirTaskDashboard extends StatelessWidget {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                    icon: Icon(Icons.menu_rounded, color: topBarText),
                     onPressed: onOpenDrawer,
                   ),
                   Expanded(
                     child: Text(
                       'Hello, ${student.greetingLastName}',
                       style: tt.titleLarge?.copyWith(
-                        color: textPrimary,
+                        color: topBarText,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.notifications_none_rounded, color: Colors.white),
+                    icon: Icon(Icons.notifications_none_rounded, color: topBarText),
                     onPressed: onBell,
                   ),
                   ProfileAvatar(student: student, radius: 20),
@@ -217,11 +215,38 @@ class StudentNoirTaskDashboard extends StatelessWidget {
             sliver: SliverToBoxAdapter(
               child: Row(
                 children: [
-                  _mini(context, panelSoft, 'Classes', '$statsClassesToday', textMuted),
+                  _mini(
+                    context,
+                    panelSoft,
+                    panelBorder,
+                    'Classes',
+                    '$statsClassesToday',
+                    FontAwesomeIcons.bookOpen,
+                    textPrimary,
+                    textMuted,
+                  ),
                   const SizedBox(width: 10),
-                  _mini(context, panelSoft, 'Live', '$statsLiveSessions', textMuted),
+                  _mini(
+                    context,
+                    panelSoft,
+                    panelBorder,
+                    'Live',
+                    '$statsLiveSessions',
+                    FontAwesomeIcons.satelliteDish,
+                    textPrimary,
+                    textMuted,
+                  ),
                   const SizedBox(width: 10),
-                  _mini(context, panelSoft, 'Marked', '$statsMarkedToday', textMuted),
+                  _mini(
+                    context,
+                    panelSoft,
+                    panelBorder,
+                    'Marked',
+                    '$statsMarkedToday',
+                    FontAwesomeIcons.circleCheck,
+                    textPrimary,
+                    textMuted,
+                  ),
                 ],
               ),
             ),
@@ -238,6 +263,10 @@ class StudentNoirTaskDashboard extends StatelessWidget {
                   ],
                   if (classRepCard != null) ...[
                     classRepCard!,
+                    const SizedBox(height: 10),
+                  ],
+                  if (riskSection != null) ...[
+                    riskSection!,
                     const SizedBox(height: 10),
                   ],
                   if (warningBanner != null) warningBanner!,
@@ -271,8 +300,11 @@ class StudentNoirTaskDashboard extends StatelessWidget {
   Widget _mini(
     BuildContext context,
     Color bg,
+    Color borderColor,
     String label,
     String value,
+    IconData icon,
+    Color valueColor,
     Color muted,
   ) {
     return Expanded(
@@ -280,14 +312,17 @@ class StudentNoirTaskDashboard extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
         ),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         child: Column(
           children: [
+            FaIcon(icon, size: 13, color: muted),
+            const SizedBox(height: 5),
             Text(
               value,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
+                    color: valueColor,
                     fontWeight: FontWeight.w800,
                   ),
             ),

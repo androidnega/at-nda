@@ -25,21 +25,6 @@
     }
 </style>
 
-<div class="mb-6 rounded-3xl rep-glass px-6 py-5">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Class rep control center</p>
-            <h1 class="mt-1 text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Manage attendance sessions</h1>
-            <p class="text-slate-500 text-sm mt-1">Open, monitor, and close live sessions quickly for your class.</p>
-        </div>
-        <a href="#open-session-form"
-           class="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90">
-            <i class="fas fa-plus"></i>
-            Start session
-        </a>
-    </div>
-</div>
-
 <div class="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
     <div class="order-2 sm:order-1">
         <h1 class="text-2xl sm:text-[1.65rem] font-bold text-slate-900 tracking-tight">Open attendance session</h1>
@@ -101,14 +86,27 @@
                     <div class="space-y-1.5">
                         <label for="mode" class="{{ $labelBase }}">Attendance mode</label>
                         <div class="relative">
-                            <select name="mode" id="session-mode" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer">
-                                <option value="location" {{ old('mode', 'location') === 'location' ? 'selected' : '' }}>Location (GPS)</option>
-                                <option value="qr" {{ old('mode') === 'qr' ? 'selected' : '' }}>QR code</option>
-                                <option value="hybrid" {{ old('mode') === 'hybrid' ? 'selected' : '' }}>Hybrid (GPS + QR)</option>
-                                <option value="wifi" {{ old('mode') === 'wifi' ? 'selected' : '' }}>Wi‑Fi (same network)</option>
+                            @php
+                                $forcedMode = $attendanceMode === 'checkin_checkout'
+                                    ? 'location'
+                                    : ($instantModeType === 'wifi' ? 'wifi' : ($instantModeType === 'location' ? 'location' : 'hybrid'));
+                                $forcedModeLabel = $forcedMode === 'location'
+                                    ? 'Location (GPS)'
+                                    : ($forcedMode === 'wifi' ? 'Wi‑Fi (same network)' : 'Hybrid (GPS + QR)');
+                            @endphp
+                            <select name="mode" id="session-mode" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" disabled>
+                                <option value="{{ $forcedMode }}" selected>{{ $forcedModeLabel }}</option>
                             </select>
                             <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
                         </div>
+                        <input type="hidden" name="mode" value="{{ $forcedMode }}">
+                        <p class="text-[11px] text-slate-400 mt-1">
+                            @if($attendanceMode === 'checkin_checkout')
+                                Check-in / Check-out is active: this is location-only.
+                            @else
+                                Instant mode is locked by admin settings.
+                            @endif
+                        </p>
                     </div>
                     <div class="space-y-1.5">
                         <label for="duration_minutes" class="{{ $labelBase }}">Duration</label>
@@ -541,9 +539,4 @@
 @endif
 @include('partials.session-countdown-script')
 
-<a href="#open-session-form"
-   class="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-xl ring-4 ring-primary/20 hover:bg-primary/90"
-   title="Start session">
-    <i class="fas fa-plus text-lg"></i>
-</a>
 @endsection

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
@@ -38,65 +39,40 @@ class _LoginPageState extends State<LoginPage> {
   String? _error;
   bool _obscure = true;
 
-  static const Color _ink = Color(0xFF0F172A);
-  static const Color _accent = Color(0xFF0D9488);
+  static const Color _ink = Color(0xFF1E293B);
   static const Color _muted = Color(0xFF64748B);
+  /// Matches [AppTheme.light] primary (system teal).
+  static const Color _primaryTeal = Color(0xFF0D9488);
+  static const Color _tealButton = Color(0xFF0F766E);
+  static const Color _fieldBorder = Color(0xFFE2E8F0);
 
-  ThemeData _loginLightTheme() {
-    final base = ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      colorScheme: ColorScheme.light(
-        primary: _accent,
-        onPrimary: Colors.white,
-        surface: Colors.white,
-        onSurface: _ink,
-        error: const Color(0xFFDC2626),
-      ),
-      scaffoldBackgroundColor: Colors.white,
-      cardTheme: CardThemeData(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: _accent, width: 1.5),
-        ),
-        labelStyle: const TextStyle(color: _muted, fontWeight: FontWeight.w500),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: _accent,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          textStyle: GoogleFonts.plusJakartaSans(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
+  static const double _pillRadius = 999;
+
+  OutlineInputBorder _pillBorder(Color color, {double width = 1}) {
+    return OutlineInputBorder(
+      borderRadius: BorderRadius.circular(_pillRadius),
+      borderSide: BorderSide(color: color, width: width),
     );
-    return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
-        bodyColor: _ink,
-        displayColor: _ink,
+  }
+
+  Future<void> _persistSavedLoginId(String? savedLoginId) async {
+    if (savedLoginId == null || savedLoginId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('login_saved_index', savedLoginId);
+  }
+
+  void _showInfoDialog(String title, String body) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -110,6 +86,9 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _checkStoredStudent() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIndex = prefs.getString('login_saved_index');
+
       final student = await OfflineService.getCurrentStudent()
           .timeout(const Duration(seconds: 3));
       if (student != null && mounted) {
@@ -118,9 +97,13 @@ class _LoginPageState extends State<LoginPage> {
         if (t != null && t.isNotEmpty) {
           ApiService.setSessionBearerToken(t);
         }
+      } else if (savedIndex != null && savedIndex.isNotEmpty && mounted) {
+        _indexController.text = savedIndex;
       }
-    } catch (_) {}
-    if (mounted) setState(() => _checkingStored = false);
+      if (mounted) setState(() => _checkingStored = false);
+    } catch (_) {
+      if (mounted) setState(() => _checkingStored = false);
+    }
   }
 
   @override
@@ -207,7 +190,7 @@ class _LoginPageState extends State<LoginPage> {
   /// Accepts 200 JSON either as `{ student: {...} }` or flat `{ index_number, name, ... }`
   /// (no `success` field required — ApiService throws on non-200).
   Future<void> _loginViaApi(String index, String password) async {
-    final cleanIndex = index.trim().toUpperCase();
+    final cleanIndex = ApiService.normalizeLoginId(index);
     final online = await hasInternetConnectivity();
     if (!online) {
       await _loginFromLocalCache(cleanIndex, password);
@@ -240,6 +223,7 @@ class _LoginPageState extends State<LoginPage> {
       ApiService.clearSessionBearerToken();
     }
     AppState.studentIndex = student.indexNumber;
+    await _persistSavedLoginId(cleanIndex);
 
     try {
       await SyncService.syncAttendance();
@@ -278,6 +262,7 @@ class _LoginPageState extends State<LoginPage> {
     // Needed for Firebase-free reminder polling (`/api/notifications/pending`).
     await OfflineService.setApiSessionPassword(passwordForStorage);
     AppState.studentIndex = stored.indexNumber;
+    await _persistSavedLoginId(cleanIndex);
     final t = await OfflineService.getApiSessionToken();
     if (t != null && t.isNotEmpty) {
       ApiService.setSessionBearerToken(t);
@@ -337,6 +322,7 @@ class _LoginPageState extends State<LoginPage> {
       await OfflineService.setPasswordHash(PasswordUtil.hash(password));
     }
     AppState.studentIndex = student.indexNumber;
+    await _persistSavedLoginId(ApiService.normalizeLoginId(index));
 
     if (!mounted) return;
 
@@ -355,186 +341,305 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.of(context).pushReplacementNamed(route);
   }
 
+  Widget _loginHeader() {
+    return Container(
+      width: double.infinity,
+      color: _primaryTeal,
+      alignment: Alignment.center,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Image.asset(
+          'branding/app_icon.png',
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.event_available_rounded,
+              color: Colors.white,
+              size: 44,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_checkingStored) {
       return Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(
-            color: _accent,
-            strokeWidth: 2.5,
+        backgroundColor: _primaryTeal,
+        body: ColoredBox(
+          color: _primaryTeal,
+          child: Column(
+            children: [
+              Expanded(
+                  flex: 28,
+                  child: SafeArea(bottom: false, child: _loginHeader())),
+              Expanded(
+                flex: 72,
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      color: _primaryTeal,
+                      strokeWidth: 2.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    return Theme(
-      data: _loginLightTheme(),
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 28),
-                  Center(
-                    child: Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        color: _accent.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: _accent.withValues(alpha: 0.15),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.event_available_rounded,
-                        size: 48,
-                        color: _accent,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Text(
-                    'at-enda',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -1,
-                      color: _ink,
-                      height: 1.05,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Attendance, simplified.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: _muted,
-                      height: 1.4,
-                    ),
-                  ),
-                  if (Constants.localAuthOnly) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Use your index and password to sign in.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        color: _muted.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 36),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          TextFormField(
-                            controller: _indexController,
-                            decoration: const InputDecoration(
-                              labelText: 'Index number',
-                              hintText: 'e.g. BC/ITS/24/047',
-                              prefixIcon: Icon(Icons.badge_outlined, color: _muted),
-                            ),
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w500,
-                              color: _ink,
-                            ),
-                            textCapitalization: TextCapitalization.characters,
-                            inputFormatters: [
-                              TextInputFormatter.withFunction((old, copy) =>
-                                  copy.copyWith(text: copy.text.toUpperCase())),
-                            ],
-                            validator: (v) =>
-                                (v == null || v.trim().isEmpty) ? 'Required' : null,
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _passwordController,
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              hintText: 'Enter your password',
-                              prefixIcon: const Icon(Icons.lock_outline_rounded, color: _muted),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscure
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                  color: _muted,
-                                ),
-                                onPressed: () =>
-                                    setState(() => _obscure = !_obscure),
-                              ),
-                            ),
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w500,
-                              color: _ink,
-                            ),
-                            obscureText: _obscure,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            textCapitalization: TextCapitalization.none,
-                            onFieldSubmitted: (_) => _login(),
-                            validator: (v) =>
-                                (v == null || v.isEmpty) ? 'Required' : null,
-                          ),
-                          if (_error != null) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              _error!,
-                              style: GoogleFonts.plusJakartaSans(
-                                color: Theme.of(context).colorScheme.error,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 28),
-                          SizedBox(
-                            height: 54,
-                            child: FilledButton(
-                              onPressed: _isLoading ? null : _login,
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(
-                                      'Login',
+    final labelStyle = GoogleFonts.plusJakartaSans(
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      color: _ink,
+      letterSpacing: 0.2,
+    );
+    final fieldStyle = GoogleFonts.plusJakartaSans(
+      fontWeight: FontWeight.w500,
+      fontSize: 14,
+      color: _ink,
+    );
+    final hintStyle = GoogleFonts.plusJakartaSans(
+      fontWeight: FontWeight.w400,
+      fontSize: 14,
+      color: _muted.withValues(alpha: 0.85),
+    );
+
+    final fieldDeco = InputDecoration(
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      hintStyle: hintStyle,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      border: _pillBorder(_fieldBorder),
+      enabledBorder: _pillBorder(_fieldBorder),
+      focusedBorder: _pillBorder(_primaryTeal, width: 1.5),
+      errorBorder: _pillBorder(const Color(0xFFDC2626)),
+      focusedErrorBorder: _pillBorder(const Color(0xFFDC2626), width: 1.5),
+    );
+
+    return Scaffold(
+      backgroundColor: _primaryTeal,
+      body: ColoredBox(
+        color: _primaryTeal,
+        child: Column(
+          children: [
+            Expanded(
+              flex: 28,
+              child: SafeArea(bottom: false, child: _loginHeader()),
+            ),
+            Expanded(
+              flex: 72,
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(40)),
+                clipBehavior: Clip.antiAlias,
+                child: ColoredBox(
+                  color: Colors.white,
+                  child: SafeArea(
+                    top: false,
+                    child: LayoutBuilder(
+                    builder: (context, _) {
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                                  Text(
+                                    'Login Account',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w800,
+                                      color: _ink,
+                                    ),
+                                  ),
+                                  if (Constants.localAuthOnly) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Demo: any index and password (4+ chars for new).',
+                                      textAlign: TextAlign.center,
                                       style: GoogleFonts.plusJakartaSans(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 16,
+                                        fontSize: 11,
+                                        color: _muted,
+                                        height: 1.35,
                                       ),
                                     ),
+                                  ],
+                                  const SizedBox(height: 22),
+                                  Text('Index number', style: labelStyle),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Staff: use your issued username or email.',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 11,
+                                      color: _muted,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    controller: _indexController,
+                                    onChanged: (_) => setState(() {}),
+                                    decoration: fieldDeco.copyWith(
+                                      hintText: 'e.g. BC/ITS/24/047',
+                                    ),
+                                    style: fieldStyle,
+                                    keyboardType: _indexController.text.contains('@')
+                                        ? TextInputType.emailAddress
+                                        : TextInputType.text,
+                                    autocorrect: _indexController.text.contains('@'),
+                                    textCapitalization:
+                                        _indexController.text.contains('@')
+                                            ? TextCapitalization.none
+                                            : TextCapitalization.characters,
+                                    inputFormatters:
+                                        _indexController.text.contains('@')
+                                            ? null
+                                            : [
+                                                TextInputFormatter.withFunction(
+                                                    (old, copy) => copy.copyWith(
+                                                        text: copy.text
+                                                            .toUpperCase())),
+                                              ],
+                                    validator: (v) =>
+                                        (v == null || v.trim().isEmpty)
+                                            ? 'Required'
+                                            : null,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Text('Password', style: labelStyle),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: _passwordController,
+                                    decoration: fieldDeco.copyWith(
+                                      hintText: 'Password',
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          _obscure
+                                              ? Icons.visibility_outlined
+                                              : Icons.visibility_off_outlined,
+                                          color: _muted,
+                                          size: 20,
+                                        ),
+                                        onPressed: () =>
+                                            setState(() => _obscure = !_obscure),
+                                      ),
+                                    ),
+                                    style: fieldStyle,
+                                    obscureText: _obscure,
+                                    autocorrect: false,
+                                    enableSuggestions: false,
+                                    textCapitalization: TextCapitalization.none,
+                                    onFieldSubmitted: (_) => _login(),
+                                    validator: (v) =>
+                                        (v == null || v.isEmpty) ? 'Required' : null,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      onPressed: () {
+                                        if (Constants.localAuthOnly) {
+                                          _showInfoDialog(
+                                            'Forgot password',
+                                            'This demo build has no password reset. Use any password (4+ characters) for a new index.',
+                                          );
+                                        } else {
+                                          _showInfoDialog(
+                                            'Forgot password',
+                                            'Password reset is handled by your institution. Please contact your administrator or IT help desk.',
+                                          );
+                                        }
+                                      },
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: _primaryTeal,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 0,
+                                        ),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: Text(
+                                        'Forgot password?',
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (_error != null) ...[
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      _error!,
+                                      style: GoogleFonts.plusJakartaSans(
+                                        color: const Color(0xFFDC2626),
+                                        fontSize: 12,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 20),
+                                  SizedBox(
+                                    height: 48,
+                                    width: double.infinity,
+                                    child: FilledButton(
+                                      onPressed: _isLoading ? null : _login,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: _tealButton,
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        shape: const StadiumBorder(),
+                                        textStyle: GoogleFonts.plusJakartaSans(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      child: _isLoading
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Text('Login'),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                ],
+                ),
               ),
             ),
-          ),
+            ),
+          ],
         ),
       ),
     );

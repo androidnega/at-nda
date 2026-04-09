@@ -47,6 +47,8 @@ class Student {
   final bool isClassRep;
   final List<RepRoleEntry> repRoles;
   final String role;
+  /// Set when logging in as teaching staff via lecturer email/username.
+  final int? lecturerId;
 
   /// Laravel `primary_role`: `student`, `class_rep`, or `lecturer`.
   String get primaryRole => role;
@@ -70,6 +72,7 @@ class Student {
     this.isClassRep = false,
     this.repRoles = const [],
     this.role = 'student',
+    this.lecturerId,
   });
 
   static String _str(dynamic v) => v?.toString() ?? '';
@@ -113,7 +116,9 @@ class Student {
       }
     }
 
-    if (serverId != null) {
+    // Only use API image route when we know a path/URL exists; otherwise it 404s
+    // (empty profile_image is common for roster rows with only serverId).
+    if (serverId != null && p.isNotEmpty) {
       return apiProfileImageUrl();
     }
 
@@ -178,7 +183,7 @@ class Student {
     }
 
     final base = apiBaseUri.toString().replaceAll(RegExp(r'/+$'), '');
-    if (serverId != null) {
+    if (serverId != null && profileImage.trim().isNotEmpty) {
       push('$base/students/$serverId/profile-image');
     }
     push(resolvedNetworkProfileUrl(apiBaseUri));
@@ -206,8 +211,15 @@ class Student {
         : sid is num
             ? sid.toInt()
             : int.tryParse(sid?.toString() ?? '');
+    final lid = json['lecturer_id'];
+    final lecturerId = lid is int
+        ? lid
+        : lid is num
+            ? lid.toInt()
+            : int.tryParse(lid?.toString() ?? '');
     return Student(
         serverId: serverId,
+        lecturerId: lecturerId,
         indexNumber: _str(json['index_number'] ?? json['student_id']),
         name: name,
         firstName: first,
@@ -313,6 +325,7 @@ class Student {
         'is_class_rep': isClassRep,
         'rep_roles': repRoles.map((e) => e.toJson()).toList(),
         'primary_role': role,
+        if (lecturerId != null) 'lecturer_id': lecturerId,
       };
 
   Student copyWith({
@@ -334,9 +347,11 @@ class Student {
     bool? isClassRep,
     List<RepRoleEntry>? repRoles,
     String? role,
+    int? lecturerId,
   }) =>
       Student(
         serverId: serverId ?? this.serverId,
+        lecturerId: lecturerId ?? this.lecturerId,
         indexNumber: indexNumber ?? this.indexNumber,
         name: name ?? this.name,
         firstName: firstName ?? this.firstName,

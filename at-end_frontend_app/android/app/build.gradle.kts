@@ -1,3 +1,8 @@
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -11,6 +16,7 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -41,4 +47,24 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+
+// Primary artifact: `at-enda.apk`. Flutter CLI still expects `app-release.apk`, so leave a symlink.
+afterEvaluate {
+    tasks.named("assembleRelease").configure {
+        doLast {
+            val dir = layout.buildDirectory.get().asFile.resolve("outputs/flutter-apk")
+            val release = dir.resolve("app-release.apk").toPath()
+            val branded = dir.resolve("at-enda.apk").toPath()
+            if (Files.isRegularFile(release, LinkOption.NOFOLLOW_LINKS)) {
+                Files.deleteIfExists(branded)
+                Files.move(release, branded, StandardCopyOption.REPLACE_EXISTING)
+                Files.createSymbolicLink(release, Path.of("at-enda.apk"))
+            }
+        }
+    }
 }

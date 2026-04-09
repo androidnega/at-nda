@@ -25,6 +25,7 @@ import '../theme/flat_dashboard.dart';
 import '../theme/student_soft_ui.dart';
 import '../widgets/student_noir_task_dashboard.dart';
 import '../widgets/student_pastel_profile_dashboard.dart';
+import '../widgets/student_team_reach_dashboard.dart';
 import '../widgets/student_today_dashboard.dart';
 import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
@@ -1076,7 +1077,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           )
                         : null,
                   )
-                : StudentTodayDashboard(
+                : !s.isClassRep &&
+                        ApiService.studentDashboardTheme ==
+                            ApiService.studentDashboardThemeTeamReach
+                    ? StudentTeamReachDashboard(
+                        student: s,
+                        todaySlots: _todayTimetable,
+                        unmarkedSessions: um,
+                        heroTitle: hero['title']!,
+                        heroSubtitle: hero['subtitle']!,
+                        showMarkButton: showMark,
+                        onMarkAttendance: () => _openAttendancePage(um.first),
+                        lastCheckInLine: _lastCheckInLine,
+                        dayProgress: _workingDayProgressFraction(),
+                        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                        onBell: _onDashboardBell,
+                        onOpenFullTimetable: _openTimetable,
+                        onSeeAllClasses: _openTimetable,
+                        onSlotTap: _onTimetableSlotTap,
+                        statsClassesToday: _todayTimetable.length,
+                        statsLiveSessions: um.length,
+                        statsMarkedToday: _markedSessionIdsToday.length,
+                        dashboardClockLabel: focusClock.label,
+                        dashboardClockSegments: focusClock.parts,
+                        todayVenueHint: _firstTodayVenueHint(),
+                        classRepCard: null,
+                        dynamicBlocks: [
+                          if (Constants.debugShowSessionApiResponseOnHome) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _buildSessionApiDebugPanel(context),
+                            ),
+                          ],
+                          if (_dynamicUi.isNotEmpty) ...[
+                            ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                          ],
+                          if (extraSessions != null) extraSessions,
+                        ],
+                        warningBanner: _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                        pendingSyncChip: _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                        errorText: _error,
+                        riskSection: _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                        demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
+                                _activeSessions.isNotEmpty &&
+                                _activeSessions.first['course_code'] == 'DEMO-101'
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Demo session · API unavailable or empty',
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                        color: Theme.of(context).colorScheme.tertiary,
+                                      ),
+                                ),
+                              )
+                            : null,
+                      )
+                    : StudentTodayDashboard(
                 student: s,
                 todaySlots: _todayTimetable,
                 unmarkedSessions: um,

@@ -15,6 +15,11 @@ abstract final class NotificationBridge {
   static final GlobalKey<ScaffoldMessengerState> messengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
+  /// Shows above route-level overlays (e.g. dialogs) via the app-root messenger.
+  static void showSnackBar(SnackBar snackBar) {
+    messengerKey.currentState?.showSnackBar(snackBar);
+  }
+
   static bool _inFlight = false;
 
   static Future<void> initialize() async {

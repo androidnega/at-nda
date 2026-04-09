@@ -8,17 +8,18 @@ class ThemeService {
   static const String _prefsKey = 'theme_mode_v1';
 
   static final ValueNotifier<ThemeMode> modeNotifier =
-      ValueNotifier<ThemeMode>(ThemeMode.dark);
+      ValueNotifier<ThemeMode>(ThemeMode.light);
 
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString(_prefsKey);
-    if (v == 'light') {
-      modeNotifier.value = ThemeMode.light;
+    if (v == 'dark') {
+      modeNotifier.value = ThemeMode.dark;
     } else if (v == 'system') {
       modeNotifier.value = ThemeMode.system;
     } else {
-      modeNotifier.value = ThemeMode.dark;
+      // New installs and unknown values default to light (matches app chrome).
+      modeNotifier.value = ThemeMode.light;
     }
   }
 

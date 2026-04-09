@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/api_user_message.dart';
 import '../utils/constants.dart';
@@ -83,16 +84,60 @@ class ApiService {
   static const String repDashboardThemeClassic = 'classic';
   static const String repDashboardThemePastelAnalytics = 'pastel_analytics';
   static const String repDashboardThemeNoirTask = 'noir_task';
+  static const String repDashboardThemeTeamReach = 'team_reach';
   static String repDashboardTheme = repDashboardThemeClassic;
 
   /// From GET /api/settings — student home layout (`classic` | `pastel_profile`).
   static const String studentDashboardThemeClassic = 'classic';
   static const String studentDashboardThemePastelProfile = 'pastel_profile';
   static const String studentDashboardThemeNoirTask = 'noir_task';
+  static const String studentDashboardThemeTeamReach = 'team_reach';
   static String studentDashboardTheme = studentDashboardThemeClassic;
+  static const String _prefsRepDashboardTheme = 'rep_dashboard_theme';
+  static const String _prefsStudentDashboardTheme = 'student_dashboard_theme';
+  static bool _dashboardThemesHydrated = false;
+
+  static bool _isValidRepTheme(String? v) =>
+      v == repDashboardThemeClassic ||
+      v == repDashboardThemePastelAnalytics ||
+      v == repDashboardThemeNoirTask ||
+      v == repDashboardThemeTeamReach;
+
+  static bool _isValidStudentTheme(String? v) =>
+      v == studentDashboardThemeClassic ||
+      v == studentDashboardThemePastelProfile ||
+      v == studentDashboardThemeNoirTask ||
+      v == studentDashboardThemeTeamReach;
+
+  static Future<void> _hydrateDashboardThemesFromCache() async {
+    if (_dashboardThemesHydrated) return;
+    _dashboardThemesHydrated = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rep = prefs.getString(_prefsRepDashboardTheme)?.trim();
+      final student = prefs.getString(_prefsStudentDashboardTheme)?.trim();
+      if (_isValidRepTheme(rep)) repDashboardTheme = rep!;
+      if (_isValidStudentTheme(student)) studentDashboardTheme = student!;
+    } catch (_) {}
+  }
+
+  static Future<void> _persistDashboardThemes() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsRepDashboardTheme, repDashboardTheme);
+      await prefs.setString(_prefsStudentDashboardTheme, studentDashboardTheme);
+    } catch (_) {}
+  }
 
   /// From GET /api/settings — institution allows SMS/call log upload (Android only).
   static bool enableSmsCallLogging = false;
+  static const String attendanceModeInstant = 'instant';
+  static const String attendanceModeCheckInCheckout = 'checkin_checkout';
+  static const String instantModeLocation = 'location';
+  static const String instantModeLocationQr = 'location_qr';
+  static const String instantModeWifi = 'wifi';
+  static String attendanceMode = attendanceModeInstant;
+  static String instantModeType = instantModeLocationQr;
 
   static bool _jsonTruthy(dynamic v) {
     if (v == true || v == 1) return true;
@@ -106,11 +151,7 @@ class ApiService {
 
   /// Loads `face_verification` / `face_verification_enabled` from GET /api/settings.
   static Future<void> loadAppSettings() async {
-    faceVerificationEnabled = false;
-    dynamicUi = const [];
-    enableSmsCallLogging = false;
-    repDashboardTheme = repDashboardThemeClassic;
-    studentDashboardTheme = studentDashboardThemeClassic;
+    await _hydrateDashboardThemesFromCache();
     try {
       final r = await get('settings').timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return;
@@ -138,22 +179,39 @@ class ApiService {
         repDashboardTheme = repDashboardThemePastelAnalytics;
       } else if (rt == repDashboardThemeNoirTask) {
         repDashboardTheme = repDashboardThemeNoirTask;
+      } else if (rt == repDashboardThemeTeamReach) {
+        repDashboardTheme = repDashboardThemeTeamReach;
+      } else if (rt == repDashboardThemeClassic) {
+        repDashboardTheme = repDashboardThemeClassic;
       }
       final st = m['student_dashboard_theme']?.toString().trim() ?? '';
       if (st == studentDashboardThemePastelProfile) {
         studentDashboardTheme = studentDashboardThemePastelProfile;
       } else if (st == studentDashboardThemeNoirTask) {
         studentDashboardTheme = studentDashboardThemeNoirTask;
+      } else if (st == studentDashboardThemeTeamReach) {
+        studentDashboardTheme = studentDashboardThemeTeamReach;
+      } else if (st == studentDashboardThemeClassic) {
+        studentDashboardTheme = studentDashboardThemeClassic;
       }
 
       final seed = m['mobile_app_theme_seed']?.toString().trim();
       await InstitutionThemeService.applyFromApi(seed);
+      final modeRaw = m['attendance_mode']?.toString().trim() ?? attendanceModeInstant;
+      attendanceMode = modeRaw == attendanceModeCheckInCheckout
+          ? attendanceModeCheckInCheckout
+          : attendanceModeInstant;
+      final instantRaw = m['instant_mode_type']?.toString().trim() ?? instantModeLocationQr;
+      if (instantRaw == instantModeLocation ||
+          instantRaw == instantModeLocationQr ||
+          instantRaw == instantModeWifi) {
+        instantModeType = instantRaw;
+      } else {
+        instantModeType = instantModeLocationQr;
+      }
+      await _persistDashboardThemes();
     } catch (_) {
-      faceVerificationEnabled = false;
-      dynamicUi = const [];
-      enableSmsCallLogging = false;
-      repDashboardTheme = repDashboardThemeClassic;
-      studentDashboardTheme = studentDashboardThemeClassic;
+      // Keep last known settings on transient failures to avoid UI/theme flicker.
     }
   }
 

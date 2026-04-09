@@ -602,6 +602,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
       return _buildPastelAnalyticsHome(context, s);
     }
     final useNoir = ApiService.repDashboardTheme == ApiService.repDashboardThemeNoirTask;
+    final useTeamReach = ApiService.repDashboardTheme == ApiService.repDashboardThemeTeamReach;
 
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
@@ -612,9 +613,13 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     final hPad = handheld ? 16.0 : 20.0;
     final pageBg = useNoir
         ? (isDark ? const Color(0xFF0D0F14) : const Color(0xFF101521))
+        : useTeamReach
+            ? (isDark ? const Color(0xFF101726) : const Color(0xFFF1F6FF))
         : (isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F7));
     final cardBg = useNoir
         ? (isDark ? const Color(0xFF171B24) : const Color(0xFF1B2333))
+        : useTeamReach
+            ? (isDark ? const Color(0xFF1A253A) : Colors.white)
         : (isDark ? const Color(0xFF1E1E1E) : Colors.white);
     final cardBorder = useNoir
         ? const Color(0xFF2A3347)
@@ -874,6 +879,14 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
+      floatingActionButton: useTeamReach
+          ? FloatingActionButton(
+              onPressed: _openSessions,
+              backgroundColor: const Color(0xFF1F6CFF),
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add_rounded, size: 30),
+            )
+          : null,
     );
   }
 
