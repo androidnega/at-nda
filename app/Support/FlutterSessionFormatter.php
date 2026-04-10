@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\AttendanceSession;
 use App\Models\Course;
+use Carbon\Carbon;
 
 /**
  * Stable session JSON for Flutter (shared by legacy /api/sessions/active and /api/v1/sessions/active).
@@ -43,7 +44,19 @@ class FlutterSessionFormatter
         $courseName = optional($course)->course_name ?? 'N/A';
         $courseCode = optional($course)->course_code ?? 'N/A';
 
+        $now = Carbon::now();
         $end = $session->end_time ?? $session->expires_at;
+        $expectedEnd = $session->expected_end_time;
+
+        // Rep closed early: stop advertising a future end so clients end countdown immediately.
+        if (! $session->is_active) {
+            if ($end !== null && $end->isFuture()) {
+                $end = $now;
+            }
+            if ($expectedEnd !== null && $expectedEnd->isFuture()) {
+                $expectedEnd = $now;
+            }
+        }
 
         if ($session->requiresQrProof()) {
             $session->ensureSignedQrTokenFresh();
@@ -75,7 +88,8 @@ class FlutterSessionFormatter
             'range_meters' => $range,
             'qr_token' => $session->requiresQrProof() ? $session->qr_token : null,
             'end_time' => $end?->toIso8601String(),
-            'expected_end_time' => $session->expected_end_time?->toIso8601String(),
+            'expected_end_time' => $expectedEnd?->toIso8601String(),
+            'is_active' => (bool) $session->is_active,
             'checkout_enabled' => (bool) ($session->checkout_enabled ?? false),
             'updated_at' => $session->updated_at?->toIso8601String(),
         ];

@@ -83,10 +83,14 @@ class ActiveSessionListBuilder
             ->where('student_id', $student->id)
             ->whereNotNull('check_in_time')
             ->whereNull('check_out_time')
-            ->whereHas('attendanceSession', function ($q) use ($courseId) {
+            ->where('check_in_time', '>=', now()->subHours(72))
+            ->whereHas('attendanceSession', function ($q) use ($courseId, $student) {
                 $q->where('attendance_mode', 'checkin_checkout');
                 if ($courseId !== null) {
                     $q->where('course_id', $courseId);
+                }
+                if ($student->class_id !== null) {
+                    $q->whereHas('course', fn ($cq) => $cq->where('class_id', $student->class_id));
                 }
             })
             ->with([

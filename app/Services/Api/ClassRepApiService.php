@@ -435,7 +435,10 @@ class ClassRepApiService
         }
 
         if ($session->isCheckInCheckoutMode()) {
-            $session->update(['checkout_enabled' => true]);
+            $session->update([
+                'checkout_enabled' => true,
+                'is_active' => false,
+            ]);
         } else {
             $session->update(['is_active' => false]);
         }

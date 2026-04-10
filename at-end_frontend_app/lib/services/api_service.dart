@@ -327,11 +327,24 @@ class ApiService {
   /// Never reads `session` (singular); each list item is a flat session object.
   static List<Map<String, dynamic>> parseSessionsList(List<dynamic> raw) {
     final out = <Map<String, dynamic>>[];
+    final seenIds = <int>{};
     for (final item in raw) {
       try {
         if (item is Map) {
           final m = Map<String, dynamic>.from(item);
-          if (isValidActiveSession(m)) out.add(m);
+          if (!isValidActiveSession(m)) continue;
+          final id = m['id'];
+          int? sid;
+          if (id is int) {
+            sid = id;
+          } else if (id is num) {
+            sid = id.toInt();
+          }
+          if (sid != null) {
+            if (seenIds.contains(sid)) continue;
+            seenIds.add(sid);
+          }
+          out.add(m);
         }
       } catch (e, st) {
         if (kDebugMode) {
@@ -364,7 +377,8 @@ class ApiService {
   static bool isValidActiveSession(Map<String, dynamic>? session) {
     if (session == null || session.isEmpty) return false;
     final pendingCheckout = isPendingCheckoutSession(session);
-    if (session['active'] == false && !pendingCheckout) return false;
+    final inactive = session['active'] == false || session['is_active'] == false;
+    if (inactive && !pendingCheckout) return false;
     final status = session['status']?.toString().trim().toLowerCase() ?? '';
     if (!pendingCheckout &&
         (status == 'closed' || status == 'ended' || status == 'expired')) {

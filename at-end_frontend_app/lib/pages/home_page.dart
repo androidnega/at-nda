@@ -31,6 +31,7 @@ import '../widgets/student_pastel_profile_dashboard.dart';
 import '../widgets/student_team_reach_dashboard.dart';
 import '../widgets/student_today_dashboard.dart';
 import '../widgets/student_violet_calendar_dashboard.dart';
+import '../widgets/student_midnight_control_dashboard.dart';
 import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
@@ -1048,7 +1049,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final hero = _heroDashboardCopy();
     final um = _unmarkedSessions;
-    final liveSessionCount = um.where((s) => !_sessionEndedFor(s)).length;
+    final liveUnmarked = um.where((s) => !_sessionEndedFor(s)).toList();
+    final liveSessionCount = liveUnmarked.length;
     final primaryActionLabel = (!s.isClassRep &&
             um.isNotEmpty &&
             _isCheckInCheckoutSession(um.first))
@@ -1060,11 +1062,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final focusClock = _dashboardFocusClockRow();
 
     final extraSessions =
-        !s.isClassRep && um.length > 1
+        !s.isClassRep && liveUnmarked.length > 1
             ? Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  '${um.length - 1} other open session(s) — pull to refresh.',
+                  '${liveUnmarked.length - 1} other live session(s) — pull to refresh.',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: Theme.of(context).colorScheme.primary,
                         fontWeight: FontWeight.w600,
@@ -1334,6 +1336,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                           ),
                                     ),
                                   )
+                                : null,
+                          )
+                    : !s.isClassRep &&
+                            ApiService.studentDashboardTheme ==
+                                ApiService.studentDashboardThemeMidnightControl
+                        ? StudentMidnightControlDashboard(
+                            student: s,
+                            showMarkButton: showMark,
+                            onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                            primaryActionLabel: primaryActionLabel,
+                            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                            onBell: _onDashboardBell,
+                            statsClassesToday: _todayTimetable.length,
+                            statsLiveSessions: liveSessionCount,
+                            statsMarkedToday: _markedSessionIdsToday.length,
+                            unmarkedCount: um.length,
+                            dynamicBlocks: [
+                              if (Constants.debugShowSessionApiResponseOnHome) ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _buildSessionApiDebugPanel(context),
+                                ),
+                              ],
+                              if (_dynamicUi.isNotEmpty) ...[
+                                ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                              ],
+                              if (extraSessions != null) extraSessions,
+                            ],
+                            warningBanner: _showAbsenceWarning &&
+                                    _absenceWarningsSnapshot.isNotEmpty
+                                ? _buildAbsenceWarningBanner(context)
+                                : null,
+                            pendingSyncChip: _pendingSyncCount > 0
+                                ? _buildPendingSyncChip(context)
+                                : null,
+                            errorText: _error,
+                            riskSection: _studentAtRisk
+                                ? _buildConsecutiveMissWarning(context)
                                 : null,
                           )
                     : StudentTodayDashboard(

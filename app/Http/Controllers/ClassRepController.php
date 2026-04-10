@@ -301,7 +301,11 @@ class ClassRepController extends Controller
             return back()->with('error', 'Only main reps can close sessions');
         }
         if ($session->isCheckInCheckoutMode()) {
-            $session->update(['checkout_enabled' => true]);
+            // End the live window immediately; students keep checkout via checkout_enabled / !isValid().
+            $session->update([
+                'checkout_enabled' => true,
+                'is_active' => false,
+            ]);
         } else {
             $session->update(['is_active' => false]);
         }
