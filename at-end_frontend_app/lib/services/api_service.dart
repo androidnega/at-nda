@@ -22,7 +22,7 @@ class LookupResult {
 /// Base URL from [Constants.baseUrl] (production: https://at-enda.manuelcode.info/api).
 class ApiService {
   /// Default timeout for POST/JSON calls (avoids infinite “Verifying…”).
-  static const Duration httpTimeout = Duration(seconds: 30);
+  static const Duration httpTimeout = Duration(seconds: 45);
 
   /// Laravel Sanctum token from `POST /api/login` (or v1); sent as `Authorization: Bearer`.
   static String? _sessionBearerToken;
@@ -85,6 +85,8 @@ class ApiService {
   static const String repDashboardThemePastelAnalytics = 'pastel_analytics';
   static const String repDashboardThemeNoirTask = 'noir_task';
   static const String repDashboardThemeTeamReach = 'team_reach';
+  static const String repDashboardThemeVioletCalendar = 'violet_calendar';
+  static const String repDashboardThemeMidnightControl = 'midnight_control';
   static String repDashboardTheme = repDashboardThemeClassic;
 
   /// From GET /api/settings — student home layout (`classic` | `pastel_profile`).
@@ -92,6 +94,8 @@ class ApiService {
   static const String studentDashboardThemePastelProfile = 'pastel_profile';
   static const String studentDashboardThemeNoirTask = 'noir_task';
   static const String studentDashboardThemeTeamReach = 'team_reach';
+  static const String studentDashboardThemeVioletCalendar = 'violet_calendar';
+  static const String studentDashboardThemeMidnightControl = 'midnight_control';
   static String studentDashboardTheme = studentDashboardThemeClassic;
   static const String _prefsRepDashboardTheme = 'rep_dashboard_theme';
   static const String _prefsStudentDashboardTheme = 'student_dashboard_theme';
@@ -101,13 +105,17 @@ class ApiService {
       v == repDashboardThemeClassic ||
       v == repDashboardThemePastelAnalytics ||
       v == repDashboardThemeNoirTask ||
-      v == repDashboardThemeTeamReach;
+      v == repDashboardThemeTeamReach ||
+      v == repDashboardThemeVioletCalendar ||
+      v == repDashboardThemeMidnightControl;
 
   static bool _isValidStudentTheme(String? v) =>
       v == studentDashboardThemeClassic ||
       v == studentDashboardThemePastelProfile ||
       v == studentDashboardThemeNoirTask ||
-      v == studentDashboardThemeTeamReach;
+      v == studentDashboardThemeTeamReach ||
+      v == studentDashboardThemeVioletCalendar ||
+      v == studentDashboardThemeMidnightControl;
 
   static Future<void> _hydrateDashboardThemesFromCache() async {
     if (_dashboardThemesHydrated) return;
@@ -181,6 +189,10 @@ class ApiService {
         repDashboardTheme = repDashboardThemeNoirTask;
       } else if (rt == repDashboardThemeTeamReach) {
         repDashboardTheme = repDashboardThemeTeamReach;
+      } else if (rt == repDashboardThemeVioletCalendar) {
+        repDashboardTheme = repDashboardThemeVioletCalendar;
+      } else if (rt == repDashboardThemeMidnightControl) {
+        repDashboardTheme = repDashboardThemeMidnightControl;
       } else if (rt == repDashboardThemeClassic) {
         repDashboardTheme = repDashboardThemeClassic;
       }
@@ -191,6 +203,10 @@ class ApiService {
         studentDashboardTheme = studentDashboardThemeNoirTask;
       } else if (st == studentDashboardThemeTeamReach) {
         studentDashboardTheme = studentDashboardThemeTeamReach;
+      } else if (st == studentDashboardThemeVioletCalendar) {
+        studentDashboardTheme = studentDashboardThemeVioletCalendar;
+      } else if (st == studentDashboardThemeMidnightControl) {
+        studentDashboardTheme = studentDashboardThemeMidnightControl;
       } else if (st == studentDashboardThemeClassic) {
         studentDashboardTheme = studentDashboardThemeClassic;
       }
@@ -334,16 +350,59 @@ class ApiService {
     return s.isNotEmpty;
   }
 
+  /// True when student still owes checkout (check-in/check-out mode); keep row after session ends.
+  static bool isPendingCheckoutSession(Map<String, dynamic> session) {
+    final mode = session['attendance_mode']?.toString().trim() ?? '';
+    if (mode != attendanceModeCheckInCheckout) return false;
+    final inT = session['check_in_time']?.toString().trim() ?? '';
+    final outT = session['check_out_time']?.toString().trim() ?? '';
+    return inT.isNotEmpty && outT.isEmpty;
+  }
+
   /// Rejects incomplete "ghost" sessions so UI does not show cached N/A rows.
   /// Requires display course name ([course_name] or [course_title]), [venue], [lecturer_name].
   static bool isValidActiveSession(Map<String, dynamic>? session) {
     if (session == null || session.isEmpty) return false;
-    if (session['active'] == false) return false;
+    final pendingCheckout = isPendingCheckoutSession(session);
+    if (session['active'] == false && !pendingCheckout) return false;
+    final status = session['status']?.toString().trim().toLowerCase() ?? '';
+    if (!pendingCheckout &&
+        (status == 'closed' || status == 'ended' || status == 'expired')) {
+      return false;
+    }
+    if (!pendingCheckout &&
+        (session['is_closed'] == true || session['closed'] == true)) {
+      return false;
+    }
+    if (!pendingCheckout &&
+        (_nonEmptyField(session['closed_at']) ||
+            _nonEmptyField(session['closed_time']))) {
+      return false;
+    }
+    final endedAt = _parseSessionDateTime(
+      session['end_time'] ?? session['ends_at'] ?? session['ended_at'],
+    );
+    if (!pendingCheckout &&
+        endedAt != null &&
+        !DateTime.now().isBefore(endedAt)) {
+      return false;
+    }
     final course = session['course_name'] ?? session['course_title'];
     if (!_nonEmptyField(course)) return false;
     if (!_nonEmptyField(session['venue'])) return false;
     if (!_nonEmptyField(session['lecturer_name'])) return false;
     return true;
+  }
+
+  static DateTime? _parseSessionDateTime(dynamic raw) {
+    if (raw == null) return null;
+    final t = raw.toString().trim();
+    if (t.isEmpty) return null;
+    try {
+      return DateTime.parse(t);
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<http.Response> get(String endpoint) async {

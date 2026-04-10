@@ -1034,6 +1034,10 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _handleSoftPrimaryAction() async {
+    if (_isCheckInCheckoutMode && _canCheckOut) {
+      await _submitCheckout();
+      return;
+    }
     if (_mode == AttendanceFlowMode.location) {
       await _runLocationOnlyMarkAndSubmit();
       return;
@@ -1052,6 +1056,7 @@ class _AttendancePageState extends State<AttendancePage> {
   String _softPrimaryActionLabel() {
     if (_isCheckInCheckoutMode) {
       if (_isCheckedOut) return 'Checked out';
+      if (_canCheckOut) return 'Check out';
       if (_isCheckedIn) return 'Checked in';
       return 'Check in';
     }
@@ -1141,90 +1146,79 @@ class _AttendancePageState extends State<AttendancePage> {
                     ),
                   ),
                   Expanded(
-                    child: SingleChildScrollView(
-                            padding: const EdgeInsets.only(top: 2, bottom: 28),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (!hasVenueCoords)
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      24,
-                                      0,
-                                      24,
-                                      12,
-                                    ),
-                                    child: Text(
-                                      'This session has no map coordinates yet. '
-                                      'Ask your lecturer to set a venue location.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Theme.of(context).colorScheme.error,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ),
-                                SoftLocationCheckInCard(
-                                  dateLabel: _formatSoftCardDate(ref),
-                                  countdownRemainingText: _remainingText,
-                                  venueLine: _softVenueLine(),
-                                  courseLine: _softCourseLine(),
-                                  statusWidget:
-                                      _buildSoftLocationStatusForCard(context),
-                                  onCheckIn: _handleSoftPrimaryAction,
-                                  checkInEnabled: _student != null &&
-                                      (!_isCheckInCheckoutMode
-                                          ? (!_alreadyMarkedForSession && !_sessionEnded)
-                                          : (!_isCheckedIn && !_sessionEnded)) &&
-                                      hasVenueCoords,
-                                  checkInBusy:
-                                      _checkingRange || _isSubmitting,
-                                  checkInLabel: _softPrimaryActionLabel(),
-                                  onCheckOut: _isCheckInCheckoutMode ? _submitCheckout : null,
-                                  checkOutEnabled: _student != null &&
-                                      _canCheckOut &&
-                                      hasVenueCoords,
-                                  checkOutBusy: _isCheckingOut,
-                                  checkOutLabel: _isCheckedOut ? 'Checked out' : 'Check out',
-                                  onHistory: null,
-                                  onRefreshLocation: null,
-                                  onScheduleInfo: null,
-                                  showQuickActions: false,
-                                ),
-                                if (_student == null)
-                                  Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Text(
-                                      'No student profile loaded. Log in again.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .error,
-                                      ),
-                                    ),
-                                  ),
-                                if (_error != null)
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      24,
-                                      10,
-                                      24,
-                                      0,
-                                    ),
-                                    child: Text(
-                                      _error!,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .error,
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!hasVenueCoords)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+                            child: Text(
+                              'This session has no map coordinates yet. '
+                              'Ask your lecturer to set a venue location.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                height: 1.35,
+                              ),
                             ),
                           ),
+                        Expanded(
+                          child: Center(
+                            child: SoftLocationCheckInCard(
+                              dateLabel: _formatSoftCardDate(ref),
+                              countdownRemainingText: _remainingText,
+                              venueLine: _softVenueLine(),
+                              courseLine: _softCourseLine(),
+                              statusWidget: _buildSoftLocationStatusForCard(context),
+                              onCheckIn: _handleSoftPrimaryAction,
+                              checkInEnabled: _student != null &&
+                                  hasVenueCoords &&
+                                  (_isCheckInCheckoutMode
+                                      ? (_isCheckedOut
+                                          ? false
+                                          : (_isCheckedIn
+                                              ? _canCheckOut
+                                              : !_sessionEnded))
+                                      : (!_alreadyMarkedForSession &&
+                                          !_sessionEnded)),
+                              checkInBusy:
+                                  _checkingRange || _isSubmitting || _isCheckingOut,
+                              checkInLabel: _softPrimaryActionLabel(),
+                              onCheckOut: null,
+                              checkOutEnabled: false,
+                              checkOutBusy: false,
+                              checkOutLabel: '',
+                              onHistory: null,
+                              onRefreshLocation: null,
+                              onScheduleInfo: null,
+                              showQuickActions: false,
+                            ),
+                          ),
+                        ),
+                        if (_student == null)
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(
+                              'No student profile loaded. Log in again.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                            child: Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),

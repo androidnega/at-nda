@@ -129,6 +129,8 @@ class SessionController extends Controller
                     $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
                 }
 
+                $sessions = ActiveSessionListBuilder::mergePendingCheckoutSessions($sessions, $auth, (int) $course->id);
+
                 Log::info('api.v1.ACTIVE_SESSIONS', ['count' => $sessions->count(), 'course_id' => $course->id, 'now' => $now]);
 
                 $body = array_merge([
@@ -152,6 +154,8 @@ class SessionController extends Controller
             foreach ($sessions as $s) {
                 $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
             }
+
+            $sessions = ActiveSessionListBuilder::mergePendingCheckoutSessions($sessions, $auth, null);
 
             Log::info('api.v1.ACTIVE_SESSIONS', ['count' => $sessions->count(), 'now' => $now]);
 

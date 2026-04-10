@@ -321,9 +321,6 @@ class AttendanceController extends Controller
         if (! $session->isCheckInCheckoutMode()) {
             return response()->json(['message' => 'Checkout is available only in check-in/check-out mode'], 422);
         }
-        if (! $session->checkout_enabled) {
-            return response()->json(['message' => 'Checkout is not enabled yet'], 422);
-        }
 
         $course = $session->course ?? Course::find($session->course_id);
         if (! $course) {
@@ -339,28 +336,18 @@ class AttendanceController extends Controller
             ->where('attendance_session_id', $session->id)
             ->first();
 
-        $now = now();
-        if (! $row) {
-            $row = Attendance::create([
-                'student_id' => $student->id,
-                'course_id' => $course->id,
-                'attendance_session_id' => $session->id,
-                'attendance_week_id' => $session->attendance_week_id,
-                'attendance_time' => $now,
-                'check_out_time' => $now,
-                'status' => 'absent',
-                'synced' => true,
-                'lat' => $lat,
-                'lng' => $lng,
-                'device_ip' => $request->input('device_ip'),
-                'device_id' => $request->input('device_id'),
-            ]);
+        if (! $row || $row->check_in_time === null) {
             return response()->json([
-                'message' => 'Checkout recorded. No check-in found; marked absent.',
-                'status' => 'success',
-                'attendance_status' => $row->status,
-            ]);
+                'message' => 'Check in before checking out.',
+            ], 422);
         }
+
+        $checkoutAllowed = $session->checkout_enabled || ! $session->isValid();
+        if (! $checkoutAllowed) {
+            return response()->json(['message' => 'Checkout is not enabled yet'], 422);
+        }
+
+        $now = now();
 
         if ($row->check_out_time !== null) {
             return response()->json([

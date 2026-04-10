@@ -75,6 +75,8 @@ class SessionController extends Controller
                     $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
                 }
 
+                $sessions = ActiveSessionListBuilder::mergePendingCheckoutSessions($sessions, $student, (int) $course->id);
+
                 Log::info('ACTIVE SESSIONS:', ['count' => $sessions->count(), 'course_id' => $course->id, 'now' => $now]);
 
                 return response()->json($this->sessionsListPayload($sessions, $student, $missedExtras));
@@ -94,6 +96,8 @@ class SessionController extends Controller
             foreach ($sessions as $s) {
                 $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
             }
+
+            $sessions = ActiveSessionListBuilder::mergePendingCheckoutSessions($sessions, $student, null);
 
             Log::info('ACTIVE SESSIONS:', ['count' => $sessions->count(), 'now' => $now]);
 
