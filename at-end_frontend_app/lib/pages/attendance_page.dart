@@ -53,6 +53,7 @@ class _AttendancePageState extends State<AttendancePage> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _isCheckingOut = false;
+  bool _autoCheckoutScheduled = false;
   String? _error;
   bool _showSuccessOverlay = false;
   String _successSubtitle = 'You have successfully marked attendance';
@@ -185,7 +186,12 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   DateTime? _parseSessionEndTime(Map<String, dynamic> session) {
-    final raw = session['end_time'] ?? session['ends_at'];
+    final raw =
+        session['end_time'] ??
+        session['ends_at'] ??
+        session['closed_at'] ??
+        session['closed_time'] ??
+        session['expected_end_time'];
     if (raw != null) {
       try {
         return DateTime.parse(raw.toString());
@@ -233,11 +239,23 @@ class _AttendancePageState extends State<AttendancePage> {
       });
       _countTimer?.cancel();
       _countTimer = null;
+      _scheduleAutoCheckoutIfEligible();
       return;
     }
     setState(() {
       _sessionEnded = false;
       _remainingText = _formatDurationRemaining(difference);
+    });
+  }
+
+  void _scheduleAutoCheckoutIfEligible() {
+    if (_autoCheckoutScheduled || !_canCheckOut || _isCheckingOut) return;
+    _autoCheckoutScheduled = true;
+    Future<void>.delayed(const Duration(minutes: 1), () async {
+      if (!mounted) return;
+      if (_canCheckOut && !_isCheckingOut) {
+        await _submitCheckout();
+      }
     });
   }
 

@@ -160,7 +160,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
         ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
     final raw = isCheckInCheckout
-        ? (session['end_time'] ?? session['ends_at'] ?? session['expected_end_time'])
+        ? (session['end_time'] ??
+            session['ends_at'] ??
+            session['closed_at'] ??
+            session['closed_time'] ??
+            session['expected_end_time'])
         : (session['end_time'] ?? session['ends_at']);
     if (raw != null) {
       try {
@@ -1025,7 +1029,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Sessions not yet marked — marked ones are hidden from the home list.
   List<Map<String, dynamic>> get _unmarkedSessions =>
-      _activeSessions.where((s) => !_isSessionMarked(s)).toList();
+      _activeSessions.where((s) {
+        if (_isSessionMarked(s)) return false;
+        if (!_sessionEndedFor(s)) return true;
+        // Closed/ended check-in-checkout sessions remain actionable only for
+        // students who checked in but have not checked out yet.
+        return _isCheckInCheckoutSession(s) && _hasCheckedIn(s) && !_hasCheckedOut(s);
+      }).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -1038,6 +1048,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final hero = _heroDashboardCopy();
     final um = _unmarkedSessions;
+    final liveSessionCount = um.where((s) => !_sessionEndedFor(s)).length;
     final primaryActionLabel = (!s.isClassRep &&
             um.isNotEmpty &&
             _isCheckInCheckoutSession(um.first))
@@ -1094,7 +1105,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 onSeeAllClasses: _openTimetable,
                 onSlotTap: _onTimetableSlotTap,
                 statsClassesToday: _todayTimetable.length,
-                statsLiveSessions: um.length,
+                statsLiveSessions: liveSessionCount,
                 statsMarkedToday: _markedSessionIdsToday.length,
                 dashboardClockLabel: focusClock.label,
                 dashboardClockSegments: focusClock.parts,
@@ -1156,7 +1167,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     onSeeAllClasses: _openTimetable,
                     onSlotTap: _onTimetableSlotTap,
                     statsClassesToday: _todayTimetable.length,
-                    statsLiveSessions: um.length,
+                    statsLiveSessions: liveSessionCount,
                     statsMarkedToday: _markedSessionIdsToday.length,
                     dashboardClockLabel: focusClock.label,
                     dashboardClockSegments: focusClock.parts,
@@ -1219,7 +1230,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         onSeeAllClasses: _openTimetable,
                         onSlotTap: _onTimetableSlotTap,
                         statsClassesToday: _todayTimetable.length,
-                        statsLiveSessions: um.length,
+                        statsLiveSessions: liveSessionCount,
                         statsMarkedToday: _markedSessionIdsToday.length,
                         dashboardClockLabel: focusClock.label,
                         dashboardClockSegments: focusClock.parts,
@@ -1282,7 +1293,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             onSeeAllClasses: _openTimetable,
                             onSlotTap: _onTimetableSlotTap,
                             statsClassesToday: _todayTimetable.length,
-                            statsLiveSessions: um.length,
+                            statsLiveSessions: liveSessionCount,
                             statsMarkedToday: _markedSessionIdsToday.length,
                             dashboardClockLabel: focusClock.label,
                             dashboardClockSegments: focusClock.parts,
@@ -1342,7 +1353,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 onSeeAllClasses: _openTimetable,
                 onSlotTap: _onTimetableSlotTap,
                 statsClassesToday: _todayTimetable.length,
-                statsLiveSessions: um.length,
+                statsLiveSessions: liveSessionCount,
                 statsMarkedToday: _markedSessionIdsToday.length,
                 dashboardClockLabel: focusClock.label,
                 dashboardClockSegments: focusClock.parts,
