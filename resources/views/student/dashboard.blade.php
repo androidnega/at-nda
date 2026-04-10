@@ -60,6 +60,9 @@
 @endpush
 
 @section('content')
+@php
+    $isVioletTheme = ($studentDashboardTheme ?? 'classic') === 'violet_calendar';
+@endphp
 @if (session('success'))
     <div class="mb-4 p-3 sm:p-4 bg-amber-50 text-amber-900 rounded-xl text-sm border border-amber-100">{{ session('success') }}</div>
 @endif
@@ -93,9 +96,9 @@
                         default => 'Venue',
                     };
                 @endphp
-                <li class="rounded-2xl bg-white p-4 sm:p-5 border border-slate-200 flex flex-col gap-4 touch-manipulation">
+                <li class="rounded-2xl {{ $isVioletTheme ? 'bg-indigo-50/90 border-indigo-200' : 'bg-white border-slate-200' }} p-4 sm:p-5 border flex flex-col gap-4 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <span class="shrink-0 w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center">
+                        <span class="shrink-0 w-10 h-10 rounded-xl {{ $isVioletTheme ? 'bg-indigo-600' : 'bg-amber-600' }} text-white flex items-center justify-center">
                             <i class="fas fa-clipboard-check text-base" aria-hidden="true"></i>
                         </span>
                         <div class="min-w-0 flex-1">
@@ -118,7 +121,7 @@
                         @if($isCheckMode)
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <button type="button"
-                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedIn ? 'bg-emerald-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700' }}"
+                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedIn ? 'bg-emerald-400 cursor-not-allowed' : ($isVioletTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700') }}"
                                         data-action="checkin"
                                         data-course-id="{{ $course->id }}"
                                         data-session-id="{{ $session->id }}"
@@ -127,7 +130,7 @@
                                     {{ $checkedIn ? 'Checked in' : 'Check-in' }}
                                 </button>
                                 <button type="button"
-                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedOut ? 'bg-rose-300 cursor-not-allowed' : (($session->checkout_enabled || !$checkedIn) ? 'bg-rose-500 hover:bg-rose-600' : 'bg-rose-300 cursor-not-allowed') }}"
+                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedOut ? 'bg-rose-300 cursor-not-allowed' : (($session->checkout_enabled || !$checkedIn) ? ($isVioletTheme ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-rose-500 hover:bg-rose-600') : 'bg-rose-300 cursor-not-allowed') }}"
                                         data-action="checkout"
                                         data-course-id="{{ $course->id }}"
                                         data-session-id="{{ $session->id }}"
@@ -145,7 +148,7 @@
                             @endif
                         @else
                             <a href="{{ route('web.attendance.form', $course) }}"
-                               class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white px-4 py-3.5 text-sm font-semibold transition-colors">
+                               class="inline-flex w-full items-center justify-center gap-2 rounded-xl {{ $isVioletTheme ? 'bg-indigo-700 hover:bg-indigo-800' : 'bg-amber-700 hover:bg-amber-800' }} text-white px-4 py-3.5 text-sm font-semibold transition-colors">
                                 <i class="fas fa-arrow-right-to-bracket"></i>
                                 Mark attendance
                             </a>
@@ -168,17 +171,27 @@
         $greeting = collect(['Hello', 'Yo'])->random();
         $greetingPunct = $greeting === 'Yo' ? '!' : '';
     @endphp
-    <div class="rounded-2xl bg-slate-100 border border-slate-200 p-5 sm:p-6">
-        <p class="text-amber-700 text-xs font-semibold uppercase tracking-wider">Student</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 text-slate-900 truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
-        <p class="text-slate-600 text-sm mt-1 font-mono">{{ $student->index_number }}</p>
+    <div class="rounded-2xl {{ $isVioletTheme ? 'bg-gradient-to-br from-indigo-700 to-indigo-900 border-indigo-800' : 'bg-slate-100 border-slate-200' }} border p-5 sm:p-6">
+        <p class="{{ $isVioletTheme ? 'text-indigo-100' : 'text-amber-700' }} text-xs font-semibold uppercase tracking-wider">Student</p>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 {{ $isVioletTheme ? 'text-white' : 'text-slate-900' }} truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
+        <p class="{{ $isVioletTheme ? 'text-indigo-100/90' : 'text-slate-600' }} text-sm mt-1 font-mono">{{ $student->index_number }}</p>
         @if($student->department?->name)
-            <p class="text-slate-600 text-sm mt-2 flex items-center gap-2">
-                <i class="fas fa-building-columns text-amber-600"></i>
+            <p class="{{ $isVioletTheme ? 'text-indigo-100' : 'text-slate-600' }} text-sm mt-2 flex items-center gap-2">
+                <i class="fas fa-building-columns {{ $isVioletTheme ? 'text-indigo-200' : 'text-amber-600' }}"></i>
                 {{ $student->department->name }}
             </p>
         @endif
     </div>
+
+    @if($isVioletTheme)
+    <div class="rounded-2xl bg-white border border-indigo-100 p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-bold text-slate-900">Calendar view</h2>
+            <a href="{{ route('student.attendance.history') }}" class="text-sm text-indigo-700 font-semibold hover:underline">Open history</a>
+        </div>
+        <p class="text-sm text-slate-600">This theme mirrors the mobile violet calendar layout for timetable-focused usage.</p>
+    </div>
+    @endif
 
     <div class="grid grid-cols-2 gap-3 sm:gap-4">
         <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">

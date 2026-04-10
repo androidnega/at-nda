@@ -144,6 +144,10 @@ class StudentDashboardController extends Controller
         $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student)
             ->filter(fn (array $row) => ! $row['already_marked'])
             ->values();
+        $settings = SystemSetting::get();
+        $studentDashboardTheme = SystemSetting::hasStudentDashboardThemeColumn()
+            ? (string) ($settings->student_dashboard_theme ?: 'classic')
+            : 'classic';
 
         $cancelledWeeks = collect();
         if ($student->class_id) {
@@ -161,7 +165,8 @@ class StudentDashboardController extends Controller
             'totalPresent',
             'totalWeeks',
             'liveAttendanceSessions',
-            'cancelledWeeks'
+            'cancelledWeeks',
+            'studentDashboardTheme'
         ));
     }
 

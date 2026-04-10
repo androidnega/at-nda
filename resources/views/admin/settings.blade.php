@@ -122,6 +122,7 @@
                     <option value="pastel_analytics" {{ ($settings->rep_dashboard_theme ?? '') === 'pastel_analytics' ? 'selected' : '' }}>Pastel analytics</option>
                     <option value="noir_task" {{ ($settings->rep_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                     <option value="team_reach" {{ ($settings->rep_dashboard_theme ?? '') === 'team_reach' ? 'selected' : '' }}>Team Reach (new)</option>
+                    <option value="violet_calendar" {{ ($settings->rep_dashboard_theme ?? '') === 'violet_calendar' ? 'selected' : '' }}>Violet calendar (new)</option>
                 </select>
             </div>
 
@@ -133,6 +134,7 @@
                     <option value="pastel_profile" {{ ($settings->student_dashboard_theme ?? '') === 'pastel_profile' ? 'selected' : '' }}>Pastel profile</option>
                     <option value="noir_task" {{ ($settings->student_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                     <option value="team_reach" {{ ($settings->student_dashboard_theme ?? '') === 'team_reach' ? 'selected' : '' }}>Team Reach (new)</option>
+                    <option value="violet_calendar" {{ ($settings->student_dashboard_theme ?? '') === 'violet_calendar' ? 'selected' : '' }}>Violet calendar (new)</option>
                 </select>
             </div>
 
