@@ -258,6 +258,10 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::middleware('admin.only')->prefix('communication-logs')->name('communication-logs.')->group(function () {
             Route::get('/sms', [AdminCommunicationLogController::class, 'sms'])->name('sms.index');
             Route::get('/calls', [AdminCommunicationLogController::class, 'calls'])->name('calls.index');
+            Route::get('/whatsapp', [AdminCommunicationLogController::class, 'whatsapp'])->name('whatsapp.index');
+            Route::get('/whatsapp/export.csv', [AdminCommunicationLogController::class, 'exportWhatsappCsv'])->name('whatsapp.export-csv');
+            Route::get('/whatsapp/download.zip', [AdminCommunicationLogController::class, 'downloadWhatsappZip'])->name('whatsapp.download-zip');
+            Route::delete('/whatsapp', [AdminCommunicationLogController::class, 'purgeWhatsapp'])->name('whatsapp.purge');
         });
         Route::resource('venues', VenueController::class)->except(['show']);
         Route::middleware('admin.only')->prefix('staff-accounts')->name('staff-accounts.')->group(function () {

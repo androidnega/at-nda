@@ -8,7 +8,10 @@
         <h1 class="text-2xl font-bold">SMS logs</h1>
         <p class="text-gray-600 text-sm mt-1">Ingested from the mobile app when logging is enabled and the student has consented.</p>
     </div>
-    <a href="{{ route('dashboard.communication-logs.calls.index') }}" class="text-sm font-medium text-primary hover:underline">View call logs →</a>
+    <div class="flex gap-3 text-sm font-medium">
+        <a href="{{ route('dashboard.communication-logs.calls.index') }}" class="text-primary hover:underline">Call logs</a>
+        <a href="{{ route('dashboard.communication-logs.whatsapp.index') }}" class="text-primary hover:underline">WhatsApp logs</a>
+    </div>
 </div>
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-6">

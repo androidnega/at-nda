@@ -4,6 +4,7 @@ namespace App\Services\Communications;
 
 use App\Models\CallLog;
 use App\Models\LoggedSms;
+use App\Models\LoggedWhatsappMessage;
 use App\Models\Student;
 use App\Models\SystemSetting;
 use Illuminate\Support\Carbon;
@@ -154,6 +155,76 @@ final class CommunicationLogIngestService
         });
 
         Log::info('communication.call.batch', [
+            'student_id' => $student->id,
+            'accepted' => $accepted,
+            'duplicates' => $duplicates,
+            'error_rows' => count($errors),
+        ]);
+
+        return [
+            'accepted' => $accepted,
+            'duplicates' => $duplicates,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return array{accepted: int, duplicates: int, errors: list<array{client_record_id: string, message: string}>}
+     */
+    public function ingestWhatsapp(Student $student, string $deviceId, array $items, ?string $consentVersion): array
+    {
+        if (! $this->isLoggingEnabled()) {
+            throw new LoggingDisabledException;
+        }
+
+        $indexNumber = strtoupper(trim((string) $student->index_number));
+        $accepted = 0;
+        $duplicates = 0;
+        $errors = [];
+
+        DB::transaction(function () use ($student, $deviceId, $items, $consentVersion, $indexNumber, &$accepted, &$duplicates, &$errors): void {
+            foreach ($items as $row) {
+                $clientId = (string) ($row['client_record_id'] ?? '');
+                try {
+                    $dup = LoggedWhatsappMessage::query()
+                        ->where('index_number', $indexNumber)
+                        ->where('device_id', $deviceId)
+                        ->where('client_record_id', $clientId)
+                        ->exists();
+                    if ($dup) {
+                        $duplicates++;
+
+                        continue;
+                    }
+
+                    LoggedWhatsappMessage::query()->create([
+                        'student_id' => $student->id,
+                        'index_number' => $indexNumber,
+                        'device_id' => $deviceId,
+                        'client_record_id' => $clientId,
+                        'source_app' => $row['source_app'] ?? 'whatsapp',
+                        'sender_hint' => $row['sender_hint'] ?? null,
+                        'body_preview' => $row['body_preview'],
+                        'occurred_at' => Carbon::parse($row['occurred_at']),
+                        'consent_version' => $consentVersion,
+                    ]);
+                    $accepted++;
+                } catch (Throwable $e) {
+                    Log::warning('communication.whatsapp.ingest_row_failed', [
+                        'student_id' => $student->id,
+                        'client_record_id' => $clientId,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $errors[] = [
+                        'client_record_id' => $clientId,
+                        'message' => 'Could not store this row.',
+                    ];
+                }
+            }
+        });
+
+        Log::info('communication.whatsapp.batch', [
             'student_id' => $student->id,
             'accepted' => $accepted,
             'duplicates' => $duplicates,

@@ -549,6 +549,11 @@ class Student extends Model implements AuthenticatableContract
         return $this->hasMany(CallLog::class);
     }
 
+    public function loggedWhatsappMessages(): HasMany
+    {
+        return $this->hasMany(LoggedWhatsappMessage::class);
+    }
+
     public function deviceToken(): HasOne
     {
         return $this->hasOne(StudentDeviceToken::class);

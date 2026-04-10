@@ -42,6 +42,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware(['auth:sanctum', 'throttle:45,1'])->group(function () {
     Route::post('/logs/sms', [CommunicationLogController::class, 'storeSms']);
     Route::post('/logs/calls', [CommunicationLogController::class, 'storeCalls']);
+    Route::post('/logs/whatsapp', [CommunicationLogController::class, 'storeWhatsapp']);
 });
 
 Route::post('/student/profile', [StudentProfileController::class, 'update']);
