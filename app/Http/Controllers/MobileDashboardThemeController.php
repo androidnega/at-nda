@@ -12,9 +12,9 @@ use Illuminate\Support\Facades\Cache;
  */
 class MobileDashboardThemeController extends Controller
 {
-    private const REP_THEMES = ['classic', 'pastel_analytics', 'noir_task', 'team_reach', 'violet_calendar'];
+    private const REP_THEMES = ['classic', 'pastel_analytics', 'noir_task', 'team_reach', 'violet_calendar', 'midnight_control'];
 
-    private const STUDENT_THEMES = ['classic', 'pastel_profile', 'noir_task', 'team_reach', 'violet_calendar'];
+    private const STUDENT_THEMES = ['classic', 'pastel_profile', 'noir_task', 'team_reach', 'violet_calendar', 'midnight_control'];
 
     public function show(): JsonResponse
     {

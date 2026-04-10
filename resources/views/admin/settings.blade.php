@@ -123,6 +123,7 @@
                     <option value="noir_task" {{ ($settings->rep_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                     <option value="team_reach" {{ ($settings->rep_dashboard_theme ?? '') === 'team_reach' ? 'selected' : '' }}>Team Reach (new)</option>
                     <option value="violet_calendar" {{ ($settings->rep_dashboard_theme ?? '') === 'violet_calendar' ? 'selected' : '' }}>Violet calendar (new)</option>
+                    <option value="midnight_control" {{ ($settings->rep_dashboard_theme ?? '') === 'midnight_control' ? 'selected' : '' }}>Midnight control (new)</option>
                 </select>
             </div>
 
@@ -135,6 +136,7 @@
                     <option value="noir_task" {{ ($settings->student_dashboard_theme ?? '') === 'noir_task' ? 'selected' : '' }}>Noir task (new)</option>
                     <option value="team_reach" {{ ($settings->student_dashboard_theme ?? '') === 'team_reach' ? 'selected' : '' }}>Team Reach (new)</option>
                     <option value="violet_calendar" {{ ($settings->student_dashboard_theme ?? '') === 'violet_calendar' ? 'selected' : '' }}>Violet calendar (new)</option>
+                    <option value="midnight_control" {{ ($settings->student_dashboard_theme ?? '') === 'midnight_control' ? 'selected' : '' }}>Midnight control (new)</option>
                 </select>
             </div>
 

@@ -31,8 +31,8 @@ class SettingsController extends Controller
             'instant_mode_type' => 'nullable|in:location,location_qr,wifi',
         ];
         if ($request->session()->has('admin_id')) {
-            $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task,team_reach,violet_calendar';
-            $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task,team_reach,violet_calendar';
+            $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task,team_reach,violet_calendar,midnight_control';
+            $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task,team_reach,violet_calendar,midnight_control';
             $rules['mobile_app_theme_seed'] = 'nullable|in:teal,blue,indigo,emerald,rose,amber';
         }
         $validated = $request->validate($rules);

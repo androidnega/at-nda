@@ -119,6 +119,7 @@
 @section('content')
 @php
     $isVioletTheme = ($studentDashboardTheme ?? 'classic') === 'violet_calendar';
+    $isMidnightTheme = ($studentDashboardTheme ?? 'classic') === 'midnight_control';
 @endphp
 @if (session('success'))
     <div class="mb-4 p-3 sm:p-4 bg-amber-50 text-amber-900 rounded-xl text-sm border border-amber-100">{{ session('success') }}</div>
@@ -153,23 +154,23 @@
                         default => 'Venue',
                     };
                 @endphp
-                <li class="rounded-2xl {{ $isVioletTheme ? 'bg-indigo-50/90 border-indigo-200' : 'bg-white border-slate-200' }} p-4 sm:p-5 border flex flex-col gap-4 touch-manipulation">
+                <li class="rounded-2xl {{ $isVioletTheme ? 'bg-indigo-50/90 border-indigo-200' : ($isMidnightTheme ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200') }} p-4 sm:p-5 border flex flex-col gap-4 touch-manipulation">
                     <div class="flex items-start gap-3">
                         <span class="shrink-0 w-10 h-10 rounded-xl {{ $isVioletTheme ? 'bg-indigo-600' : 'bg-amber-600' }} text-white flex items-center justify-center">
                             <i class="fas fa-clipboard-check text-base" aria-hidden="true"></i>
                         </span>
                         <div class="min-w-0 flex-1">
-                            <p class="font-semibold text-slate-900 text-[15px] leading-snug">{{ $course->course_name }}</p>
+                            <p class="font-semibold {{ $isMidnightTheme ? 'text-slate-100' : 'text-slate-900' }} text-[15px] leading-snug">{{ $course->course_name }}</p>
                             @if($course->course_code)
-                                <p class="text-xs text-slate-500 font-mono mt-1">{{ $course->course_code }}</p>
+                                <p class="text-xs {{ $isMidnightTheme ? 'text-slate-400' : 'text-slate-500' }} font-mono mt-1">{{ $course->course_code }}</p>
                             @endif
-                            <p class="text-[11px] text-slate-600 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <p class="text-[11px] {{ $isMidnightTheme ? 'text-slate-300' : 'text-slate-600' }} mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <span>Week {{ $session->attendanceWeek?->week_number ?? '—' }}</span>
                                 <span class="text-slate-300" aria-hidden="true">·</span>
-                                <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ $modeLabel }}</span>
+                                <span class="inline-flex items-center gap-1 rounded-lg {{ $isMidnightTheme ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-700' }} px-2 py-0.5 text-[11px] font-medium">{{ $modeLabel }}</span>
                                 @if($session->expires_at)
                                     <span class="text-slate-400">·</span>
-                                    <span class="text-amber-900 font-medium">Closes {{ $session->expires_at->timezone(config('app.timezone'))->format('g:i A') }}</span>
+                                    <span class="{{ $isMidnightTheme ? 'text-cyan-300' : 'text-amber-900' }} font-medium">Closes {{ $session->expires_at->timezone(config('app.timezone'))->format('g:i A') }}</span>
                                 @endif
                             </p>
                         </div>
@@ -205,7 +206,7 @@
                             @endif
                         @else
                             <a href="{{ route('web.attendance.form', $course) }}"
-                               class="inline-flex w-full items-center justify-center gap-2 rounded-xl {{ $isVioletTheme ? 'bg-indigo-700 hover:bg-indigo-800' : 'bg-amber-700 hover:bg-amber-800' }} text-white px-4 py-3.5 text-sm font-semibold transition-colors">
+                               class="inline-flex w-full items-center justify-center gap-2 rounded-xl {{ $isVioletTheme ? 'bg-indigo-700 hover:bg-indigo-800' : ($isMidnightTheme ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-900' : 'bg-amber-700 hover:bg-amber-800 text-white') }} px-4 py-3.5 text-sm font-semibold transition-colors">
                                 <i class="fas fa-arrow-right-to-bracket"></i>
                                 Mark attendance
                             </a>
@@ -228,13 +229,13 @@
         $greeting = collect(['Hello', 'Yo'])->random();
         $greetingPunct = $greeting === 'Yo' ? '!' : '';
     @endphp
-    <div class="rounded-2xl {{ $isVioletTheme ? 'bg-gradient-to-br from-indigo-700 to-indigo-900 border-indigo-800' : 'bg-slate-100 border-slate-200' }} border p-5 sm:p-6">
-        <p class="{{ $isVioletTheme ? 'text-indigo-100' : 'text-amber-700' }} text-xs font-semibold uppercase tracking-wider">Student</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 {{ $isVioletTheme ? 'text-white' : 'text-slate-900' }} truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
-        <p class="{{ $isVioletTheme ? 'text-indigo-100/90' : 'text-slate-600' }} text-sm mt-1 font-mono">{{ $student->index_number }}</p>
+    <div class="rounded-2xl {{ $isVioletTheme ? 'bg-gradient-to-br from-indigo-700 to-indigo-900 border-indigo-800' : ($isMidnightTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200') }} border p-5 sm:p-6">
+        <p class="{{ $isVioletTheme ? 'text-indigo-100' : ($isMidnightTheme ? 'text-cyan-300' : 'text-amber-700') }} text-xs font-semibold uppercase tracking-wider">Student</p>
+        <h1 class="text-xl sm:text-2xl font-bold mt-1 {{ ($isVioletTheme || $isMidnightTheme) ? 'text-white' : 'text-slate-900' }} truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
+        <p class="{{ $isVioletTheme ? 'text-indigo-100/90' : ($isMidnightTheme ? 'text-slate-300' : 'text-slate-600') }} text-sm mt-1 font-mono">{{ $student->index_number }}</p>
         @if($student->department?->name)
-            <p class="{{ $isVioletTheme ? 'text-indigo-100' : 'text-slate-600' }} text-sm mt-2 flex items-center gap-2">
-                <i class="fas fa-building-columns {{ $isVioletTheme ? 'text-indigo-200' : 'text-amber-600' }}"></i>
+            <p class="{{ $isVioletTheme ? 'text-indigo-100' : ($isMidnightTheme ? 'text-slate-300' : 'text-slate-600') }} text-sm mt-2 flex items-center gap-2">
+                <i class="fas fa-building-columns {{ $isVioletTheme ? 'text-indigo-200' : ($isMidnightTheme ? 'text-cyan-300' : 'text-amber-600') }}"></i>
                 {{ $student->department->name }}
             </p>
         @endif
