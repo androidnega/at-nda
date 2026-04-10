@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/lecturer/dashboard', [LecturerMobileApiController::class, 'dashboard']);
     Route::get('/lecturer/courses/{course}', [LecturerMobileApiController::class, 'courseDetail'])
         ->whereNumber('course');
+    Route::post('/lecturer/messages/send', [LecturerMobileApiController::class, 'sendDirectMessage']);
 });
 
 Route::middleware(['auth:sanctum', 'throttle:45,1'])->group(function () {

@@ -57,6 +57,64 @@ class FcmNotificationService
     }
 
     /**
+     * Send a direct lecturer message to specific students.
+     *
+     * @param  array<int, int>  $studentIds
+     */
+    public function sendDirectMessageToStudents(array $studentIds, string $title, string $body): void
+    {
+        $studentIds = array_values(array_unique(array_map('intval', $studentIds)));
+        if ($studentIds === []) {
+            return;
+        }
+
+        $key = config('services.fcm.server_key');
+        if (empty($key)) {
+            Log::debug('FCM: FCM_SERVER_KEY not set; skipping lecturer direct push');
+
+            return;
+        }
+
+        $tokens = StudentDeviceToken::query()
+            ->whereIn('student_id', $studentIds)
+            ->pluck('firebase_token')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($tokens === []) {
+            return;
+        }
+
+        $chunks = array_chunk($tokens, 500);
+        foreach ($chunks as $chunk) {
+            $response = Http::withHeaders([
+                'Authorization' => 'key='.$key,
+                'Content-Type' => 'application/json',
+            ])->post('https://fcm.googleapis.com/fcm/send', [
+                'registration_ids' => $chunk,
+                'priority' => 'high',
+                'content_available' => true,
+                'data' => [
+                    'kind' => 'lecturer_direct_message',
+                ],
+                'notification' => [
+                    'title' => $title,
+                    'body' => $body,
+                ],
+            ]);
+
+            if (! $response->successful()) {
+                Log::warning('FCM direct lecturer batch failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+            }
+        }
+    }
+
+    /**
      * Notify devices in affected classes that attendance data was reset (poll settings or resync).
      * Data payload is string-only (FCM legacy HTTP API requirement).
      *

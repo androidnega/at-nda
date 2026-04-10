@@ -1,12 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../services/api_service.dart';
-import '../theme/flat_dashboard.dart';
+import '../services/offline_service.dart';
+import '../services/theme_service.dart';
+import '../utils/app_selectable_scope.dart';
 import '../widgets/attendance_trend_chart.dart';
 import '../widgets/modern_pull_to_refresh.dart';
 import 'lecturer_class_detail_page.dart';
+import 'login_page.dart';
 
 /// Lecturer analytics home (Bearer token from lecturer API login).
 class LecturerDashboardPage extends StatefulWidget {
@@ -19,6 +23,7 @@ class LecturerDashboardPage extends StatefulWidget {
 class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
   bool _loading = true;
   String? _error;
+  bool _sendingMessage = false;
   String _name = '';
   int _totalClasses = 0;
   double _avgAttendance = 0;
@@ -27,11 +32,25 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
   List<Map<String, dynamic>> _classes = [];
   List<Map<String, dynamic>> _trend = [];
   Map<String, dynamic> _insights = {};
+  int? _selectedCourseId;
+  final TextEditingController _messageTitleController = TextEditingController(
+    text: 'Notice from lecturer',
+  );
+  final TextEditingController _messageBodyController = TextEditingController();
+  final TextEditingController _studentIndexController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _messageTitleController.dispose();
+    _messageBodyController.dispose();
+    _studentIndexController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -51,6 +70,22 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
         final classes = d['classes'];
         final trend = d['attendance_trend'];
         final ins = d['insights'];
+        final parsedClasses =
+            classes is List
+                ? classes
+                    .map((e) => Map<String, dynamic>.from(e as Map))
+                    .toList()
+                : <Map<String, dynamic>>[];
+        int? selectedCourse = _selectedCourseId;
+        if (parsedClasses.isNotEmpty) {
+          final ids =
+              parsedClasses.map(_courseIdFromClass).whereType<int>().toSet();
+          if (selectedCourse == null || !ids.contains(selectedCourse)) {
+            selectedCourse = _courseIdFromClass(parsedClasses.first);
+          }
+        } else {
+          selectedCourse = null;
+        }
         if (!mounted) return;
         setState(() {
           _name = d['lecturer_name']?.toString() ?? 'Lecturer';
@@ -58,13 +93,15 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
           _avgAttendance = _toDouble(d['avg_attendance_pct']) ?? 0;
           _atRisk = _toInt(d['at_risk_count']) ?? 0;
           _activeSessions = _toInt(d['active_sessions']) ?? 0;
-          _classes = classes is List
-              ? classes.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-              : [];
-          _trend = trend is List
-              ? trend.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-              : [];
+          _classes = parsedClasses;
+          _trend =
+              trend is List
+                  ? trend
+                      .map((e) => Map<String, dynamic>.from(e as Map))
+                      .toList()
+                  : [];
           _insights = ins is Map ? Map<String, dynamic>.from(ins) : {};
+          _selectedCourseId = selectedCourse;
           _loading = false;
         });
       } else {
@@ -96,28 +133,510 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
     return double.tryParse(v?.toString() ?? '');
   }
 
-  Widget _statCard(
+  int? _courseIdFromClass(Map<String, dynamic> c) {
+    final id = c['course_id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  String _courseLabel(Map<String, dynamic> c) {
+    final name = c['course_name']?.toString().trim() ?? '';
+    final code = c['course_code']?.toString().trim() ?? '';
+    if (name.isNotEmpty && code.isNotEmpty) return '$code · $name';
+    if (name.isNotEmpty) return name;
+    if (code.isNotEmpty) return code;
+    return 'Course';
+  }
+
+  Future<void> _toggleThemeMode() async {
+    final current = ThemeService.modeNotifier.value;
+    final platformDark =
+        MediaQuery.of(context).platformBrightness == Brightness.dark;
+    final isDarkNow =
+        current == ThemeMode.dark ||
+        (current == ThemeMode.system && platformDark);
+    await ThemeService.setTheme(isDarkNow ? ThemeMode.light : ThemeMode.dark);
+  }
+
+  Future<void> _logout() async {
+    await OfflineService.clearCurrentStudent();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => appSelectableScope(const LoginPage())),
+      (_) => false,
+    );
+  }
+
+  Future<void> _confirmLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Log out'),
+            content: const Text('Sign out from this lecturer account now?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Log out'),
+              ),
+            ],
+          ),
+    );
+    if (ok == true) {
+      await _logout();
+    }
+  }
+
+  void _showSnack(String text, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
+      ),
+    );
+  }
+
+  Future<void> _sendDirectMessage() async {
+    final courseId = _selectedCourseId;
+    final title = _messageTitleController.text.trim();
+    final body = _messageBodyController.text.trim();
+    final target = _studentIndexController.text.trim();
+
+    if (courseId == null || courseId <= 0) {
+      _showSnack('Select a course first.', error: true);
+      return;
+    }
+    if (title.isEmpty || body.isEmpty) {
+      _showSnack('Add a title and message body.', error: true);
+      return;
+    }
+
+    setState(() => _sendingMessage = true);
+    try {
+      final res = await ApiService.lecturerSendDirectMessage(
+        courseId: courseId,
+        title: title,
+        body: body,
+        studentIndexNumber: target.isEmpty ? null : target,
+      );
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(res.body);
+      } catch (_) {}
+
+      final ok =
+          res.statusCode >= 200 &&
+          res.statusCode < 300 &&
+          decoded is Map &&
+          decoded['success'] == true;
+      if (!ok) {
+        final backend = decoded is Map ? decoded['message']?.toString() : null;
+        final msg =
+            (backend != null && backend.trim().isNotEmpty)
+                ? backend.trim()
+                : ApiService.messageFromHttpResponse(res);
+        _showSnack(
+          msg.isEmpty ? 'Could not send lecturer message.' : msg,
+          error: true,
+        );
+        return;
+      }
+
+      final decodedMap = Map<String, dynamic>.from(decoded);
+      int recipients = 0;
+      if (decodedMap['data'] is Map) {
+        final data = Map<String, dynamic>.from(decodedMap['data'] as Map);
+        recipients =
+            _toInt(data['recipient_count']) ?? _toInt(data['sent_count']) ?? 0;
+      }
+      _messageBodyController.clear();
+      _studentIndexController.clear();
+      _showSnack(
+        recipients > 0
+            ? 'Message sent to $recipients student(s).'
+            : 'Message sent successfully.',
+      );
+    } catch (e) {
+      _showSnack('Failed to send message: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _sendingMessage = false);
+    }
+  }
+
+  Widget _summaryTile(
     BuildContext context, {
-    required String title,
+    required String label,
     required String value,
     required IconData icon,
+    required Color iconBg,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: FlatDashboard.cardDecoration(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 20, color: FlatDashboard.textSecondary),
-            const Spacer(),
-            Text(title, style: FlatDashboard.captionStyle(context)),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: FlatDashboard.valueStyle(context).copyWith(fontSize: 20),
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(12),
             ),
+            alignment: Alignment.center,
+            child: Icon(icon, size: 20, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.labelMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.titleMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrowthHero(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final delta = _toDouble(_insights['delta_pct']) ?? 0;
+    final direction = (_insights['direction']?.toString() ?? '').toLowerCase();
+    final positive = direction == 'up' || (direction != 'down' && delta >= 0);
+    final deltaAbs = delta.abs();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primaryContainer.withValues(alpha: 0.7),
+            cs.surfaceContainerLowest,
           ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Growth index',
+                style: tt.labelLarge?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'This week',
+                      style: tt.labelMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 16,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${positive ? '+' : '-'}${deltaAbs.toStringAsFixed(1)}%',
+            style: tt.headlineMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${positive ? 'up' : 'down'} ${deltaAbs.toStringAsFixed(1)}% from last week',
+            style: tt.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrendCard(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Attendance trend',
+            style: tt.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Class participation over recent weeks',
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 10),
+          AttendanceTrendChart(
+            points: _trend,
+            title: '',
+            compact: true,
+            height: 132,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageComposer(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final canSend = _selectedCourseId != null && !_sendingMessage;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.campaign_outlined, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Direct message to students',
+                style: tt.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Send to a whole class or one student index.',
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            initialValue: _selectedCourseId,
+            items:
+                _classes
+                    .map((c) {
+                      final id = _courseIdFromClass(c);
+                      if (id == null) return null;
+                      return DropdownMenuItem<int>(
+                        value: id,
+                        child: Text(
+                          _courseLabel(c),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    })
+                    .whereType<DropdownMenuItem<int>>()
+                    .toList(),
+            onChanged: (v) => setState(() => _selectedCourseId = v),
+            decoration: const InputDecoration(
+              labelText: 'Course',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _studentIndexController,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              labelText: 'Student index (optional)',
+              hintText: 'Leave empty to notify all students in the class',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _messageTitleController,
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _messageBodyController,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Message',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: canSend ? _sendDirectMessage : null,
+              icon:
+                  _sendingMessage
+                      ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: cs.onPrimary,
+                        ),
+                      )
+                      : const Icon(Icons.send_rounded),
+              label: Text(_sendingMessage ? 'Sending...' : 'Send notification'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClassCard(BuildContext context, Map<String, dynamic> c) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final id = _courseIdFromClass(c) ?? 0;
+    final pct = (_toDouble(c['attendance_pct']) ?? 0).clamp(0, 100).toDouble();
+    final students = _toInt(c['student_count']) ?? 0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap:
+            id > 0
+                ? () {
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => LecturerClassDetailPage(courseId: id),
+                    ),
+                  );
+                }
+                : null,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: cs.outlineVariant.withValues(alpha: 0.75),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _courseLabel(c),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: tt.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${pct.toStringAsFixed(0)}%',
+                    style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$students students',
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  minHeight: 7,
+                  value: pct / 100,
+                  backgroundColor: cs.surfaceContainerHighest,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -125,202 +644,129 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: FlatDashboard.background,
+      backgroundColor: cs.surface,
       appBar: AppBar(
         title: const Text('Lecturer dashboard'),
         actions: [
           IconButton(
+            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+            icon: FaIcon(
+              isDark ? FontAwesomeIcons.sun : FontAwesomeIcons.moon,
+              size: 18,
+            ),
+            onPressed: _toggleThemeMode,
+          ),
+          IconButton(
+            tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
+          IconButton(
+            tooltip: 'Log out',
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: _confirmLogout,
+          ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
               ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                )
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(_error!, textAlign: TextAlign.center),
+                ),
+              )
               : ModernPullToRefresh(
-                  onRefresh: _load,
-                  child: ListView(
-                    physics: modernPullToRefreshPhysics,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    children: [
-                      Text(
-                        _name,
-                        style: FlatDashboard.titleStyle(context).copyWith(
-                          fontSize: 22,
+                onRefresh: _load,
+                child: ListView(
+                  physics: modernPullToRefreshPhysics,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  children: [
+                    Text(
+                      _name,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Overview',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildGrowthHero(context),
+                    const SizedBox(height: 14),
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.62,
+                      children: [
+                        _summaryTile(
+                          context,
+                          label: 'Classes',
+                          value: '$_totalClasses',
+                          icon: Icons.class_outlined,
+                          iconBg: const Color(0xFF3B82F6),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Overview',
-                        style: FlatDashboard.captionStyle(context),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        height: 108,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _statCard(
-                              context,
-                              title: 'Classes',
-                              value: '$_totalClasses',
-                              icon: Icons.class_outlined,
-                            ),
-                            const SizedBox(width: 10),
-                            _statCard(
-                              context,
-                              title: 'Avg attendance',
-                              value: '${_avgAttendance.toStringAsFixed(1)}%',
-                              icon: Icons.percent,
-                            ),
-                          ],
+                        _summaryTile(
+                          context,
+                          label: 'Active sessions',
+                          value: '$_activeSessions',
+                          icon: Icons.bolt_rounded,
+                          iconBg: const Color(0xFFEF4444),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 108,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _statCard(
-                              context,
-                              title: 'At-risk',
-                              value: '$_atRisk',
-                              icon: Icons.warning_amber_outlined,
-                            ),
-                            const SizedBox(width: 10),
-                            _statCard(
-                              context,
-                              title: 'Active sessions',
-                              value: '$_activeSessions',
-                              icon: Icons.sensors,
-                            ),
-                          ],
+                        _summaryTile(
+                          context,
+                          label: 'Avg attendance',
+                          value: '${_avgAttendance.toStringAsFixed(1)}%',
+                          icon: Icons.percent_rounded,
+                          iconBg: const Color(0xFF10B981),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      AttendanceTrendChart(
-                        points: _trend,
-                        title: 'Attendance trend (all your courses)',
-                      ),
-                      if (_insights.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: FlatDashboard.cardDecoration(),
-                          child: Text(
-                            'Week-over-week: ${_insights['delta_pct'] ?? 0}% '
-                            '(${_insights['direction'] ?? 'flat'})',
-                            style: const TextStyle(
-                              color: FlatDashboard.textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                        _summaryTile(
+                          context,
+                          label: 'At-risk',
+                          value: '$_atRisk',
+                          icon: Icons.warning_amber_rounded,
+                          iconBg: const Color(0xFFF59E0B),
                         ),
                       ],
-                      const SizedBox(height: 24),
-                      Text(
-                        'Your classes',
-                        style: FlatDashboard.titleStyle(context),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildTrendCard(context),
+                    const SizedBox(height: 14),
+                    _buildMessageComposer(context),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Your classes',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
-                      const SizedBox(height: 10),
-                      ..._classes.map((c) {
-                        final id = c['course_id'];
-                        final cid = id is int
-                            ? id
-                            : int.tryParse(id?.toString() ?? '') ?? 0;
-                        final pct = _toDouble(c['attendance_pct']) ?? 0;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: cid > 0
-                                  ? () {
-                                      Navigator.of(context).push<void>(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => LecturerClassDetailPage(
-                                            courseId: cid,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  : null,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: FlatDashboard.cardDecoration(),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            c['course_name']?.toString() ?? '',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              color: FlatDashboard.textPrimary,
-                                            ),
-                                          ),
-                                          Text(
-                                            '${c['student_count'] ?? 0} students',
-                                            style: FlatDashboard.captionStyle(
-                                              context,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Text(
-                                      '${pct.toStringAsFixed(0)}%',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 18,
-                                        color: FlatDashboard.textPrimary,
-                                      ),
-                                    ),
-                                    const Icon(Icons.chevron_right,
-                                        color: FlatDashboard.textSecondary),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Open a class for session history, exports, and flagged students.',
-                        style: FlatDashboard.captionStyle(context),
+                    ),
+                    const SizedBox(height: 10),
+                    ..._classes.map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _buildClassCard(context, c),
                       ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Announcements: use the web portal or contact admin when messaging is enabled.',
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.campaign_outlined),
-                        label: const Text('Announcements'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Open a class for session history, exports, and flagged students.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
     );
   }
 }

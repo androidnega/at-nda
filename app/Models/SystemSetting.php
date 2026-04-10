@@ -11,6 +11,7 @@ class SystemSetting extends Model
         'enable_face_verification',
         'enable_ip_binding',
         'allow_multiple_index_on_device',
+        'enforce_student_logout_lock',
         'enable_qr',
         'require_password_on_first_login',
         'require_profile_image_on_onboarding',
@@ -31,6 +32,7 @@ class SystemSetting extends Model
         'enable_face_verification' => 'boolean',
         'enable_ip_binding' => 'boolean',
         'allow_multiple_index_on_device' => 'boolean',
+        'enforce_student_logout_lock' => 'boolean',
         'enable_qr' => 'boolean',
         'require_password_on_first_login' => 'boolean',
         'require_profile_image_on_onboarding' => 'boolean',
@@ -83,6 +85,11 @@ class SystemSetting extends Model
             && Schema::hasColumn('system_settings', 'instant_mode_type');
     }
 
+    public static function hasEnforceStudentLogoutLockColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'enforce_student_logout_lock');
+    }
+
     public function requiresProfileImageOnOnboarding(): bool
     {
         if (! static::hasRequireProfileImageColumn()) {
@@ -105,6 +112,9 @@ class SystemSetting extends Model
                 'face_match_threshold' => 0.5,
                 'attendance_data_version' => 0,
             ];
+            if (static::hasEnforceStudentLogoutLockColumn()) {
+                $payload['enforce_student_logout_lock'] = true;
+            }
             if (static::hasRequireProfileImageColumn()) {
                 $payload['require_profile_image_on_onboarding'] = true;
             }

@@ -25,6 +25,9 @@ class SettingsController extends Controller
                 'require_password_on_first_login' => $settings->require_password_on_first_login ?? true,
                 'require_profile_image_on_onboarding' => $settings->require_profile_image_on_onboarding ?? true,
                 'allow_multiple_index' => $settings->allow_multiple_index_on_device,
+                'student_logout_lock_enabled' => SystemSetting::hasEnforceStudentLogoutLockColumn()
+                    ? (bool) ($settings->enforce_student_logout_lock ?? true)
+                    : true,
                 'face_match_threshold' => (float) ($settings->face_match_threshold ?? 0.5),
                 'attendance_data_version' => (int) ($settings->attendance_data_version ?? 0),
                 'last_attendance_reset_at' => $settings->last_attendance_reset_at?->toIso8601String(),

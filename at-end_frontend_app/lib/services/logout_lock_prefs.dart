@@ -4,6 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// the user may log out. If they open the app again while still signed in without
 /// having logged out, the lock extends by 90 days (repeats for each period).
 class LogoutLockPrefs {
+  static bool _isLecturerRole(String? role) =>
+      role?.trim().toLowerCase() == 'lecturer';
+
   static const _kUntilMs = 'logout_locked_until_ms';
   static const _kGraceUsed = 'logout_lock_grace_used';
 
@@ -48,7 +51,12 @@ class LogoutLockPrefs {
   }
 
   /// No stored lock → allow logout (existing installs).
-  static Future<bool> canLogoutNow() async {
+  static Future<bool> canLogoutNow({
+    String? role,
+    bool studentLogoutLockEnabled = true,
+  }) async {
+    if (_isLecturerRole(role)) return true;
+    if (!studentLogoutLockEnabled) return true;
     final u = await lockedUntil();
     if (u == null) return true;
     return DateTime.now().isAfter(u);
@@ -61,10 +69,19 @@ class LogoutLockPrefs {
   }
 
   /// Short hint when logout is blocked (null if allowed or no lock).
-  static Future<String?> signOutBlockedHint() async {
+  static Future<String?> signOutBlockedHint({
+    String? role,
+    bool studentLogoutLockEnabled = true,
+  }) async {
+    if (_isLecturerRole(role) || !studentLogoutLockEnabled) return null;
     final u = await lockedUntil();
     if (u == null) return null;
-    if (await canLogoutNow()) return null;
+    if (await canLogoutNow(
+      role: role,
+      studentLogoutLockEnabled: studentLogoutLockEnabled,
+    )) {
+      return null;
+    }
     final y = u.year;
     final m = u.month.toString().padLeft(2, '0');
     final d = u.day.toString().padLeft(2, '0');

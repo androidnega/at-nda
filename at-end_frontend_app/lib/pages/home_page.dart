@@ -51,16 +51,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-
   /// Active sessions from API `sessions` array (see [ApiService.getActiveSessions]).
   List<Map<String, dynamic>> _activeSessions = [];
   Student? _student;
   bool _isLoading = true;
   String? _error;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+
   /// Session ids marked today (SQLite + API `already_marked`).
   Set<int> _markedSessionIdsToday = {};
   Timer? _sessionUiTicker;
+
   /// Offline [attendance] queue rows not yet POSTed to the API.
   int _pendingSyncCount = 0;
 
@@ -107,18 +108,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
     _load();
     _syncPendingOnStart();
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen(
-      (results) {
-        final hasConnection = results.any((r) =>
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) {
+      final hasConnection = results.any(
+        (r) =>
             r == ConnectivityResult.wifi ||
             r == ConnectivityResult.mobile ||
             r == ConnectivityResult.ethernet ||
-            r == ConnectivityResult.vpn);
-        if (hasConnection && mounted) {
-          _syncPendingOnStart();
-        }
-      },
-    );
+            r == ConnectivityResult.vpn,
+      );
+      if (hasConnection && mounted) {
+        _syncPendingOnStart();
+      }
+    });
   }
 
   @override
@@ -147,9 +150,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _syncLogoutLock() async {
     final t = await OfflineService.getApiSessionToken();
     final has = t != null && t.isNotEmpty;
+    final current = _student ?? await OfflineService.getCurrentStudent();
+    final role = current?.primaryRole;
+    await ApiService.loadAppSettings(forceRemote: false);
+    final lockEnabled = ApiService.studentLogoutLockEnabled;
     await LogoutLockPrefs.applyGracePeriodAndExtension(hasSession: has);
-    final allow = await LogoutLockPrefs.canLogoutNow();
-    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    final allow = await LogoutLockPrefs.canLogoutNow(
+      role: role,
+      studentLogoutLockEnabled: lockEnabled,
+    );
+    final hint =
+        allow
+            ? null
+            : await LogoutLockPrefs.signOutBlockedHint(
+              role: role,
+              studentLogoutLockEnabled: lockEnabled,
+            );
     if (!mounted) return;
     setState(() {
       _logoutAllowed = allow;
@@ -162,13 +178,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final isCheckInCheckout =
         (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
         ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
-    final raw = isCheckInCheckout
-        ? (session['end_time'] ??
-            session['ends_at'] ??
-            session['closed_at'] ??
-            session['closed_time'] ??
-            session['expected_end_time'])
-        : (session['end_time'] ?? session['ends_at']);
+    final raw =
+        isCheckInCheckout
+            ? (session['end_time'] ??
+                session['ends_at'] ??
+                session['closed_at'] ??
+                session['closed_time'] ??
+                session['expected_end_time'])
+            : (session['end_time'] ?? session['ends_at']);
     if (raw != null) {
       try {
         return DateTime.parse(raw.toString());
@@ -240,7 +257,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
-    return (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
+    return (session['attendance_mode']?.toString() ?? '') ==
+            'checkin_checkout' ||
         ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
   }
 
@@ -299,7 +317,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final data = Map<String, dynamic>.from(raw);
       final courses = data['courses'];
       final icr = data['is_class_rep'];
-      final explicit = icr == true ||
+      final explicit =
+          icr == true ||
           icr == 1 ||
           (icr != null && icr.toString().toLowerCase() == 'true');
       final hasCourses = courses is List && courses.isNotEmpty;
@@ -318,7 +337,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _dynamicUi = const [];
     if (online) {
       final settingsSw = Stopwatch()..start();
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
       settingsSw.stop();
       if (settingsSw.elapsedMilliseconds >= 2500) {
         nextLiteUiMode = true;
@@ -384,9 +403,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _activeSessions = cached;
-          _error = cached.isEmpty
-              ? 'Offline — connect to the internet to load active sessions.'
-              : 'Offline — showing last synced sessions.';
+          _error =
+              cached.isEmpty
+                  ? 'Offline — connect to the internet to load active sessions.'
+                  : 'Offline — showing last synced sessions.';
           _showAbsenceWarning = false;
           _absenceWarningsSnapshot = [];
           _studentAtRisk = false;
@@ -405,13 +425,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         debugPrint('FULL RESPONSE: sessions count=${sessions.length}');
         for (var i = 0; i < sessions.length; i++) {
-          debugPrint('CURRENT SESSION [$i]: id=${sessions[i]['id']} '
-              'course=${sessions[i]['course_code'] ?? sessions[i]['course_name']}');
+          debugPrint(
+            'CURRENT SESSION [$i]: id=${sessions[i]['id']} '
+            'course=${sessions[i]['course_code'] ?? sessions[i]['course_name']}',
+          );
         }
         final hasValidationError =
-            sessions.isEmpty && ApiService.lastActiveSessionErrorMessage.isNotEmpty;
+            sessions.isEmpty &&
+            ApiService.lastActiveSessionErrorMessage.isNotEmpty;
         if (_student != null && !hasValidationError) {
-          await SessionCachePrefs.saveActiveSessions(_student!.indexNumber, sessions);
+          await SessionCachePrefs.saveActiveSessions(
+            _student!.indexNumber,
+            sessions,
+          );
         }
         if (!mounted) return;
         if (sessions.isNotEmpty) {
@@ -562,8 +588,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (e is Map) out.add(Map<String, dynamic>.from(e));
         }
       }
-      out.sort((a, b) => _slotMinutes(a['start_time']?.toString())
-          .compareTo(_slotMinutes(b['start_time']?.toString())));
+      out.sort(
+        (a, b) => _slotMinutes(
+          a['start_time']?.toString(),
+        ).compareTo(_slotMinutes(b['start_time']?.toString())),
+      );
       if (!mounted) return;
       setState(() => _todayTimetable = out);
     }
@@ -605,8 +634,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (e is Map) out.add(Map<String, dynamic>.from(e));
         }
       }
-      out.sort((a, b) => _slotMinutes(a['start_time']?.toString())
-          .compareTo(_slotMinutes(b['start_time']?.toString())));
+      out.sort(
+        (a, b) => _slotMinutes(
+          a['start_time']?.toString(),
+        ).compareTo(_slotMinutes(b['start_time']?.toString())),
+      );
       if (!mounted) return;
       setState(() => _todayTimetable = out);
     } catch (_) {
@@ -688,10 +720,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final slot in _todayTimetable) {
       final st = _todayAtTime(slot['start_time']?.toString());
       final en = _todayAtTime(slot['end_time']?.toString());
-      if (st != null &&
-          en != null &&
-          !now.isBefore(st) &&
-          !now.isAfter(en)) {
+      if (st != null && en != null && !now.isBefore(st) && !now.isAfter(en)) {
         final diff = en.difference(now);
         if (!diff.isNegative) {
           final tl = _formatDurationRemaining(diff);
@@ -759,10 +788,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     if (_todayTimetable.isNotEmpty) {
-      return {
-        'title': 'On track',
-        'subtitle': 'No session to mark right now',
-      };
+      return {'title': 'On track', 'subtitle': 'No session to mark right now'};
     }
     return {
       'title': 'Welcome',
@@ -821,7 +847,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_student?.isClassRep == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Class reps are marked automatically when sessions run.'),
+          content: Text(
+            'Class reps are marked automatically when sessions run.',
+          ),
         ),
       );
       return;
@@ -834,7 +862,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return;
       }
     }
-    final label = code.isNotEmpty ? code : (slot['course_name'] ?? 'This class');
+    final label =
+        code.isNotEmpty ? code : (slot['course_name'] ?? 'This class');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -855,7 +884,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('You will see alerts here for absences and pending sync.'),
+        content: Text(
+          'You will see alerts here for absences and pending sync.',
+        ),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -880,14 +911,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       if (res.statusCode < 200 || res.statusCode >= 300) return;
       final raw = jsonDecode(res.body);
-      if (raw is! Map ||
-          raw['success'] != true ||
-          raw['data'] is! Map) {
+      if (raw is! Map || raw['success'] != true || raw['data'] is! Map) {
         return;
       }
       final d = Map<String, dynamic>.from(raw['data'] as Map);
       final ins = d['insights'];
-      final i = ins is Map ? Map<String, dynamic>.from(ins) : <String, dynamic>{};
+      final i =
+          ins is Map ? Map<String, dynamic>.from(ins) : <String, dynamic>{};
       final atRisk = i['at_risk'] == true;
       final cm = i['consecutive_missed_sessions'];
       int streak = 0;
@@ -911,7 +941,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await OfflineService.clearCurrentStudent();
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => appSelectableScope(const LoginPage())),
+        MaterialPageRoute(
+          builder: (_) => appSelectableScope(const LoginPage()),
+        ),
         (_) => false,
       );
     }
@@ -919,47 +951,52 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _confirmLogout() async {
     if (!_logoutAllowed) {
-      final msg = _logoutLockHint ??
+      final msg =
+          _logoutLockHint ??
           'This account stays signed in on this device for the current period.';
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Sign out not available yet'),
-          content: Text(msg),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+        builder:
+            (_) => AlertDialog(
+              title: const Text('Sign out not available yet'),
+              content: Text(msg),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
-          ],
-        ),
       );
       return;
     }
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Log out'),
-        content: const Text('Clear stored student and return to login?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Log out'),
+            content: const Text('Clear stored student and return to login?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Log out'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Log out'),
-          ),
-        ],
-      ),
     );
     if (ok == true) _logout();
   }
 
   void _syncAbsenceWarningsUi() {
     _absenceWarningAutoDismissTimer?.cancel();
-    final list = List<Map<String, dynamic>>.from(ApiService.lastSessionWarnings);
+    final list = List<Map<String, dynamic>>.from(
+      ApiService.lastSessionWarnings,
+    );
     if (list.isEmpty) {
       if (mounted) {
         setState(() {
@@ -996,18 +1033,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     Navigator.of(context)
         .push<bool>(
           MaterialPageRoute(
-            builder: (_) => appSelectableScope(
-              AttendancePage(session: session),
-            ),
+            builder:
+                (_) => appSelectableScope(AttendancePage(session: session)),
           ),
         )
         .then((value) async {
-      if (value == true) _dismissAbsenceWarning();
-      await _load();
-    });
+          if (value == true) _dismissAbsenceWarning();
+          await _load();
+        });
   }
 
-  Future<void> _handleDashboardAttendanceAction(Map<String, dynamic> session) async {
+  Future<void> _handleDashboardAttendanceAction(
+    Map<String, dynamic> session,
+  ) async {
     if (_isCheckInCheckoutSession(session)) {
       _openAttendancePage(session);
       return;
@@ -1092,8 +1130,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Navigator.of(context)
               .push<void>(
                 MaterialPageRoute<void>(
-                  builder: (_) =>
-                      appSelectableScope(const RepHomePage()),
+                  builder: (_) => appSelectableScope(const RepHomePage()),
                 ),
               )
               .then((_) => _load());
@@ -1112,8 +1149,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     Text(
                       'Class rep',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     Text(
                       'Rep dashboard — sessions, QR & class tools',
@@ -1137,28 +1174,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!_sessionEndedFor(s)) return true;
         // Closed/ended check-in-checkout sessions remain actionable only for
         // students who checked in but have not checked out yet.
-        return _isCheckInCheckoutSession(s) && _hasCheckedIn(s) && !_hasCheckedOut(s);
+        return _isCheckInCheckoutSession(s) &&
+            _hasCheckedIn(s) &&
+            !_hasCheckedOut(s);
       }).toList();
 
   @override
   Widget build(BuildContext context) {
     final s = _student;
     if (_isLoading || s == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final hero = _heroDashboardCopy();
     final um = _unmarkedSessions;
     final liveUnmarked = um.where((s) => !_sessionEndedFor(s)).toList();
     final liveSessionCount = liveUnmarked.length;
-    final primaryActionLabel = (!s.isClassRep &&
-            um.isNotEmpty &&
-            _isCheckInCheckoutSession(um.first))
-        ? 'Open check-in'
-        : 'Mark attendance';
-    final showMark = !s.isClassRep &&
+    final primaryActionLabel =
+        (!s.isClassRep && um.isNotEmpty && _isCheckInCheckoutSession(um.first))
+            ? 'Open check-in'
+            : 'Mark attendance';
+    final showMark =
+        !s.isClassRep &&
         um.isNotEmpty &&
         (!_sessionEndedFor(um.first) || _isCheckInCheckoutSession(um.first));
     final focusClock = _dashboardFocusClockRow();
@@ -1166,15 +1203,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final extraSessions =
         !s.isClassRep && liveUnmarked.length > 1
             ? Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  '${liveUnmarked.length - 1} other live session(s) — pull to refresh.',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '${liveUnmarked.length - 1} other live session(s) — pull to refresh.',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
                 ),
-              )
+              ),
+            )
             : null;
 
     final light = Theme.of(context).brightness == Brightness.light;
@@ -1191,79 +1228,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         bottom: false,
         child: ModernPullToRefresh(
           onRefresh: () => _load(silent: true),
-          child: !s.isClassRep &&
-                studentTheme ==
-                    ApiService.studentDashboardThemePastelProfile
-            ? StudentPastelProfileDashboard(
-                student: s,
-                todaySlots: _todayTimetable,
-                unmarkedSessions: um,
-                heroTitle: hero['title']!,
-                heroSubtitle: hero['subtitle']!,
-                showMarkButton: showMark,
-                onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
-                primaryActionLabel: primaryActionLabel,
-                lastCheckInLine: _lastCheckInLine,
-                dayProgress: _workingDayProgressFraction(),
-                onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-                onBell: _onDashboardBell,
-                onOpenFullTimetable: _openTimetable,
-                onSeeAllClasses: _openTimetable,
-                onSlotTap: _onTimetableSlotTap,
-                statsClassesToday: _todayTimetable.length,
-                statsLiveSessions: liveSessionCount,
-                statsMarkedToday: _markedSessionIdsToday.length,
-                dashboardClockLabel: focusClock.label,
-                dashboardClockSegments: focusClock.parts,
-                todayVenueHint: _firstTodayVenueHint(),
-                classRepCard: null,
-                dynamicBlocks: [
-                  if (Constants.debugShowSessionApiResponseOnHome) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _buildSessionApiDebugPanel(context),
-                    ),
-                  ],
-                  if (_dynamicUi.isNotEmpty) ...[
-                    ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                  ],
-                  if (extraSessions != null) extraSessions,
-                ],
-                warningBanner: _showAbsenceWarning &&
-                        _absenceWarningsSnapshot.isNotEmpty
-                    ? _buildAbsenceWarningBanner(context)
-                    : null,
-                pendingSyncChip: _pendingSyncCount > 0
-                    ? _buildPendingSyncChip(context)
-                    : null,
-                errorText: _error,
-                riskSection:
-                    _studentAtRisk ? _buildConsecutiveMissWarning(context) : null,
-                demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
-                        _activeSessions.isNotEmpty &&
-                        _activeSessions.first['course_code'] == 'DEMO-101'
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Demo session · API unavailable or empty',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.tertiary,
-                              ),
-                        ),
-                      )
-                    : null,
-              )
-            : !s.isClassRep &&
-                    studentTheme ==
-                        ApiService.studentDashboardThemeNoirTask
-                ? StudentNoirTaskDashboard(
+          child:
+              !s.isClassRep &&
+                      studentTheme ==
+                          ApiService.studentDashboardThemePastelProfile
+                  ? StudentPastelProfileDashboard(
                     student: s,
                     todaySlots: _todayTimetable,
                     unmarkedSessions: um,
                     heroTitle: hero['title']!,
                     heroSubtitle: hero['subtitle']!,
                     showMarkButton: showMark,
-                    onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
@@ -1291,256 +1268,360 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                       if (extraSessions != null) extraSessions,
                     ],
-                    warningBanner: _showAbsenceWarning &&
-                            _absenceWarningsSnapshot.isNotEmpty
-                        ? _buildAbsenceWarningBanner(context)
-                        : null,
-                    pendingSyncChip: _pendingSyncCount > 0
-                        ? _buildPendingSyncChip(context)
-                        : null,
-                    errorText: _error,
-                    riskSection: _studentAtRisk
-                        ? _buildConsecutiveMissWarning(context)
-                        : null,
-                    demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
-                            _activeSessions.isNotEmpty &&
-                            _activeSessions.first['course_code'] == 'DEMO-101'
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Demo session · API unavailable or empty',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.tertiary,
-                                  ),
-                            ),
-                          )
-                        : null,
-                  )
-                : !s.isClassRep &&
-                        studentTheme ==
-                            ApiService.studentDashboardThemeTeamReach
-                    ? StudentTeamReachDashboard(
-                        student: s,
-                        todaySlots: _todayTimetable,
-                        unmarkedSessions: um,
-                        heroTitle: hero['title']!,
-                        heroSubtitle: hero['subtitle']!,
-                        showMarkButton: showMark,
-                        onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
-                        primaryActionLabel: primaryActionLabel,
-                        lastCheckInLine: _lastCheckInLine,
-                        dayProgress: _workingDayProgressFraction(),
-                        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-                        onBell: _onDashboardBell,
-                        onOpenFullTimetable: _openTimetable,
-                        onSeeAllClasses: _openTimetable,
-                        onSlotTap: _onTimetableSlotTap,
-                        statsClassesToday: _todayTimetable.length,
-                        statsLiveSessions: liveSessionCount,
-                        statsMarkedToday: _markedSessionIdsToday.length,
-                        dashboardClockLabel: focusClock.label,
-                        dashboardClockSegments: focusClock.parts,
-                        todayVenueHint: _firstTodayVenueHint(),
-                        classRepCard: null,
-                        dynamicBlocks: [
-                          if (Constants.debugShowSessionApiResponseOnHome) ...[
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _buildSessionApiDebugPanel(context),
-                            ),
-                          ],
-                          if (_dynamicUi.isNotEmpty) ...[
-                            ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                          ],
-                          if (extraSessions != null) extraSessions,
-                        ],
-                        warningBanner: _showAbsenceWarning &&
+                    warningBanner:
+                        _showAbsenceWarning &&
                                 _absenceWarningsSnapshot.isNotEmpty
                             ? _buildAbsenceWarningBanner(context)
                             : null,
-                        pendingSyncChip: _pendingSyncCount > 0
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
                             ? _buildPendingSyncChip(context)
                             : null,
-                        errorText: _error,
-                        riskSection: _studentAtRisk
+                    errorText: _error,
+                    riskSection:
+                        _studentAtRisk
                             ? _buildConsecutiveMissWarning(context)
                             : null,
-                        demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
+                    demoBanner:
+                        Constants.useDemoActiveSessionWhenEmpty &&
                                 _activeSessions.isNotEmpty &&
-                                _activeSessions.first['course_code'] == 'DEMO-101'
+                                _activeSessions.first['course_code'] ==
+                                    'DEMO-101'
                             ? Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  'Demo session · API unavailable or empty',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                        color: Theme.of(context).colorScheme.tertiary,
-                                      ),
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Demo session · API unavailable or empty',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.tertiary,
                                 ),
-                              )
-                            : null,
-                      )
-                    : !s.isClassRep &&
-                            studentTheme ==
-                                ApiService.studentDashboardThemeVioletCalendar
-                        ? StudentVioletCalendarDashboard(
-                            student: s,
-                            todaySlots: _todayTimetable,
-                            unmarkedSessions: um,
-                            heroTitle: hero['title']!,
-                            heroSubtitle: hero['subtitle']!,
-                            showMarkButton: showMark,
-                            onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
-                            primaryActionLabel: primaryActionLabel,
-                            lastCheckInLine: _lastCheckInLine,
-                            dayProgress: _workingDayProgressFraction(),
-                            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-                            onBell: _onDashboardBell,
-                            onOpenFullTimetable: _openTimetable,
-                            onSeeAllClasses: _openTimetable,
-                            onSlotTap: _onTimetableSlotTap,
-                            statsClassesToday: _todayTimetable.length,
-                            statsLiveSessions: liveSessionCount,
-                            statsMarkedToday: _markedSessionIdsToday.length,
-                            dashboardClockLabel: focusClock.label,
-                            dashboardClockSegments: focusClock.parts,
-                            todayVenueHint: _firstTodayVenueHint(),
-                            classRepCard: null,
-                            dynamicBlocks: [
-                              if (Constants.debugShowSessionApiResponseOnHome) ...[
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: _buildSessionApiDebugPanel(context),
-                                ),
-                              ],
-                              if (_dynamicUi.isNotEmpty) ...[
-                                ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                              ],
-                              if (extraSessions != null) extraSessions,
-                            ],
-                            warningBanner: _showAbsenceWarning &&
-                                    _absenceWarningsSnapshot.isNotEmpty
-                                ? _buildAbsenceWarningBanner(context)
-                                : null,
-                            pendingSyncChip: _pendingSyncCount > 0
-                                ? _buildPendingSyncChip(context)
-                                : null,
-                            errorText: _error,
-                            riskSection: _studentAtRisk
-                                ? _buildConsecutiveMissWarning(context)
-                                : null,
-                            demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
-                                    _activeSessions.isNotEmpty &&
-                                    _activeSessions.first['course_code'] == 'DEMO-101'
-                                ? Padding(
-                                    padding: const EdgeInsets.only(top: 8),
-                                    child: Text(
-                                      'Demo session · API unavailable or empty',
-                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                            color: Theme.of(context).colorScheme.tertiary,
-                                          ),
-                                    ),
-                                  )
-                                : null,
-                          )
-                    : !s.isClassRep &&
-                            studentTheme ==
-                                ApiService.studentDashboardThemeMidnightControl
-                        ? StudentMidnightControlDashboard(
-                            student: s,
-                            showMarkButton: showMark,
-                            onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
-                            primaryActionLabel: primaryActionLabel,
-                            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-                            onBell: _onDashboardBell,
-                            statsClassesToday: _todayTimetable.length,
-                            statsLiveSessions: liveSessionCount,
-                            statsMarkedToday: _markedSessionIdsToday.length,
-                            unmarkedCount: um.length,
-                            dynamicBlocks: [
-                              if (Constants.debugShowSessionApiResponseOnHome) ...[
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: _buildSessionApiDebugPanel(context),
-                                ),
-                              ],
-                              if (_dynamicUi.isNotEmpty) ...[
-                                ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                              ],
-                              if (extraSessions != null) extraSessions,
-                            ],
-                            warningBanner: _showAbsenceWarning &&
-                                    _absenceWarningsSnapshot.isNotEmpty
-                                ? _buildAbsenceWarningBanner(context)
-                                : null,
-                            pendingSyncChip: _pendingSyncCount > 0
-                                ? _buildPendingSyncChip(context)
-                                : null,
-                            errorText: _error,
-                            riskSection: _studentAtRisk
-                                ? _buildConsecutiveMissWarning(context)
-                                : null,
-                          )
-                    : StudentTodayDashboard(
-                student: s,
-                todaySlots: _todayTimetable,
-                unmarkedSessions: um,
-                heroTitle: hero['title']!,
-                heroSubtitle: hero['subtitle']!,
-                showMarkButton: showMark,
-                onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
-                primaryActionLabel: primaryActionLabel,
-                lastCheckInLine: _lastCheckInLine,
-                dayProgress: _workingDayProgressFraction(),
-                onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-                onBell: _onDashboardBell,
-                onOpenFullTimetable: _openTimetable,
-                onSeeAllClasses: _openTimetable,
-                onSlotTap: _onTimetableSlotTap,
-                statsClassesToday: _todayTimetable.length,
-                statsLiveSessions: liveSessionCount,
-                statsMarkedToday: _markedSessionIdsToday.length,
-                dashboardClockLabel: focusClock.label,
-                dashboardClockSegments: focusClock.parts,
-                todayVenueHint: _firstTodayVenueHint(),
-                classRepCard:
-                    s.isClassRep ? _buildClassRepEntryCard(context) : null,
-                dynamicBlocks: [
-                  if (Constants.debugShowSessionApiResponseOnHome) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _buildSessionApiDebugPanel(context),
-                    ),
-                  ],
-                  if (_dynamicUi.isNotEmpty) ...[
-                    ...DynamicWidgetRenderer.render(context, _dynamicUi),
-                  ],
-                  if (extraSessions != null) extraSessions,
-                ],
-                warningBanner: _showAbsenceWarning &&
-                        _absenceWarningsSnapshot.isNotEmpty
-                    ? _buildAbsenceWarningBanner(context)
-                    : null,
-                pendingSyncChip: _pendingSyncCount > 0
-                    ? _buildPendingSyncChip(context)
-                    : null,
-                errorText: _error,
-                riskSection: !s.isClassRep && _studentAtRisk
-                    ? _buildConsecutiveMissWarning(context)
-                    : null,
-                demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
-                        _activeSessions.isNotEmpty &&
-                        _activeSessions.first['course_code'] == 'DEMO-101'
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Demo session · API unavailable or empty',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.tertiary,
                               ),
+                            )
+                            : null,
+                  )
+                  : !s.isClassRep &&
+                      studentTheme == ApiService.studentDashboardThemeNoirTask
+                  ? StudentNoirTaskDashboard(
+                    student: s,
+                    todaySlots: _todayTimetable,
+                    unmarkedSessions: um,
+                    heroTitle: hero['title']!,
+                    heroSubtitle: hero['subtitle']!,
+                    showMarkButton: showMark,
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
+                    lastCheckInLine: _lastCheckInLine,
+                    dayProgress: _workingDayProgressFraction(),
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    onOpenFullTimetable: _openTimetable,
+                    onSeeAllClasses: _openTimetable,
+                    onSlotTap: _onTimetableSlotTap,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: liveSessionCount,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    dashboardClockLabel: focusClock.label,
+                    dashboardClockSegments: focusClock.parts,
+                    todayVenueHint: _firstTodayVenueHint(),
+                    classRepCard: null,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
                         ),
-                      )
-                    : null,
-              ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner:
+                        _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                    errorText: _error,
+                    riskSection:
+                        _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                    demoBanner:
+                        Constants.useDemoActiveSessionWhenEmpty &&
+                                _activeSessions.isNotEmpty &&
+                                _activeSessions.first['course_code'] ==
+                                    'DEMO-101'
+                            ? Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Demo session · API unavailable or empty',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                ),
+                              ),
+                            )
+                            : null,
+                  )
+                  : !s.isClassRep &&
+                      studentTheme == ApiService.studentDashboardThemeTeamReach
+                  ? StudentTeamReachDashboard(
+                    student: s,
+                    todaySlots: _todayTimetable,
+                    unmarkedSessions: um,
+                    heroTitle: hero['title']!,
+                    heroSubtitle: hero['subtitle']!,
+                    showMarkButton: showMark,
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
+                    lastCheckInLine: _lastCheckInLine,
+                    dayProgress: _workingDayProgressFraction(),
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    onOpenFullTimetable: _openTimetable,
+                    onSeeAllClasses: _openTimetable,
+                    onSlotTap: _onTimetableSlotTap,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: liveSessionCount,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    dashboardClockLabel: focusClock.label,
+                    dashboardClockSegments: focusClock.parts,
+                    todayVenueHint: _firstTodayVenueHint(),
+                    classRepCard: null,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
+                        ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner:
+                        _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                    errorText: _error,
+                    riskSection:
+                        _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                    demoBanner:
+                        Constants.useDemoActiveSessionWhenEmpty &&
+                                _activeSessions.isNotEmpty &&
+                                _activeSessions.first['course_code'] ==
+                                    'DEMO-101'
+                            ? Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Demo session · API unavailable or empty',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                ),
+                              ),
+                            )
+                            : null,
+                  )
+                  : !s.isClassRep &&
+                      studentTheme ==
+                          ApiService.studentDashboardThemeVioletCalendar
+                  ? StudentVioletCalendarDashboard(
+                    student: s,
+                    todaySlots: _todayTimetable,
+                    unmarkedSessions: um,
+                    heroTitle: hero['title']!,
+                    heroSubtitle: hero['subtitle']!,
+                    showMarkButton: showMark,
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
+                    lastCheckInLine: _lastCheckInLine,
+                    dayProgress: _workingDayProgressFraction(),
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    onOpenFullTimetable: _openTimetable,
+                    onSeeAllClasses: _openTimetable,
+                    onSlotTap: _onTimetableSlotTap,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: liveSessionCount,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    dashboardClockLabel: focusClock.label,
+                    dashboardClockSegments: focusClock.parts,
+                    todayVenueHint: _firstTodayVenueHint(),
+                    classRepCard: null,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
+                        ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner:
+                        _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                    errorText: _error,
+                    riskSection:
+                        _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                    demoBanner:
+                        Constants.useDemoActiveSessionWhenEmpty &&
+                                _activeSessions.isNotEmpty &&
+                                _activeSessions.first['course_code'] ==
+                                    'DEMO-101'
+                            ? Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Demo session · API unavailable or empty',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                ),
+                              ),
+                            )
+                            : null,
+                  )
+                  : !s.isClassRep &&
+                      studentTheme ==
+                          ApiService.studentDashboardThemeMidnightControl
+                  ? StudentMidnightControlDashboard(
+                    student: s,
+                    showMarkButton: showMark,
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: liveSessionCount,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    unmarkedCount: um.length,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
+                        ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner:
+                        _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                    errorText: _error,
+                    riskSection:
+                        _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                  )
+                  : StudentTodayDashboard(
+                    student: s,
+                    todaySlots: _todayTimetable,
+                    unmarkedSessions: um,
+                    heroTitle: hero['title']!,
+                    heroSubtitle: hero['subtitle']!,
+                    showMarkButton: showMark,
+                    onMarkAttendance:
+                        () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
+                    lastCheckInLine: _lastCheckInLine,
+                    dayProgress: _workingDayProgressFraction(),
+                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onBell: _onDashboardBell,
+                    onOpenFullTimetable: _openTimetable,
+                    onSeeAllClasses: _openTimetable,
+                    onSlotTap: _onTimetableSlotTap,
+                    statsClassesToday: _todayTimetable.length,
+                    statsLiveSessions: liveSessionCount,
+                    statsMarkedToday: _markedSessionIdsToday.length,
+                    dashboardClockLabel: focusClock.label,
+                    dashboardClockSegments: focusClock.parts,
+                    todayVenueHint: _firstTodayVenueHint(),
+                    classRepCard:
+                        s.isClassRep ? _buildClassRepEntryCard(context) : null,
+                    dynamicBlocks: [
+                      if (Constants.debugShowSessionApiResponseOnHome) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildSessionApiDebugPanel(context),
+                        ),
+                      ],
+                      if (_dynamicUi.isNotEmpty) ...[
+                        ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                      ],
+                      if (extraSessions != null) extraSessions,
+                    ],
+                    warningBanner:
+                        _showAbsenceWarning &&
+                                _absenceWarningsSnapshot.isNotEmpty
+                            ? _buildAbsenceWarningBanner(context)
+                            : null,
+                    pendingSyncChip:
+                        _pendingSyncCount > 0
+                            ? _buildPendingSyncChip(context)
+                            : null,
+                    errorText: _error,
+                    riskSection:
+                        !s.isClassRep && _studentAtRisk
+                            ? _buildConsecutiveMissWarning(context)
+                            : null,
+                    demoBanner:
+                        Constants.useDemoActiveSessionWhenEmpty &&
+                                _activeSessions.isNotEmpty &&
+                                _activeSessions.first['course_code'] ==
+                                    'DEMO-101'
+                            ? Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Demo session · API unavailable or empty',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                ),
+                              ),
+                            )
+                            : null,
+                  ),
         ),
       ),
     );
@@ -1567,9 +1648,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Text(
                   'Attendance alert',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: FlatDashboard.textPrimary,
-                      ),
+                    fontWeight: FontWeight.w800,
+                    color: FlatDashboard.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1645,15 +1726,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            Icon(Icons.cloud_upload_outlined, size: 20, color: cs.onSecondaryContainer),
+            Icon(
+              Icons.cloud_upload_outlined,
+              size: 20,
+              color: cs.onSecondaryContainer,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 '$_pendingSyncCount waiting to sync · pull to refresh when online',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: cs.onSecondaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: cs.onSecondaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -1683,15 +1768,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             children: [
               Row(
                 children: [
-                  Icon(Icons.bug_report, size: 18, color: Colors.amber.shade900),
+                  Icon(
+                    Icons.bug_report,
+                    size: 18,
+                    color: Colors.amber.shade900,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'DEBUG: sessions/active · HTTP $status',
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: Colors.amber.shade900,
-                          ),
+                        fontWeight: FontWeight.w800,
+                        color: Colors.amber.shade900,
+                      ),
                     ),
                   ),
                 ],
@@ -1714,7 +1803,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   fontSize: 11,
                   height: 1.35,
                   fontFamily: 'monospace',
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.88),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.88),
                 ),
               ),
             ],
@@ -1727,8 +1818,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _buildDrawer(BuildContext context) {
     final s = _student;
     final colorScheme = Theme.of(context).colorScheme;
-    final headerColor =
-        colorScheme.primaryContainer.withValues(alpha: 0.45);
+    final headerColor = colorScheme.primaryContainer.withValues(alpha: 0.45);
 
     return Drawer(
       child: AppDrawerShell(
@@ -1737,10 +1827,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             padding: EdgeInsets.zero,
             children: [
               if (s != null)
-                StudentDrawerHeader(
-                  student: s,
-                  decorationColor: headerColor,
-                )
+                StudentDrawerHeader(student: s, decorationColor: headerColor)
               else
                 Material(
                   color: headerColor,
@@ -1749,8 +1836,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     child: Row(
                       children: [
                         CircleAvatar(
-                          backgroundColor:
-                              colorScheme.primary.withValues(alpha: 0.3),
+                          backgroundColor: colorScheme.primary.withValues(
+                            alpha: 0.3,
+                          ),
                           radius: 28,
                           child: Icon(
                             Icons.person,
@@ -1773,7 +1861,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 subtitle: const Text('Account details'),
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/profile').then((_) => _load());
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/profile').then((_) => _load());
                 },
               ),
               ListTile(
@@ -1782,15 +1872,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 subtitle: const Text('Weekly class schedule'),
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context)
-                      .pushNamed('/timetable')
-                      .then((_) => _load());
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/timetable').then((_) => _load());
                 },
               ),
               if (s?.isClassRep == true)
                 ListTile(
-                  leading: Icon(Icons.dashboard_customize_outlined,
-                      color: colorScheme.primary),
+                  leading: Icon(
+                    Icons.dashboard_customize_outlined,
+                    color: colorScheme.primary,
+                  ),
                   title: const Text('Class rep dashboard'),
                   subtitle: const Text('Sessions, QR & tools'),
                   onTap: () {
@@ -1798,8 +1890,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     Navigator.of(context)
                         .push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                                appSelectableScope(const RepHomePage()),
+                            builder:
+                                (_) => appSelectableScope(const RepHomePage()),
                           ),
                         )
                         .then((_) => _load());
@@ -1819,29 +1911,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 enabled: _logoutAllowed,
                 leading: Icon(
                   Icons.logout,
-                  color: _logoutAllowed
-                      ? colorScheme.error
-                      : colorScheme.onSurfaceVariant,
+                  color:
+                      _logoutAllowed
+                          ? colorScheme.error
+                          : colorScheme.onSurfaceVariant,
                 ),
                 title: Text(
                   'Log out',
                   style: GoogleFonts.dmSans(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: _logoutAllowed
-                        ? colorScheme.error
-                        : colorScheme.onSurfaceVariant,
+                    color:
+                        _logoutAllowed
+                            ? colorScheme.error
+                            : colorScheme.onSurfaceVariant,
                   ),
                 ),
-                subtitle: _logoutLockHint != null && !_logoutAllowed
-                    ? Text(
-                        _logoutLockHint!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      )
-                    : null,
+                subtitle:
+                    _logoutLockHint != null && !_logoutAllowed
+                        ? Text(
+                          _logoutLockHint!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        )
+                        : null,
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
                   _confirmLogout();
@@ -1874,8 +1969,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _openAttendanceHistory() {
     Navigator.of(context)
-        .push(MaterialPageRoute(
-            builder: (_) => appSelectableScope(const AttendanceHistoryPage())))
+        .push(
+          MaterialPageRoute(
+            builder: (_) => appSelectableScope(const AttendanceHistoryPage()),
+          ),
+        )
         .then((_) => _load());
   }
 }

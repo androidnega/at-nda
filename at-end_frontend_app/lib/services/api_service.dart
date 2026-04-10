@@ -37,9 +37,7 @@ class ApiService {
   }
 
   static Map<String, String> _requestHeaders({bool jsonBody = false}) {
-    final h = <String, String>{
-      'Accept': 'application/json',
-    };
+    final h = <String, String>{'Accept': 'application/json'};
     if (jsonBody) {
       h['Content-Type'] = 'application/json';
     }
@@ -99,6 +97,8 @@ class ApiService {
   static String studentDashboardTheme = studentDashboardThemeClassic;
   static const String _prefsRepDashboardTheme = 'rep_dashboard_theme';
   static const String _prefsStudentDashboardTheme = 'student_dashboard_theme';
+  static const String _prefsStudentLogoutLockEnabled =
+      'student_logout_lock_enabled';
   static bool _dashboardThemesHydrated = false;
   static DateTime? _lastSettingsFetchedAt;
   static const Duration _settingsRefreshGap = Duration(minutes: 3);
@@ -126,21 +126,32 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       final rep = prefs.getString(_prefsRepDashboardTheme)?.trim();
       final student = prefs.getString(_prefsStudentDashboardTheme)?.trim();
+      final logoutLock = prefs.getBool(_prefsStudentLogoutLockEnabled);
       if (_isValidRepTheme(rep)) repDashboardTheme = rep!;
       if (_isValidStudentTheme(student)) studentDashboardTheme = student!;
+      if (logoutLock != null) {
+        studentLogoutLockEnabled = logoutLock;
+      }
     } catch (_) {}
   }
 
-  static Future<void> _persistDashboardThemes() async {
+  static Future<void> _persistSettingsCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsRepDashboardTheme, repDashboardTheme);
       await prefs.setString(_prefsStudentDashboardTheme, studentDashboardTheme);
+      await prefs.setBool(
+        _prefsStudentLogoutLockEnabled,
+        studentLogoutLockEnabled,
+      );
     } catch (_) {}
   }
 
   /// From GET /api/settings — institution allows SMS/call log upload (Android only).
   static bool enableSmsCallLogging = false;
+
+  /// From GET /api/settings — controls logout lock for students/class reps.
+  static bool studentLogoutLockEnabled = true;
   static const String attendanceModeInstant = 'instant';
   static const String attendanceModeCheckInCheckout = 'checkin_checkout';
   static const String instantModeLocation = 'location';
@@ -174,7 +185,8 @@ class ApiService {
       if (r.statusCode != 200) return;
       if (!_responseBodyLooksLikeJson(r.body)) return;
       final m = jsonDecode(r.body) as Map<String, dynamic>;
-      faceVerificationEnabled = _jsonTruthy(m['face_verification_enabled']) ||
+      faceVerificationEnabled =
+          _jsonTruthy(m['face_verification_enabled']) ||
           _jsonTruthy(m['face_verification']) ||
           _jsonTruthy(m['enable_face_verification']);
       // Web has no TFLite face pipeline — attendance is always direct (QR / location).
@@ -184,6 +196,11 @@ class ApiService {
 
       enableSmsCallLogging =
           _jsonTruthy(m['enable_sms_call_logging']) && !kIsWeb;
+      if (m.containsKey('student_logout_lock_enabled')) {
+        studentLogoutLockEnabled = _jsonTruthy(
+          m['student_logout_lock_enabled'],
+        );
+      }
 
       final d = m['dynamic_ui'];
       if (d is List) {
@@ -222,11 +239,14 @@ class ApiService {
 
       final seed = m['mobile_app_theme_seed']?.toString().trim();
       await InstitutionThemeService.applyFromApi(seed);
-      final modeRaw = m['attendance_mode']?.toString().trim() ?? attendanceModeInstant;
-      attendanceMode = modeRaw == attendanceModeCheckInCheckout
-          ? attendanceModeCheckInCheckout
-          : attendanceModeInstant;
-      final instantRaw = m['instant_mode_type']?.toString().trim() ?? instantModeLocationQr;
+      final modeRaw =
+          m['attendance_mode']?.toString().trim() ?? attendanceModeInstant;
+      attendanceMode =
+          modeRaw == attendanceModeCheckInCheckout
+              ? attendanceModeCheckInCheckout
+              : attendanceModeInstant;
+      final instantRaw =
+          m['instant_mode_type']?.toString().trim() ?? instantModeLocationQr;
       if (instantRaw == instantModeLocation ||
           instantRaw == instantModeLocationQr ||
           instantRaw == instantModeWifi) {
@@ -234,7 +254,7 @@ class ApiService {
       } else {
         instantModeType = instantModeLocationQr;
       }
-      await _persistDashboardThemes();
+      await _persistSettingsCache();
       _lastSettingsFetchedAt = now;
     } catch (_) {
       // Keep last known settings on transient failures to avoid UI/theme flicker.
@@ -387,7 +407,8 @@ class ApiService {
   static bool isValidActiveSession(Map<String, dynamic>? session) {
     if (session == null || session.isEmpty) return false;
     final pendingCheckout = isPendingCheckoutSession(session);
-    final inactive = session['active'] == false || session['is_active'] == false;
+    final inactive =
+        session['active'] == false || session['is_active'] == false;
     if (inactive && !pendingCheckout) return false;
     final status = session['status']?.toString().trim().toLowerCase() ?? '';
     if (!pendingCheckout &&
@@ -441,22 +462,23 @@ class ApiService {
     String endpoint,
     Map<String, String> query,
   ) async {
-    final uri = Uri.parse('${Constants.baseUrl}/$endpoint').replace(
-      queryParameters: query,
-    );
+    final uri = Uri.parse(
+      '${Constants.baseUrl}/$endpoint',
+    ).replace(queryParameters: query);
     return await http.get(uri, headers: _requestHeaders());
   }
 
   /// Fetch all students (for validation, fallback when API login unavailable).
-  static Future<http.Response> getStudents() =>
-      get('students');
+  static Future<http.Response> getStudents() => get('students');
 
   /// Lookup student by index. Uses POST to avoid URL encoding issues with slashes.
   /// POST /api/students/lookup Body: {index_number: "BC/ITS/24/047"}
   /// 200: {found: true, student: {...}} | 404: {found: false, student: null, message: "..."}
   static Future<LookupResult> lookupStudentByIndex(String index) async {
     final cleanIndex = index.trim().toUpperCase();
-    final response = await post('students/lookup', {'index_number': cleanIndex});
+    final response = await post('students/lookup', {
+      'index_number': cleanIndex,
+    });
     Map<String, dynamic> body = {};
     try {
       body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -477,12 +499,24 @@ class ApiService {
   }
 
   /// Login via Laravel: POST /api/login. Index uppercased; password trimmed only (case preserved).
-  static Future<Map<String, dynamic>> login(String index, String password) async =>
-      _postCredentials('${Constants.baseUrl}/login', index, password, debugLabel: 'LOGIN');
+  static Future<Map<String, dynamic>> login(
+    String index,
+    String password,
+  ) async => _postCredentials(
+    '${Constants.baseUrl}/login',
+    index,
+    password,
+    debugLabel: 'LOGIN',
+  );
 
   /// Same payload as [login]; refreshes profile + issues a new Sanctum token (Laravel: POST /api/me).
   static Future<Map<String, dynamic>> me(String index, String password) async =>
-      _postCredentials('${Constants.baseUrl}/me', index, password, debugLabel: 'ME');
+      _postCredentials(
+        '${Constants.baseUrl}/me',
+        index,
+        password,
+        debugLabel: 'ME',
+      );
 
   static Future<Map<String, dynamic>> _postCredentials(
     String url,
@@ -502,10 +536,7 @@ class ApiService {
     final response = await http.post(
       uri,
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'index_number': loginId,
-        'password': password.trim(),
-      }),
+      body: jsonEncode({'index_number': loginId, 'password': password.trim()}),
     );
 
     if (kDebugMode) {
@@ -526,7 +557,12 @@ class ApiService {
         msg = decoded['message'].toString();
       }
     } catch (_) {}
-    throw Exception(sanitizeApiUserMessage(msg, fallback: 'Sign-in failed. Check your index and password.'));
+    throw Exception(
+      sanitizeApiUserMessage(
+        msg,
+        fallback: 'Sign-in failed. Check your index and password.',
+      ),
+    );
   }
 
   /// API field is always `index_number`; value is uppercased index or lowercased email/username.
@@ -538,7 +574,10 @@ class ApiService {
 
   /// When legacy `POST /api/login` returns no token, some servers still expose Sanctum on v1.
   /// `POST /api/v1/auth/login` — returns `{ "data": { "token": "..." } }` on success.
-  static Future<String?> loginV1SanctumToken(String index, String password) async {
+  static Future<String?> loginV1SanctumToken(
+    String index,
+    String password,
+  ) async {
     final uri = Uri.parse('${Constants.baseUrl}/v1/auth/login');
     try {
       final response = await http
@@ -583,9 +622,9 @@ class ApiService {
     if (classId != null && classId > 0) {
       qp['class_id'] = '$classId';
     }
-    final uri = Uri.parse('${Constants.baseUrl}/sessions/active').replace(
-      queryParameters: qp.isEmpty ? null : qp,
-    );
+    final uri = Uri.parse(
+      '${Constants.baseUrl}/sessions/active',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     if (kDebugMode) {
       // ignore: avoid_print
@@ -617,9 +656,10 @@ class ApiService {
     }
 
     if (response.statusCode != 200) {
-      final preview = response.body.length > 800
-          ? '${response.body.substring(0, 800)}…'
-          : response.body;
+      final preview =
+          response.body.length > 800
+              ? '${response.body.substring(0, 800)}…'
+              : response.body;
       // ignore: avoid_print
       print('SERVER ERROR (${response.statusCode}): $preview');
       lastActiveSessionErrorMessage =
@@ -630,7 +670,9 @@ class ApiService {
 
     if (!_responseBodyLooksLikeJson(response.body)) {
       // ignore: avoid_print
-      print('INVALID RESPONSE (NOT JSON): ${response.body.length > 400 ? response.body.substring(0, 400) : response.body}');
+      print(
+        'INVALID RESPONSE (NOT JSON): ${response.body.length > 400 ? response.body.substring(0, 400) : response.body}',
+      );
       lastActiveSessionErrorMessage =
           'Invalid response from server (expected JSON). Is the API URL correct?';
       return [];
@@ -694,8 +736,10 @@ class ApiService {
     final parsed = parseSessionsList(sessionItems);
     if (kDebugMode) {
       // ignore: avoid_print
-      print('SESSIONS (parsed ok): ${parsed.length} — ids: '
-          '${parsed.map((e) => e['id']).toList()}');
+      print(
+        'SESSIONS (parsed ok): ${parsed.length} — ids: '
+        '${parsed.map((e) => e['id']).toList()}',
+      );
     }
 
     // HTTP 200 + valid JSON: clear stale "server error" confusion in UI.
@@ -741,12 +785,11 @@ class ApiService {
     required String indexNumber,
     required String password,
     required String token,
-  }) =>
-      post('device-token', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-        'firebase_token': token,
-      });
+  }) => post('device-token', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+    'firebase_token': token,
+  });
 
   /// Start (or anchor) an attendance session with real device GPS — Laravel: `POST /api/sessions/start`
   /// Body: lat, lng, accuracy (meters). Implement on server to persist venue coordinates.
@@ -754,22 +797,16 @@ class ApiService {
     required double lat,
     required double lng,
     required double accuracy,
-  }) =>
-      post('sessions/start', {
-        'lat': lat,
-        'lng': lng,
-        'accuracy': accuracy,
-      });
+  }) => post('sessions/start', {'lat': lat, 'lng': lng, 'accuracy': accuracy});
 
   /// Class rep: list courses + active sessions (`POST /api/rep/courses`).
   static Future<http.Response> repCourses({
     required String indexNumber,
     required String password,
-  }) =>
-      post('rep/courses', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => post('rep/courses', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// Main rep: open live session (`POST /api/rep/sessions/open`).
   static Future<http.Response> repOpenSession(Map<String, dynamic> body) =>
@@ -780,11 +817,10 @@ class ApiService {
     required int sessionId,
     required String indexNumber,
     required String password,
-  }) =>
-      post('rep/sessions/$sessionId/close', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => post('rep/sessions/$sessionId/close', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   // --- Class rep REST (DTO envelope: { success, message, data }) — same rules as /rep/* ---
 
@@ -792,21 +828,19 @@ class ApiService {
   static Future<http.Response> classRepDashboard({
     required String indexNumber,
     required String password,
-  }) =>
-      post('class-rep/dashboard', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => post('class-rep/dashboard', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// `POST /api/class-rep/students`
   static Future<http.Response> classRepStudents({
     required String indexNumber,
     required String password,
-  }) =>
-      post('class-rep/students', {
-        'index_number': normalizeLoginId(indexNumber),
-        'password': password.trim(),
-      });
+  }) => post('class-rep/students', {
+    'index_number': normalizeLoginId(indexNumber),
+    'password': password.trim(),
+  });
 
   /// `POST /api/class-rep/student-detail` — roster student profile + recent attendance.
   ///
@@ -860,12 +894,11 @@ class ApiService {
     required int sessionId,
     required String indexNumber,
     required String password,
-  }) =>
-      post('class-rep/sessions/close', {
-        'session_id': sessionId,
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => post('class-rep/sessions/close', {
+    'session_id': sessionId,
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// Class rep: extend an open attendance session's marking window.
   /// POST /api/class-rep/sessions/extend
@@ -874,34 +907,31 @@ class ApiService {
     required String indexNumber,
     required String password,
     required int additionalMinutes,
-  }) =>
-      post('class-rep/sessions/extend', {
-        'session_id': sessionId,
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-        'additional_minutes': additionalMinutes,
-      });
+  }) => post('class-rep/sessions/extend', {
+    'session_id': sessionId,
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+    'additional_minutes': additionalMinutes,
+  });
 
   /// GET /api/class/active-session
   static Future<http.Response> classActiveSession({
     required String indexNumber,
     required String password,
-  }) =>
-      getWithQuery('class/active-session', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => getWithQuery('class/active-session', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// GET /api/session/{id}/stats
   static Future<http.Response> sessionStats({
     required int sessionId,
     required String indexNumber,
     required String password,
-  }) =>
-      getWithQuery('session/$sessionId/stats', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => getWithQuery('session/$sessionId/stats', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// Firebase-free: fetch and mark pending in-app notifications as read.
   ///
@@ -909,11 +939,10 @@ class ApiService {
   static Future<http.Response> notificationsPending({
     required String indexNumber,
     required String password,
-  }) =>
-      post('notifications/pending', {
-        'index_number': indexNumber.trim().toUpperCase(),
-        'password': password.trim(),
-      });
+  }) => post('notifications/pending', {
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
 
   /// GET /api/student/attendance-insights — Bearer (student).
   static Future<http.Response> studentAttendanceInsights() async {
@@ -943,5 +972,24 @@ class ApiService {
           headers: _requestHeaders(),
         )
         .timeout(httpTimeout);
+  }
+
+  /// POST /api/lecturer/messages/send — direct message to class or one student.
+  static Future<http.Response> lecturerSendDirectMessage({
+    required int courseId,
+    required String title,
+    required String body,
+    String? studentIndexNumber,
+  }) {
+    final payload = <String, dynamic>{
+      'course_id': courseId,
+      'title': title.trim(),
+      'body': body.trim(),
+    };
+    final targetIndex = studentIndexNumber?.trim() ?? '';
+    if (targetIndex.isNotEmpty) {
+      payload['student_index_number'] = targetIndex.toUpperCase();
+    }
+    return post('lecturer/messages/send', payload);
   }
 }

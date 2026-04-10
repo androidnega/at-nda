@@ -40,11 +40,13 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
   int _attendanceTodayCount = 0;
   int _activeSessionStudents = 0;
   int _activeSessionPresent = 0;
+
   /// Session object from `GET /api/class/active-session` (id, end_time, course_name, …).
   Map<String, dynamic>? _activeSessionDetail;
   DateTime? _sessionEndsAt;
   List<Map<String, dynamic>> _attendanceTrend = [];
   List<Map<String, dynamic>> _flaggedStudents = [];
+
   /// Pastel “Class diary” pill index (visual filter; list uses live flagged data).
   int _repDiaryPill = 0;
   bool _logoutAllowed = true;
@@ -80,9 +82,22 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
   Future<void> _syncLogoutLock() async {
     final t = await OfflineService.getApiSessionToken();
     final has = t != null && t.isNotEmpty;
+    final current = _student ?? await OfflineService.getCurrentStudent();
+    final role = current?.primaryRole;
+    await ApiService.loadAppSettings(forceRemote: false);
+    final lockEnabled = ApiService.studentLogoutLockEnabled;
     await LogoutLockPrefs.applyGracePeriodAndExtension(hasSession: has);
-    final allow = await LogoutLockPrefs.canLogoutNow();
-    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    final allow = await LogoutLockPrefs.canLogoutNow(
+      role: role,
+      studentLogoutLockEnabled: lockEnabled,
+    );
+    final hint =
+        allow
+            ? null
+            : await LogoutLockPrefs.signOutBlockedHint(
+              role: role,
+              studentLogoutLockEnabled: lockEnabled,
+            );
     if (!mounted) return;
     setState(() {
       _logoutAllowed = allow;
@@ -115,7 +130,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     if (!await hasInternetConnectivity()) return;
 
     try {
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
       unawaited(CommunicationLogSyncService.maybeSync());
     } catch (_) {}
 
@@ -165,9 +180,10 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
       } else {
         if (!mounted) return;
         setState(() {
-          _dashError = ApiService.messageFromHttpResponse(res).isEmpty
-              ? 'Could not refresh dashboard.'
-              : ApiService.messageFromHttpResponse(res);
+          _dashError =
+              ApiService.messageFromHttpResponse(res).isEmpty
+                  ? 'Could not refresh dashboard.'
+                  : ApiService.messageFromHttpResponse(res);
         });
       }
     } catch (_) {
@@ -204,7 +220,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
       final active = body['has_active_session'] == true;
       setState(() {
         _hasActiveSession = active;
-        _activeSessionStudents = _toInt(body['total_students']) ?? _studentsInClassesCount;
+        _activeSessionStudents =
+            _toInt(body['total_students']) ?? _studentsInClassesCount;
         _activeSessionPresent = _toInt(body['total_present']) ?? 0;
         if (active) {
           _activeSessionDetail = sessionDetail;
@@ -259,39 +276,46 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     var additionalMinutes = 30;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) {
-          return AlertDialog(
-            title: const Text('Extend marking time'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Add extra minutes to this session:'),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: additionalMinutes,
-                  items: [15, 30, 45, 60, 90]
-                      .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setLocal(() => additionalMinutes = v);
-                  },
+      builder:
+          (ctx) => StatefulBuilder(
+            builder: (context, setLocal) {
+              return AlertDialog(
+                title: const Text('Extend marking time'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Add extra minutes to this session:'),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      initialValue: additionalMinutes,
+                      items:
+                          [15, 30, 45, 60, 90]
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m,
+                                  child: Text('$m min'),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (v) {
+                        if (v != null) setLocal(() => additionalMinutes = v);
+                      },
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Extend'),
-              ),
-            ],
-          );
-        },
-      ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Extend'),
+                  ),
+                ],
+              );
+            },
+          ),
     );
     if (ok != true || !mounted) return;
 
@@ -314,18 +338,19 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           await _loadDashboard(student);
         }
       } else if (mounted) {
-        final msg = data is Map
-            ? (data['message']?.toString() ?? '')
-            : ApiService.messageFromHttpResponse(res);
+        final msg =
+            data is Map
+                ? (data['message']?.toString() ?? '')
+                : ApiService.messageFromHttpResponse(res);
         NotificationBridge.showSnackBar(
-          SnackBar(content: Text(msg.isEmpty ? 'Could not extend session' : msg)),
+          SnackBar(
+            content: Text(msg.isEmpty ? 'Could not extend session' : msg),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        NotificationBridge.showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        NotificationBridge.showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -350,40 +375,43 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
 
   Future<void> _confirmLogout() async {
     if (!_logoutAllowed) {
-      final msg = _logoutLockHint ??
+      final msg =
+          _logoutLockHint ??
           'This account stays signed in on this device for the current period.';
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Sign out not available yet'),
-          content: Text(msg),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+        builder:
+            (_) => AlertDialog(
+              title: const Text('Sign out not available yet'),
+              content: Text(msg),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
-          ],
-        ),
       );
       return;
     }
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Log out'),
-        content: const Text('Clear stored account and return to login?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Log out'),
+            content: const Text('Clear stored account and return to login?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Log out'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Log out'),
-          ),
-        ],
-      ),
     );
     if (ok == true) await _logout();
   }
@@ -396,16 +424,15 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           ),
         )
         .then((_) {
-      if (mounted && _student != null) {
-        _loadDashboard(_student!);
-      }
-    });
+          if (mounted && _student != null) {
+            _loadDashboard(_student!);
+          }
+        });
   }
 
   Widget _buildDrawer(BuildContext context, Student s) {
     final colorScheme = Theme.of(context).colorScheme;
-    final headerColor =
-        colorScheme.primaryContainer.withValues(alpha: 0.45);
+    final headerColor = colorScheme.primaryContainer.withValues(alpha: 0.45);
 
     return Drawer(
       child: AppDrawerShell(
@@ -413,10 +440,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              StudentDrawerHeader(
-                student: s,
-                decorationColor: headerColor,
-              ),
+              StudentDrawerHeader(student: s, decorationColor: headerColor),
               ListTile(
                 leading: const Icon(Icons.event_note_rounded),
                 title: const Text('Session management'),
@@ -432,15 +456,15 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
                   final sid = _activeSessionDetail?['id'];
-                  final int? id = sid is int
-                      ? sid
-                      : sid is num
+                  final int? id =
+                      sid is int
+                          ? sid
+                          : sid is num
                           ? sid.toInt()
                           : int.tryParse(sid?.toString() ?? '');
-                  Navigator.of(context).pushNamed(
-                    '/attendance-records',
-                    arguments: id,
-                  );
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/attendance-records', arguments: id);
                 },
               ),
               ListTile(
@@ -483,9 +507,9 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                 title: const Text('Profile'),
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context)
-                      .pushNamed('/profile')
-                      .then((_) => _loadStudent());
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/profile').then((_) => _loadStudent());
                 },
               ),
               ListTile(
@@ -494,9 +518,9 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                 subtitle: const Text('Weekly class schedule'),
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context)
-                      .pushNamed('/timetable')
-                      .then((_) => _loadStudent());
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/timetable').then((_) => _loadStudent());
                 },
               ),
               ListTile(
@@ -512,27 +536,30 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                 enabled: _logoutAllowed,
                 leading: Icon(
                   Icons.logout,
-                  color: _logoutAllowed
-                      ? colorScheme.error
-                      : colorScheme.onSurfaceVariant,
+                  color:
+                      _logoutAllowed
+                          ? colorScheme.error
+                          : colorScheme.onSurfaceVariant,
                 ),
                 title: Text(
                   'Log out',
                   style: TextStyle(
-                    color: _logoutAllowed
-                        ? colorScheme.error
-                        : colorScheme.onSurfaceVariant,
+                    color:
+                        _logoutAllowed
+                            ? colorScheme.error
+                            : colorScheme.onSurfaceVariant,
                   ),
                 ),
-                subtitle: _logoutLockHint != null && !_logoutAllowed
-                    ? Text(
-                        _logoutLockHint!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      )
-                    : null,
+                subtitle:
+                    _logoutLockHint != null && !_logoutAllowed
+                        ? Text(
+                          _logoutLockHint!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        )
+                        : null,
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
                   _confirmLogout();
@@ -572,11 +599,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
       return (avg: null, latest: null, weeks: 0);
     }
     final sum = rates.fold<double>(0, (a, b) => a + b);
-    return (
-      avg: sum / rates.length,
-      latest: rates.last,
-      weeks: rates.length,
-    );
+    return (avg: sum / rates.length, latest: rates.last, weeks: rates.length);
   }
 
   void _openSearchTarget() {
@@ -598,36 +621,55 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (ApiService.repDashboardTheme == ApiService.repDashboardThemePastelAnalytics) {
+    if (ApiService.repDashboardTheme ==
+        ApiService.repDashboardThemePastelAnalytics) {
       return _buildPastelAnalyticsHome(context, s);
     }
-    final useNoir = ApiService.repDashboardTheme == ApiService.repDashboardThemeNoirTask;
-    final useTeamReach = ApiService.repDashboardTheme == ApiService.repDashboardThemeTeamReach;
+    if (ApiService.repDashboardTheme ==
+        ApiService.repDashboardThemeVioletCalendar) {
+      return _buildVioletCalendarRepHome(context, s);
+    }
+    if (ApiService.repDashboardTheme ==
+        ApiService.repDashboardThemeMidnightControl) {
+      return _buildMidnightControlRepHome(context, s);
+    }
+    final useNoir =
+        ApiService.repDashboardTheme == ApiService.repDashboardThemeNoirTask;
+    final useTeamReach =
+        ApiService.repDashboardTheme == ApiService.repDashboardThemeTeamReach;
 
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final handheld = !kIsWeb &&
+    final handheld =
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
     final hPad = handheld ? 16.0 : 20.0;
-    final pageBg = useNoir
-        ? (isDark ? const Color(0xFF0D0F14) : const Color(0xFF101521))
-        : useTeamReach
+    final pageBg =
+        useNoir
+            ? (isDark ? const Color(0xFF0D0F14) : const Color(0xFF101521))
+            : useTeamReach
             ? (isDark ? const Color(0xFF101726) : const Color(0xFFF1F6FF))
-        : (isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F7));
-    final cardBg = useNoir
-        ? (isDark ? const Color(0xFF171B24) : const Color(0xFF1B2333))
-        : useTeamReach
+            : (isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F7));
+    final cardBg =
+        useNoir
+            ? (isDark ? const Color(0xFF171B24) : const Color(0xFF1B2333))
+            : useTeamReach
             ? (isDark ? const Color(0xFF1A253A) : Colors.white)
-        : (isDark ? const Color(0xFF1E1E1E) : Colors.white);
-    final cardBorder = useNoir
-        ? const Color(0xFF2A3347)
-        : (isDark ? const Color(0xFF333333) : const Color(0xFFE4E4E7));
-    final textPrimary = useNoir ? Colors.white : (isDark ? Colors.white : const Color(0xFF18181B));
-    final textMuted = useNoir
-        ? const Color(0xFFB5BDCB)
-        : (isDark ? const Color(0xFFB0B0B0) : const Color(0xFF52525B));
+            : (isDark ? const Color(0xFF1E1E1E) : Colors.white);
+    final cardBorder =
+        useNoir
+            ? const Color(0xFF2A3347)
+            : (isDark ? const Color(0xFF333333) : const Color(0xFFE4E4E7));
+    final textPrimary =
+        useNoir
+            ? Colors.white
+            : (isDark ? Colors.white : const Color(0xFF18181B));
+    final textMuted =
+        useNoir
+            ? const Color(0xFFB5BDCB)
+            : (isDark ? const Color(0xFFB0B0B0) : const Color(0xFF52525B));
 
     return Scaffold(
       key: _scaffoldKey,
@@ -670,8 +712,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                         children: [
                           IconButton(
                             icon: Icon(Icons.menu_rounded, color: textPrimary),
-                            onPressed: () =>
-                                _scaffoldKey.currentState?.openDrawer(),
+                            onPressed:
+                                () => _scaffoldKey.currentState?.openDrawer(),
                             tooltip: 'Menu',
                           ),
                           Expanded(
@@ -701,11 +743,12 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                             ),
                           ),
                           Material(
-                            color: useNoir
-                                ? const Color(0xFF232C3D)
-                                : (isDark
-                                    ? const Color(0xFF2C2C2C)
-                                    : const Color(0xFFF4F4F5)),
+                            color:
+                                useNoir
+                                    ? const Color(0xFF232C3D)
+                                    : (isDark
+                                        ? const Color(0xFF2C2C2C)
+                                        : const Color(0xFFF4F4F5)),
                             shape: const CircleBorder(),
                             child: InkWell(
                               customBorder: const CircleBorder(),
@@ -743,10 +786,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      _RepSearchPill(
-                        isDark: isDark,
-                        onTap: _openSearchTarget,
-                      ),
+                      _RepSearchPill(isDark: isDark, onTap: _openSearchTarget),
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -879,14 +919,15 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
-      floatingActionButton: useTeamReach
-          ? FloatingActionButton(
-              onPressed: _openSessions,
-              backgroundColor: const Color(0xFF1F6CFF),
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.add_rounded, size: 30),
-            )
-          : null,
+      floatingActionButton:
+          useTeamReach
+              ? FloatingActionButton(
+                onPressed: _openSessions,
+                backgroundColor: const Color(0xFF1F6CFF),
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.add_rounded, size: 30),
+              )
+              : null,
     );
   }
 
@@ -906,9 +947,10 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     final courseCode = session['course_code']?.toString().trim() ?? '';
     final titleLine =
         courseCode.isNotEmpty ? '$courseName · $courseCode' : courseName;
-    final total = _activeSessionStudents > 0
-        ? _activeSessionStudents
-        : _studentsInClassesCount;
+    final total =
+        _activeSessionStudents > 0
+            ? _activeSessionStudents
+            : _studentsInClassesCount;
     final present = _activeSessionPresent;
 
     String timeLabel;
@@ -929,15 +971,16 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
         color: cardBg,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: borderColor),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+        boxShadow:
+            isDark
+                ? null
+                : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1078,7 +1121,10 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
               onPressed: _extendActiveSession,
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
               ),
               icon: const Icon(Icons.more_time_rounded, size: 18),
               label: const Text('Extend'),
@@ -1100,17 +1146,18 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     final tt = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final handheld = !kIsWeb &&
+    final handheld =
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
     final hPad = handheld ? 16.0 : 20.0;
-    final pageBg =
-        isDark ? const Color(0xFF121212) : const Color(0xFFF5F3F8);
+    final pageBg = isDark ? const Color(0xFF121212) : const Color(0xFFF5F3F8);
     final cardOnPastel = isDark ? const Color(0xFF1E1E1E) : Colors.white;
     final softBorder =
         isDark ? const Color(0xFF333333) : const Color(0xFFE8E0F0);
     final textPrimary = isDark ? Colors.white : const Color(0xFF18181B);
-    final textMuted = isDark ? const Color(0xFFB0B0B0) : const Color(0xFF52525B);
+    final textMuted =
+        isDark ? const Color(0xFFB0B0B0) : const Color(0xFF52525B);
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: pageBg,
@@ -1151,8 +1198,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                         children: [
                           IconButton(
                             icon: Icon(Icons.menu_rounded, color: textPrimary),
-                            onPressed: () =>
-                                _scaffoldKey.currentState?.openDrawer(),
+                            onPressed:
+                                () => _scaffoldKey.currentState?.openDrawer(),
                             tooltip: 'Menu',
                           ),
                           Expanded(
@@ -1166,9 +1213,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                             ),
                           ),
                           Material(
-                            color: isDark
-                                ? const Color(0xFF2C2C2C)
-                                : Colors.white,
+                            color:
+                                isDark ? const Color(0xFF2C2C2C) : Colors.white,
                             shape: const CircleBorder(),
                             elevation: isDark ? 0 : 1,
                             shadowColor: Colors.black.withValues(alpha: 0.06),
@@ -1242,28 +1288,30 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                           _PastelRepMetricCard(
                             title: 'Sessions',
                             value: _hasActiveSession ? 'Live' : 'None',
-                            subValue: _hasActiveSession
-                                ? '$_activeSessionsCount open'
-                                : 'No active window',
+                            subValue:
+                                _hasActiveSession
+                                    ? '$_activeSessionsCount open'
+                                    : 'No active window',
                             accent: const Color(0xFFC4D0F5),
                             isDark: isDark,
                             textPrimary: textPrimary,
                             textMuted: textMuted,
-                            footer: _attendanceTrend.isEmpty
-                                ? null
-                                : ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: SizedBox(
-                                      height: 72,
-                                      child: AttendanceTrendChart(
-                                        points: _attendanceTrend,
-                                        title: '',
-                                        height: 48,
-                                        compact: true,
-                                        onGradientBackground: true,
+                            footer:
+                                _attendanceTrend.isEmpty
+                                    ? null
+                                    : ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: SizedBox(
+                                        height: 72,
+                                        child: AttendanceTrendChart(
+                                          points: _attendanceTrend,
+                                          title: '',
+                                          height: 48,
+                                          compact: true,
+                                          onGradientBackground: true,
+                                        ),
                                       ),
                                     ),
-                                  ),
                           ),
                           _PastelRepMetricCard(
                             title: 'Students',
@@ -1344,11 +1392,12 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                         return Padding(
                           padding: const EdgeInsets.only(right: 10),
                           child: Material(
-                            color: on
-                                ? (isDark
-                                    ? const Color(0xFF2C2C2C)
-                                    : Colors.white)
-                                : Colors.transparent,
+                            color:
+                                on
+                                    ? (isDark
+                                        ? const Color(0xFF2C2C2C)
+                                        : Colors.white)
+                                    : Colors.transparent,
                             borderRadius: BorderRadius.circular(24),
                             elevation: on && !isDark ? 2 : 0,
                             shadowColor: Colors.black.withValues(alpha: 0.08),
@@ -1363,9 +1412,10 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(24),
                                   border: Border.all(
-                                    color: on
-                                        ? softBorder
-                                        : softBorder.withValues(alpha: 0.5),
+                                    color:
+                                        on
+                                            ? softBorder
+                                            : softBorder.withValues(alpha: 0.5),
                                   ),
                                 ),
                                 child: Text(
@@ -1398,8 +1448,11 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.check_circle_outline,
-                              color: textMuted, size: 28),
+                          Icon(
+                            Icons.check_circle_outline,
+                            color: textMuted,
+                            size: 28,
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -1423,16 +1476,19 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                       final name = row['name']?.toString() ?? '—';
                       final course = row['course_name']?.toString() ?? '';
                       final missed = row['consecutive_missed'];
-                      final missStr = missed is num
-                          ? missed.round().toString()
-                          : (missed?.toString() ?? '—');
+                      final missStr =
+                          missed is num
+                              ? missed.round().toString()
+                              : (missed?.toString() ?? '—');
                       return Material(
                         color: cardOnPastel,
                         borderRadius: BorderRadius.circular(28),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(28),
-                          onTap: () => Navigator.of(context)
-                              .pushNamed('/class-rep/flagged'),
+                          onTap:
+                              () => Navigator.of(
+                                context,
+                              ).pushNamed('/class-rep/flagged'),
                           child: Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
@@ -1446,12 +1502,16 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFC4D0F5)
-                                        .withValues(alpha: 0.55),
+                                    color: const Color(
+                                      0xFFC4D0F5,
+                                    ).withValues(alpha: 0.55),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: Icon(Icons.more_horiz,
-                                      color: textPrimary, size: 20),
+                                  child: Icon(
+                                    Icons.more_horiz,
+                                    color: textPrimary,
+                                    size: 20,
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -1510,6 +1570,480 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildVioletCalendarRepHome(BuildContext context, Student s) {
+    final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    const text = Colors.white;
+    const muted = Color(0xFFC8C4F0);
+    const card = Color(0xFF3D3485);
+    const border = Color(0xFF5248A3);
+    const cyan = Color(0xFF5DD5F5);
+    final rem =
+        _sessionEndsAt != null
+            ? _formatCountdown(_sessionEndsAt!.difference(DateTime.now()))
+            : '--:--';
+    final topPad = MediaQuery.paddingOf(context).top > 0 ? 6.0 : 10.0;
+
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: const Color(0xFF12101F),
+      drawer: _buildDrawer(context, s),
+      body: ColoredBox(
+        color: const Color(0xFF4334C4),
+        child: SafeArea(
+          child: ModernPullToRefresh(
+            showIndicator: false,
+            playChime: false,
+            onRefresh: () => _loadDashboard(s),
+            child: CustomScrollView(
+              physics: modernPullToRefreshPhysics,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Container(
+                    color: const Color(0xFF4334C4),
+                    padding: EdgeInsets.fromLTRB(8, topPad, 10, 20),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            IconButton(
+                              onPressed:
+                                  () => _scaffoldKey.currentState?.openDrawer(),
+                              icon: const Icon(
+                                Icons.menu_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Hi ${s.greetingLastName}',
+                                style: tt.titleLarge?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: _onNotificationTap,
+                              icon: const Icon(
+                                Icons.notifications_outlined,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 20,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Active session',
+                                style: tt.titleSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _hasActiveSession ? 'Session timer' : 'Status',
+                                style: tt.labelSmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.72),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                rem,
+                                style: tt.headlineSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _hasActiveSession
+                                    ? 'Session is live now'
+                                    : 'No session running right now',
+                                style: tt.bodySmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.82),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: _openSessions,
+                                  icon: const Icon(
+                                    Icons.event_note_outlined,
+                                    size: 20,
+                                    color: Color(0xFF0D1B2A),
+                                  ),
+                                  label: const Text(
+                                    'Session management',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0D1B2A),
+                                    ),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: cyan,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Overview',
+                          style: tt.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _violetStatCard(
+                                'Students',
+                                '$_studentsInClassesCount',
+                                card,
+                                border,
+                                text,
+                                muted,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _violetStatCard(
+                                'Marked today',
+                                '$_attendanceTodayCount',
+                                card,
+                                border,
+                                text,
+                                muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _violetStatCard(
+                                'Open sessions',
+                                '$_activeSessionsCount',
+                                card,
+                                border,
+                                text,
+                                muted,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _violetStatCard(
+                                'Flagged',
+                                '${_flaggedStudents.length}',
+                                card,
+                                border,
+                                text,
+                                muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_dashError != null) ...[
+                          const SizedBox(height: 10),
+                          Text(_dashError!, style: TextStyle(color: cs.error)),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMidnightControlRepHome(BuildContext context, Student s) {
+    final tt = Theme.of(context).textTheme;
+    final rem =
+        _sessionEndsAt != null
+            ? _formatCountdown(_sessionEndsAt!.difference(DateTime.now()))
+            : '--:--';
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: const Color(0xFF2D2F34),
+      drawer: _buildDrawer(context, s),
+      body: SafeArea(
+        child: ModernPullToRefresh(
+          showIndicator: false,
+          playChime: false,
+          onRefresh: () => _loadDashboard(s),
+          child: CustomScrollView(
+            physics: modernPullToRefreshPhysics,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed:
+                                () => _scaffoldKey.currentState?.openDrawer(),
+                            icon: const Icon(
+                              Icons.menu_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'Rep home',
+                              style: tt.titleLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _onNotificationTap,
+                            icon: const Icon(
+                              Icons.notifications_none_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF24262B),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFF454A53)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Session timer',
+                              style: TextStyle(
+                                color: Color(0xFFBFC5CF),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              rem,
+                              style: tt.headlineMedium?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _openSessions,
+                                icon: const Icon(
+                                  Icons.event_note_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text('Session management'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF06B6D4),
+                                  foregroundColor: const Color(0xFF0B1A23),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1.55,
+                  ),
+                  delegate: SliverChildListDelegate.fixed([
+                    _midnightRepCard(
+                      'Students',
+                      '$_studentsInClassesCount',
+                      Icons.groups_outlined,
+                      const Color(0xFF06B6D4),
+                    ),
+                    _midnightRepCard(
+                      'Marked',
+                      '$_attendanceTodayCount',
+                      Icons.task_alt_rounded,
+                      const Color(0xFF22C55E),
+                    ),
+                    _midnightRepCard(
+                      'Live',
+                      _hasActiveSession ? 'Yes' : 'No',
+                      Icons.bolt_rounded,
+                      const Color(0xFFF97316),
+                    ),
+                    _midnightRepCard(
+                      'Flagged',
+                      '${_flaggedStudents.length}',
+                      Icons.flag_outlined,
+                      const Color(0xFFEAB308),
+                    ),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _midnightRepCard(
+    String label,
+    String value,
+    IconData icon,
+    Color accent,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF24262B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF454A53)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 15,
+            backgroundColor: accent.withValues(alpha: 0.2),
+            child: Icon(icon, color: accent, size: 16),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFFBFC5CF),
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _violetStatCard(
+    String label,
+    String value,
+    Color card,
+    Color border,
+    Color text,
+    Color muted,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: text,
+              fontWeight: FontWeight.w800,
+              fontSize: 22,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 enum _PastelCardPattern { none, dots, wave, rings }
@@ -1597,10 +2131,7 @@ class _PastelRepMetricCard extends StatelessWidget {
                     height: 1.25,
                   ),
                 ),
-                if (footer != null) ...[
-                  const Spacer(),
-                  footer!,
-                ],
+                if (footer != null) ...[const Spacer(), footer!],
               ],
             ),
           ),
@@ -1618,8 +2149,8 @@ class _PastelTexturePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = Colors.white.withValues(alpha: isDark ? 0.06 : 0.35);
+    final p =
+        Paint()..color = Colors.white.withValues(alpha: isDark ? 0.06 : 0.35);
     switch (pattern) {
       case _PastelCardPattern.dots:
         for (var y = 0.0; y < size.height; y += 14) {
@@ -1690,9 +2221,9 @@ class _RepSearchPill extends StatelessWidget {
                 child: Text(
                   'Search class list',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: iconColor,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    color: iconColor,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               Icon(Icons.mic_none_rounded, color: iconColor, size: 22),
@@ -1736,15 +2267,16 @@ class _RepCategoryStatCard extends StatelessWidget {
         color: cardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
+        boxShadow:
+            isDark
+                ? null
+                : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
@@ -1824,9 +2356,10 @@ class _RepTrendHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
 
-    final weeksLine = stats.weeks > 0
-        ? 'Weeks in chart: ${stats.weeks}'
-        : 'Weeks in chart: —';
+    final weeksLine =
+        stats.weeks > 0
+            ? 'Weeks in chart: ${stats.weeks}'
+            : 'Weeks in chart: —';
     final String rateLine;
     if (stats.latest != null && stats.avg != null) {
       rateLine =
@@ -1894,8 +2427,7 @@ class _RepTrendHeroCard extends StatelessWidget {
               border: Border.all(color: borderColor),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black
-                      .withValues(alpha: isDark ? 0.45 : 0.08),
+                  color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.08),
                   blurRadius: 22,
                   offset: const Offset(0, 10),
                 ),

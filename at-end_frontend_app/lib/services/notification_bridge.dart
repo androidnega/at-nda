@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'api_service.dart';
+import 'attendance_local_notify.dart';
 import 'notification_prefs.dart';
 import 'offline_service.dart';
 import 'success_chime.dart';
@@ -38,9 +39,7 @@ abstract final class NotificationBridge {
     await _pollPendingOnce(showSnackBars: true);
   }
 
-  static Future<void> _pollPendingOnce({
-    required bool showSnackBars,
-  }) async {
+  static Future<void> _pollPendingOnce({required bool showSnackBars}) async {
     if (_inFlight) return;
     _inFlight = true;
     try {
@@ -70,14 +69,31 @@ abstract final class NotificationBridge {
       final list = data['notifications'];
       if (list is! List || list.isEmpty) return;
 
+      for (final item in list) {
+        if (item is! Map) continue;
+        final title = item['title']?.toString().trim() ?? '';
+        final body = item['body']?.toString().trim() ?? '';
+        final rawId = item['id'];
+        final id =
+            rawId is int
+                ? rawId
+                : rawId is num
+                ? rawId.toInt()
+                : int.tryParse(rawId?.toString() ?? '');
+        await AttendanceLocalNotify.notifyServerMessage(
+          notificationId: id,
+          title: title.isEmpty ? 'New message' : title,
+          body: body.isEmpty ? 'Open the app for details.' : body,
+        );
+      }
+
       if (showSnackBars) {
         final first = list.first;
         if (first is Map) {
           final rawTitle = first['title']?.toString() ?? '';
           final rawBody = first['body']?.toString() ?? '';
-          final title = rawTitle.trim().isEmpty
-              ? 'Attendance reminder'
-              : rawTitle.trim();
+          final title =
+              rawTitle.trim().isEmpty ? 'Attendance reminder' : rawTitle.trim();
           final body = rawBody.trim();
           final more = list.length > 1 ? ' +${list.length - 1} more' : '';
           if (!kIsWeb) {
@@ -111,9 +127,7 @@ abstract final class NotificationBridge {
                             '$title$more',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           if (body.isNotEmpty) ...[
                             const SizedBox(height: 2),

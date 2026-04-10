@@ -9,7 +9,7 @@ import '../services/notification_bridge.dart';
 import '../services/notification_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/sync_service.dart';
-import '../services/theme_service.dart';
+import '../services/api_service.dart';
 import '../utils/app_selectable_scope.dart';
 import 'login_page.dart';
 
@@ -35,8 +35,21 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _refreshLogoutLock() async {
-    final allow = await LogoutLockPrefs.canLogoutNow();
-    final hint = allow ? null : await LogoutLockPrefs.signOutBlockedHint();
+    final student = await OfflineService.getCurrentStudent();
+    final role = student?.primaryRole;
+    await ApiService.loadAppSettings(forceRemote: false);
+    final lockEnabled = ApiService.studentLogoutLockEnabled;
+    final allow = await LogoutLockPrefs.canLogoutNow(
+      role: role,
+      studentLogoutLockEnabled: lockEnabled,
+    );
+    final hint =
+        allow
+            ? null
+            : await LogoutLockPrefs.signOutBlockedHint(
+              role: role,
+              studentLogoutLockEnabled: lockEnabled,
+            );
     if (!mounted) return;
     setState(() {
       _logoutAllowed = allow;
@@ -49,15 +62,15 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await SyncService.syncAttendance();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Synced')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Synced')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sync failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _syncing = false);
@@ -75,40 +88,43 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _confirmLogout() async {
     if (!_logoutAllowed) {
-      final msg = _logoutLockHint ??
+      final msg =
+          _logoutLockHint ??
           'This account stays signed in on this device for the current period.';
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Sign out not available yet'),
-          content: Text(msg),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+        builder:
+            (_) => AlertDialog(
+              title: const Text('Sign out not available yet'),
+              content: Text(msg),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
-          ],
-        ),
       );
       return;
     }
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Log out'),
-        content: const Text('Clear this account on this device?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Log out'),
+            content: const Text('Clear this account on this device?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Log out'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Log out'),
-          ),
-        ],
-      ),
     );
     if (ok == true) await _logout();
   }
@@ -119,50 +135,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final tt = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
-          Text(
-            'Appearance',
-            style: tt.labelLarge?.copyWith(
-              color: cs.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          ValueListenableBuilder<ThemeMode>(
-            valueListenable: ThemeService.modeNotifier,
-            builder: (context, mode, _) {
-              return SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: ThemeMode.light,
-                    label: Text('Light'),
-                    icon: Icon(Icons.light_mode_outlined, size: 18),
-                  ),
-                  ButtonSegment(
-                    value: ThemeMode.system,
-                    label: Text('Auto'),
-                    icon: Icon(Icons.brightness_auto_outlined, size: 18),
-                  ),
-                  ButtonSegment(
-                    value: ThemeMode.dark,
-                    label: Text('Dark'),
-                    icon: Icon(Icons.dark_mode_outlined, size: 18),
-                  ),
-                ],
-                selected: {mode},
-                onSelectionChanged: (s) {
-                  if (s.isEmpty) return;
-                  ThemeService.setTheme(s.first);
-                },
-              );
-            },
-          ),
-          const SizedBox(height: 28),
           Text(
             'Account',
             style: tt.labelLarge?.copyWith(
@@ -180,16 +156,17 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: _syncing
-                ? SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: cs.primary,
-                    ),
-                  )
-                : Icon(Icons.sync_rounded, color: cs.primary),
+            leading:
+                _syncing
+                    ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.primary,
+                      ),
+                    )
+                    : Icon(Icons.sync_rounded, color: cs.primary),
             title: const Text('Sync attendance'),
             subtitle: Text(
               'Upload pending marks',
@@ -210,12 +187,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 color: _logoutAllowed ? cs.error : cs.onSurfaceVariant,
               ),
             ),
-            subtitle: _logoutLockHint != null && !_logoutAllowed
-                ? Text(
-                    _logoutLockHint!,
-                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                  )
-                : null,
+            subtitle:
+                _logoutLockHint != null && !_logoutAllowed
+                    ? Text(
+                      _logoutLockHint!,
+                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                    )
+                    : null,
             onTap: _confirmLogout,
           ),
           const SizedBox(height: 20),

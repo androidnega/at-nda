@@ -34,6 +34,7 @@ class SettingsController extends Controller
             $rules['rep_dashboard_theme'] = 'nullable|in:classic,pastel_analytics,noir_task,team_reach,violet_calendar,midnight_control';
             $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task,team_reach,violet_calendar,midnight_control';
             $rules['mobile_app_theme_seed'] = 'nullable|in:teal,blue,indigo,emerald,rose,amber';
+            $rules['enforce_student_logout_lock'] = 'nullable|boolean';
         }
         $validated = $request->validate($rules);
         if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
@@ -56,6 +57,9 @@ class SettingsController extends Controller
             $payload['enable_sms_call_logging'] = $request->boolean('enable_sms_call_logging');
         }
         if ($request->session()->has('admin_id')) {
+            if (SystemSetting::hasEnforceStudentLogoutLockColumn()) {
+                $payload['enforce_student_logout_lock'] = $request->boolean('enforce_student_logout_lock');
+            }
             if (SystemSetting::hasRepDashboardThemeColumn() && $request->has('rep_dashboard_theme')) {
                 $v = $validated['rep_dashboard_theme'] ?? 'classic';
                 $payload['rep_dashboard_theme'] = $v ?: 'classic';

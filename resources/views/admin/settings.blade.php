@@ -83,6 +83,18 @@
                     class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
             </label>
 
+            @if(session()->has('admin_id') && \App\Models\SystemSetting::hasEnforceStudentLogoutLockColumn())
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
+                <div>
+                    <span class="font-medium text-gray-800">Enforce student logout lock in app</span>
+                    <p class="text-sm text-gray-500 mt-0.5">When ON, student/class-rep sign-out follows the lock window. Lecturers can always sign out.</p>
+                </div>
+                <input type="hidden" name="enforce_student_logout_lock" value="0">
+                <input type="checkbox" name="enforce_student_logout_lock" value="1" {{ ($settings->enforce_student_logout_lock ?? true) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+            </label>
+            @endif
+
             <div class="p-4 rounded-xl border border-gray-100">
                 <label for="face_match_threshold" class="font-medium text-gray-800 block mb-1">Face Match Threshold</label>
                 <p class="text-sm text-gray-500 mb-2">Lower = stricter match (default 0.5). Range: 0.2–1.0</p>

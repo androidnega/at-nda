@@ -1,10 +1,4 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:image/image.dart' as img;
-import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/student.dart';
@@ -12,17 +6,11 @@ import '../services/api_service.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/profile_identity_cooldown.dart';
-import '../services/profile_image_cache.dart';
-import '../services/permission_service.dart';
-import '../services/student_profile_refresh.dart';
-import '../utils/constants.dart';
-import '../widgets/profile_avatar.dart';
-import '../widgets/profile_image_crop_dialog.dart';
 import 'login_page.dart';
 import 'sync_status_page.dart';
 import '../utils/app_selectable_scope.dart';
 
-/// Profile (students & reps): edit name/email, photo; phone admin-only — follows [ThemeData.colorScheme].
+/// Profile (students & reps): name/email only on app (no profile images).
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -44,6 +32,27 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  Widget _nameBadge(Student s, TextTheme tt, ColorScheme cs) {
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withValues(alpha: 0.5),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        s.greetingLastName.isNotEmpty
+            ? s.greetingLastName[0].toUpperCase()
+            : 'S',
+        style: tt.headlineLarge?.copyWith(
+          fontWeight: FontWeight.w900,
+          color: cs.onPrimaryContainer,
+        ),
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -83,78 +92,6 @@ class _ProfilePageState extends State<ProfilePage> {
     return (first: parts[0], last: parts.sublist(1).join(' '));
   }
 
-  Future<void> _retakePhoto() async {
-    if (_student == null) return;
-    if (!await ProfileIdentityCooldown.canEditIdentity()) {
-      if (!mounted) return;
-      final hint = await ProfileIdentityCooldown.nextAllowedHint();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(hint ?? 'Try again later.')),
-      );
-      return;
-    }
-    await PermissionService.requestAll();
-    final picker = ImagePicker();
-    try {
-      final XFile? image = await picker.pickImage(
-        source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-        imageQuality: 92,
-      );
-      if (image == null || !mounted) return;
-      final rawBytes = await image.readAsBytes();
-      if (!mounted) return;
-      final cropped = await showProfileImageCropDialog(context, rawBytes);
-      if (cropped == null || !mounted) return;
-
-      Uint8List jpegBytes;
-      try {
-        final decoded = img.decodeImage(cropped);
-        if (decoded != null) {
-          jpegBytes = Uint8List.fromList(img.encodeJpg(decoded, quality: 88));
-        } else {
-          jpegBytes = cropped;
-        }
-      } catch (_) {
-        jpegBytes = cropped;
-      }
-
-      final rawB64 = base64Encode(jpegBytes);
-      final dataUri = Constants.jpegDataUriFromRawBase64(rawB64);
-      final updated = _student!.copyWith(profileImage: dataUri);
-      await OfflineService.setCurrentStudent(updated);
-      try {
-        final pwd = await OfflineService.getApiSessionPassword();
-        if (pwd != null && pwd.isNotEmpty) {
-          await ApiService.post('student/profile', {
-            'index_number': updated.indexNumber,
-            'password': pwd,
-            'profile_image': dataUri,
-          });
-        }
-      } catch (_) {}
-      await ProfileImageCache.instance.invalidate(updated.indexNumber);
-      await ProfileIdentityCooldown.recordIdentityEdit();
-      Student? merged = updated;
-      try {
-        final refreshed = await refreshStudentProfileFromApi(updated);
-        if (refreshed != null) merged = refreshed;
-      } catch (_) {}
-      if (mounted) {
-        setState(() => _student = merged);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile photo updated.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update photo: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _save() async {
     if (_student == null) return;
 
@@ -170,9 +107,9 @@ class _ProfilePageState extends State<ProfilePage> {
         if (!mounted) return;
         final hint = await ProfileIdentityCooldown.nextAllowedHint();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(hint ?? 'Try again later.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(hint ?? 'Try again later.')));
         return;
       }
     }
@@ -204,9 +141,10 @@ class _ProfilePageState extends State<ProfilePage> {
         });
         if (res.statusCode < 200 || res.statusCode >= 300) {
           final hint = ApiService.messageFromHttpResponse(res);
-          feedback = hint.isEmpty
-              ? 'Saved on device; server returned ${res.statusCode}.'
-              : 'Saved on device. $hint';
+          feedback =
+              hint.isEmpty
+                  ? 'Saved on device; server returned ${res.statusCode}.'
+                  : 'Saved on device. $hint';
         }
       } else {
         feedback =
@@ -229,58 +167,70 @@ class _ProfilePageState extends State<ProfilePage> {
         _editing = false;
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(feedback)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(feedback)));
     }
   }
 
   Future<void> _confirmLogout() async {
-    final allow = await LogoutLockPrefs.canLogoutNow();
+    await ApiService.loadAppSettings(forceRemote: false);
+    final role = _student?.primaryRole;
+    final allow = await LogoutLockPrefs.canLogoutNow(
+      role: role,
+      studentLogoutLockEnabled: ApiService.studentLogoutLockEnabled,
+    );
     if (!allow) {
-      final hint = await LogoutLockPrefs.signOutBlockedHint();
+      final hint = await LogoutLockPrefs.signOutBlockedHint(
+        role: role,
+        studentLogoutLockEnabled: ApiService.studentLogoutLockEnabled,
+      );
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Sign out not available yet'),
-          content: Text(
-            hint ??
-                'This account stays signed in on this device for the current period.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+        builder:
+            (_) => AlertDialog(
+              title: const Text('Sign out not available yet'),
+              content: Text(
+                hint ??
+                    'This account stays signed in on this device for the current period.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
-          ],
-        ),
       );
       return;
     }
     if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Log out'),
-        content: const Text('Clear this account on this device?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Log out'),
+            content: const Text('Clear this account on this device?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Log out'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Log out'),
-          ),
-        ],
-      ),
     );
     if (ok == true && mounted) {
       await OfflineService.clearCurrentStudent();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => appSelectableScope(const LoginPage())),
+        MaterialPageRoute(
+          builder: (_) => appSelectableScope(const LoginPage()),
+        ),
         (_) => false,
       );
     }
@@ -291,100 +241,50 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Information'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('${info.appName} ${info.version} (${info.buildNumber})'),
-              const SizedBox(height: 12),
-              Text(
-                'Name and profile photo changes are limited to once every 90 days. '
-                'Phone numbers are updated by an administrator.',
-                style: Theme.of(ctx).textTheme.bodyMedium,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Information'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${info.appName} ${info.version} (${info.buildNumber})'),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Name changes are limited to once every 90 days. '
+                    'Phone numbers are updated by an administrator.',
+                    style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
     );
   }
 
   Future<void> _onDeleteAccount() async {
     await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete account'),
-        content: const Text(
-          'Account removal must be done by your institution. Contact an administrator.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Delete account'),
+            content: const Text(
+              'Account removal must be done by your institution. Contact an administrator.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _avatarWithBadge(
-    BuildContext context, {
-    required Student s,
-    required VoidCallback onEdit,
-    required IconData badgeIcon,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    return Semantics(
-      label: 'Change profile photo',
-      button: true,
-      child: SizedBox(
-        width: 120,
-        height: 120,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            ProfileAvatar(
-              key: ValueKey<String>(
-                '${s.indexNumber}_${s.profileImage.hashCode}_${s.serverId}',
-              ),
-              student: s,
-              radius: 56,
-            ),
-            Positioned(
-              right: 2,
-              bottom: 2,
-              child: Material(
-                elevation: 4,
-                shadowColor: Colors.black26,
-                shape: const CircleBorder(),
-                color: cs.primary,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: onEdit,
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Icon(
-                      badgeIcon,
-                      size: 18,
-                      color: cs.onPrimary,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -403,18 +303,27 @@ class _ProfilePageState extends State<ProfilePage> {
           foregroundColor: cs.onPrimary,
           disabledBackgroundColor: cs.primary.withValues(alpha: 0.5),
           padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
-        child: loading
-            ? SizedBox(
-                height: 22,
-                width: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: cs.onPrimary,
+        child:
+            loading
+                ? SizedBox(
+                  height: 22,
+                  width: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: cs.onPrimary,
+                  ),
+                )
+                : Text(
+                  label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
-              )
-            : Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
       ),
     );
   }
@@ -441,13 +350,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: danger
-                      ? Colors.red.withValues(alpha: 0.12)
-                      : (isDark ? Colors.transparent : cs.primaryContainer),
+                  color:
+                      danger
+                          ? Colors.red.withValues(alpha: 0.12)
+                          : (isDark ? Colors.transparent : cs.primaryContainer),
                   shape: BoxShape.circle,
-                  border: isDark && !danger
-                      ? Border.all(color: cs.primary.withValues(alpha: 0.7))
-                      : null,
+                  border:
+                      isDark && !danger
+                          ? Border.all(color: cs.primary.withValues(alpha: 0.7))
+                          : null,
                 ),
                 child: Icon(icon, size: 20, color: iconColor),
               ),
@@ -456,9 +367,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: danger ? Colors.red : null,
-                      ),
+                    fontWeight: FontWeight.w700,
+                    color: danger ? Colors.red : null,
+                  ),
                 ),
               ),
               Icon(
@@ -485,11 +396,16 @@ class _ProfilePageState extends State<ProfilePage> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.35)),
+        borderSide: BorderSide(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.35),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
+        borderSide: BorderSide(
+          color: Theme.of(context).colorScheme.primary,
+          width: 1.5,
+        ),
       ),
     );
   }
@@ -543,15 +459,8 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: _avatarWithBadge(
-                  context,
-                  s: s,
-                  onEdit: _retakePhoto,
-                  badgeIcon: Icons.camera_alt_rounded,
-                ),
-              ),
-              const SizedBox(height: 28),
+              Center(child: _nameBadge(s, Theme.of(context).textTheme, cs)),
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _fullNameController,
                 textCapitalization: TextCapitalization.words,
@@ -575,7 +484,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   label: 'Phone no.',
                   prefixIcon: Icons.phone_outlined,
                 ).copyWith(
-                  helperText: 'Contact an administrator to change your phone number.',
+                  helperText:
+                      'Contact an administrator to change your phone number.',
                 ),
                 child: Text(
                   phone.isNotEmpty ? phone : '—',
@@ -589,16 +499,22 @@ class _ProfilePageState extends State<ProfilePage> {
                   prefixIcon: Icons.fingerprint_rounded,
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _passwordHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      _passwordHidden
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
                     ),
-                    onPressed: () => setState(() => _passwordHidden = !_passwordHidden),
+                    onPressed:
+                        () =>
+                            setState(() => _passwordHidden = !_passwordHidden),
                   ),
                 ).copyWith(
                   helperText: 'Password is managed by your institution.',
                 ),
                 child: Text(
                   '••••••••',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(letterSpacing: 2),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(letterSpacing: 2),
                 ),
               ),
               const SizedBox(height: 28),
@@ -615,12 +531,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   Text(
                     'Index: ${s.indexNumber}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   TextButton(
                     onPressed: _onDeleteAccount,
-                    style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade800,
+                    ),
                     child: const Text('Delete'),
                   ),
                 ],
@@ -636,18 +554,22 @@ class _ProfilePageState extends State<ProfilePage> {
       appBar: AppBar(
         backgroundColor: bg,
         surfaceTintColor: Colors.transparent,
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                onPressed: () => Navigator.of(context).maybePop(),
-              )
-            : null,
+        leading:
+            Navigator.canPop(context)
+                ? IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                )
+                : null,
         title: const Text('Profile'),
         centerTitle: true,
         actions: [
           IconButton(
             tooltip: 'Settings',
-            icon: Icon(Icons.settings_outlined, color: isDark ? cs.primary : null),
+            icon: Icon(
+              Icons.settings_outlined,
+              color: isDark ? cs.primary : null,
+            ),
             onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
         ],
@@ -657,29 +579,22 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: _avatarWithBadge(
-                context,
-                s: s,
-                onEdit: _retakePhoto,
-                badgeIcon: Icons.edit_rounded,
-              ),
-            ),
+            Center(child: _nameBadge(s, Theme.of(context).textTheme, cs)),
             const SizedBox(height: 20),
             Text(
               s.displayFirstLastName,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
               email.isNotEmpty ? email : 'No email on file',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 24),
             _yellowButton(
@@ -701,7 +616,8 @@ class _ProfilePageState extends State<ProfilePage> {
             _menuTile(
               icon: Icons.fact_check_outlined,
               title: 'Attendance history',
-              onTap: () => Navigator.of(context).pushNamed('/attendance-records'),
+              onTap:
+                  () => Navigator.of(context).pushNamed('/attendance-records'),
             ),
             _menuTile(
               icon: Icons.sync_rounded,
@@ -718,7 +634,9 @@ class _ProfilePageState extends State<ProfilePage> {
               _menuTile(
                 icon: Icons.groups_outlined,
                 title: 'Class roster',
-                onTap: () => Navigator.of(context).pushNamed('/class-rep/students'),
+                onTap:
+                    () =>
+                        Navigator.of(context).pushNamed('/class-rep/students'),
               ),
             _menuTile(
               icon: Icons.info_outline_rounded,
@@ -740,8 +658,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   Text(
                     'Academic',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   if (s.classGroupWithLevelLabel != null &&

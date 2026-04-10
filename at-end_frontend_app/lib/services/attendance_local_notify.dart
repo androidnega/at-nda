@@ -34,8 +34,11 @@ abstract final class AttendanceLocalNotify {
       const InitializationSettings(android: androidInit, iOS: iosInit),
     );
 
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl =
+        _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
     await androidImpl?.createNotificationChannel(
       const AndroidNotificationChannel(
         _channelId,
@@ -68,9 +71,13 @@ abstract final class AttendanceLocalNotify {
     }
 
     if (defaultTargetPlatform == TargetPlatform.iOS) {
-      final ios = _plugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      final ok = await ios?.requestPermissions(
+      final ios =
+          _plugin
+              .resolvePlatformSpecificImplementation<
+                IOSFlutterLocalNotificationsPlugin
+              >();
+      final ok =
+          await ios?.requestPermissions(
             alert: true,
             badge: true,
             sound: true,
@@ -270,6 +277,20 @@ abstract final class AttendanceLocalNotify {
       920002,
       title: 'Checkout confirmed',
       body: 'Your checkout for $courseLabel was saved.',
+    );
+  }
+
+  /// Mirrors server-sent in-app notifications into OS notification area.
+  static Future<void> notifyServerMessage({
+    int? notificationId,
+    required String title,
+    required String body,
+  }) async {
+    final fallbackId = DateTime.now().millisecondsSinceEpoch.remainder(500000);
+    await _show(
+      930000 + ((notificationId ?? fallbackId) % 500000),
+      title: title,
+      body: body,
     );
   }
 }
