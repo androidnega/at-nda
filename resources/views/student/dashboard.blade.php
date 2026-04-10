@@ -40,61 +40,47 @@
         width: 0;
         height: 0;
     }
-    .attendance-orb-wrap {
-        display: flex;
-        gap: 0.85rem;
-        flex-wrap: wrap;
-    }
-    .attendance-orb {
-        position: relative;
-        width: 132px;
-        height: 132px;
-        border-radius: 9999px;
+    .attendance-cta {
+        width: 100%;
+        min-height: 54px;
+        border-radius: 14px;
         border: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        flex-direction: column;
-        gap: 0.3rem;
-        color: #fff;
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.14);
-        transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
-    }
-    .attendance-orb:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 7px 16px rgba(15, 23, 42, 0.16);
-    }
-    .attendance-orb i {
-        font-size: 1.22rem;
-        line-height: 1;
-    }
-    .attendance-orb span {
-        font-size: 1.42rem;
-        line-height: 1.1;
+        gap: 0.5rem;
+        font-size: 0.95rem;
         font-weight: 700;
-        text-align: center;
-        max-width: 90px;
+        color: #fff;
+        transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.14);
     }
-    .attendance-orb--checkin {
-        background: linear-gradient(180deg, #16984a 0%, #10863f 100%);
+    .attendance-cta:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
     }
-    .attendance-orb--checkout {
-        background: linear-gradient(180deg, #e05e5a 0%, #c94844 100%);
-    }
-    .attendance-orb.is-disabled {
-        filter: saturate(.65);
-        opacity: .5;
+    .attendance-cta:disabled {
+        opacity: .56;
         cursor: not-allowed;
         box-shadow: none;
+        transform: none;
+    }
+    .attendance-cta--checkin {
+        background: linear-gradient(180deg, #16984a 0%, #10863f 100%);
+    }
+    .attendance-cta--checkout {
+        background: linear-gradient(180deg, #e05e5a 0%, #c94844 100%);
+    }
+    .attendance-cta--waiting {
+        background: linear-gradient(180deg, #7c8798 0%, #646f7f 100%);
+    }
+    .attendance-cta--done {
+        background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
     }
     @media (max-width: 430px) {
-        .attendance-orb {
-            width: 118px;
-            height: 118px;
-        }
-        .attendance-orb span {
-            font-size: 1.28rem;
-            max-width: 84px;
+        .attendance-cta {
+            min-height: 50px;
+            font-size: 0.9rem;
         }
     }
 </style>
@@ -146,6 +132,31 @@
                     $isCheckMode = $attendanceMode === 'checkin_checkout';
                     $checkedIn = $myAttendance && ! empty($myAttendance->check_in_time);
                     $checkedOut = $myAttendance && ! empty($myAttendance->check_out_time);
+                    $singleAction = 'checkin';
+                    $singleLabel = 'Check in';
+                    $singleIcon = 'fa-hand-pointer';
+                    $singleDisabled = false;
+                    $singleVariant = 'checkin';
+                    if ($checkedOut) {
+                        $singleAction = 'done';
+                        $singleLabel = 'Checked out';
+                        $singleIcon = 'fa-circle-check';
+                        $singleDisabled = true;
+                        $singleVariant = 'done';
+                    } elseif ($checkedIn) {
+                        if ($session->checkout_enabled) {
+                            $singleAction = 'checkout';
+                            $singleLabel = 'Check out';
+                            $singleIcon = 'fa-arrow-right-from-bracket';
+                            $singleVariant = 'checkout';
+                        } else {
+                            $singleAction = 'checkout_wait';
+                            $singleLabel = 'Waiting for checkout';
+                            $singleIcon = 'fa-hourglass-half';
+                            $singleDisabled = true;
+                            $singleVariant = 'waiting';
+                        }
+                    }
                     $mode = $session->mode ?? 'location';
                     $modeLabel = match ($mode) {
                         'qr' => 'QR code',
@@ -177,26 +188,15 @@
                     </div>
                     <div class="w-full pt-0.5">
                         @if($isCheckMode)
-                            <div class="attendance-orb-wrap">
-                                <button type="button"
-                                        class="attendance-run-btn attendance-orb attendance-orb--checkin {{ $checkedIn ? 'is-disabled' : '' }}"
-                                        data-action="checkin"
-                                        data-course-id="{{ $course->id }}"
-                                        data-session-id="{{ $session->id }}"
-                                        {{ $checkedIn ? 'disabled' : '' }}>
-                                    <i class="fas fa-hand-pointer"></i>
-                                    <span>{{ $checkedIn ? 'Checked in' : 'Check in' }}</span>
-                                </button>
-                                <button type="button"
-                                        class="attendance-run-btn attendance-orb attendance-orb--checkout {{ ($checkedOut || !($session->checkout_enabled && $checkedIn)) ? 'is-disabled' : '' }}"
-                                        data-action="checkout"
-                                        data-course-id="{{ $course->id }}"
-                                        data-session-id="{{ $session->id }}"
-                                        {{ ($checkedOut || !($session->checkout_enabled && $checkedIn)) ? 'disabled' : '' }}>
-                                    <i class="fas fa-arrow-right-from-bracket"></i>
-                                    <span>{{ $checkedOut ? 'Checked out' : 'Check out' }}</span>
-                                </button>
-                            </div>
+                            <button type="button"
+                                    class="attendance-run-btn attendance-cta attendance-cta--{{ $singleVariant }}"
+                                    data-action="{{ $singleAction }}"
+                                    data-course-id="{{ $course->id }}"
+                                    data-session-id="{{ $session->id }}"
+                                    {{ $singleDisabled ? 'disabled' : '' }}>
+                                <i class="fas {{ $singleIcon }}"></i>
+                                <span>{{ $singleLabel }}</span>
+                            </button>
                             @if($checkedIn && !$checkedOut)
                                 <p class="mt-2 text-xs text-slate-600 attendance-countdown"
                                    data-end-at="{{ optional($session->expected_end_time)->toIso8601String() }}"
@@ -319,6 +319,14 @@
         if (h > 0) return `Checkout opens in ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
         return `Checkout opens in ${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     }
+    function setActionButtonState(btn, state) {
+        if (!btn || !state) return;
+        btn.classList.remove('attendance-cta--checkin', 'attendance-cta--checkout', 'attendance-cta--waiting', 'attendance-cta--done');
+        btn.classList.add(`attendance-cta--${state.variant}`);
+        btn.dataset.action = state.action;
+        btn.disabled = !!state.disabled;
+        btn.innerHTML = `<i class="fas ${state.icon}"></i><span>${state.label}</span>`;
+    }
 
     document.querySelectorAll('.attendance-countdown').forEach((el) => {
         const endAt = el.dataset.endAt ? new Date(el.dataset.endAt) : null;
@@ -328,10 +336,15 @@
             el.textContent = formatRemaining(diff);
             if (diff <= 0) {
                 const sid = el.dataset.sessionId || '';
-                const checkoutBtn = document.querySelector(`.attendance-run-btn[data-action="checkout"][data-session-id="${sid}"]`);
-                if (checkoutBtn && checkoutBtn.hasAttribute('disabled')) {
-                    checkoutBtn.removeAttribute('disabled');
-                    checkoutBtn.classList.remove('is-disabled');
+                const actionBtn = document.querySelector(`.attendance-run-btn[data-session-id="${sid}"]`);
+                if (actionBtn && actionBtn.dataset.action === 'checkout_wait') {
+                    setActionButtonState(actionBtn, {
+                        variant: 'checkout',
+                        action: 'checkout',
+                        icon: 'fa-arrow-right-from-bracket',
+                        label: 'Check out',
+                        disabled: false,
+                    });
                 }
             }
         };
@@ -354,6 +367,8 @@
     }
 
     async function submitCheckRun(btn) {
+        const action = btn.dataset.action || '';
+        if (action === 'done' || action === 'checkout_wait') return;
         const courseId = Number(btn.dataset.courseId || 0);
         const sessionId = Number(btn.dataset.sessionId || 0);
         if (!courseId || !sessionId) return;
@@ -365,6 +380,13 @@
         }
         btn.disabled = true;
         try {
+            setActionButtonState(btn, {
+                variant: 'waiting',
+                action,
+                icon: 'fa-spinner fa-spin',
+                label: action === 'checkout' ? 'Checking out...' : 'Checking in...',
+                disabled: true,
+            });
             const loc = await withLocation();
             const payload = {
                 index_number: indexNumber,
@@ -393,6 +415,7 @@
         } catch (e) {
             toast((e && e.message) ? e.message : 'Could not submit attendance.', true);
             btn.disabled = false;
+            window.location.reload();
         }
     }
 
