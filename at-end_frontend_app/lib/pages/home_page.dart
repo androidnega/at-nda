@@ -30,11 +30,11 @@ import '../widgets/student_noir_task_dashboard.dart';
 import '../widgets/student_pastel_profile_dashboard.dart';
 import '../widgets/student_team_reach_dashboard.dart';
 import '../widgets/student_today_dashboard.dart';
+import '../widgets/student_violet_calendar_dashboard.dart';
 import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
 import 'attendance_page.dart';
-import 'attendance_stats_page.dart';
 import 'login_page.dart';
 import 'rep_home_page.dart';
 import 'sync_status_page.dart';
@@ -160,7 +160,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
         ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
     final raw = isCheckInCheckout
-        ? (session['expected_end_time'] ?? session['end_time'] ?? session['ends_at'])
+        ? (session['end_time'] ?? session['ends_at'] ?? session['expected_end_time'])
         : (session['end_time'] ?? session['ends_at']);
     if (raw != null) {
       try {
@@ -248,7 +248,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   bool _isCheckoutEnabled(Map<String, dynamic> session) {
-    return session['checkout_enabled'] == true || session['can_check_out'] == true;
+    return session['checkout_enabled'] == true ||
+        session['can_check_out'] == true ||
+        _sessionEndedFor(session);
   }
 
   String _timeLeftLabel(Map<String, dynamic> session) {
@@ -899,6 +901,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _handleDashboardAttendanceAction(Map<String, dynamic> session) async {
+    if (_isCheckInCheckoutSession(session)) {
+      _openAttendancePage(session);
+      return;
+    }
     if (!_isCheckInCheckoutSession(session)) {
       _openAttendancePage(session);
       return;
@@ -918,6 +924,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       final pos = await LocationService.getCurrentLocation();
+      if (!mounted) return;
       final payload = buildAttendancePostBody(
         indexNumber: AppState.studentIndex ?? s.indexNumber,
         sessionId: parseSessionId(Map<String, dynamic>.from(session)),
@@ -1031,8 +1038,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final hero = _heroDashboardCopy();
     final um = _unmarkedSessions;
-    final primaryActionLabel = (!s.isClassRep && um.isNotEmpty && _isCheckInCheckoutSession(um.first))
-        ? (_hasCheckedIn(um.first) ? 'Check-out' : 'Check-in')
+    final primaryActionLabel = (!s.isClassRep &&
+            um.isNotEmpty &&
+            _isCheckInCheckoutSession(um.first))
+        ? 'Open check-in'
         : 'Mark attendance';
     final showMark = !s.isClassRep &&
         um.isNotEmpty &&
@@ -1060,9 +1069,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       key: _scaffoldKey,
       backgroundColor: light ? StudentSoftUi.cream(cs) : cs.surface,
       drawer: _buildDrawer(context),
-      body: ModernPullToRefresh(
-        onRefresh: () => _load(silent: true),
-        child: !s.isClassRep &&
+      body: SafeArea(
+        top: true,
+        bottom: false,
+        child: ModernPullToRefresh(
+          onRefresh: () => _load(silent: true),
+          child: !s.isClassRep &&
                 ApiService.studentDashboardTheme ==
                     ApiService.studentDashboardThemePastelProfile
             ? StudentPastelProfileDashboard(
@@ -1073,6 +1085,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 heroSubtitle: hero['subtitle']!,
                 showMarkButton: showMark,
                 onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                primaryActionLabel: primaryActionLabel,
                 lastCheckInLine: _lastCheckInLine,
                 dayProgress: _workingDayProgressFraction(),
                 onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1134,6 +1147,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     heroSubtitle: hero['subtitle']!,
                     showMarkButton: showMark,
                     onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                    primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
                     onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1196,6 +1210,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         heroSubtitle: hero['subtitle']!,
                         showMarkButton: showMark,
                         onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                        primaryActionLabel: primaryActionLabel,
                         lastCheckInLine: _lastCheckInLine,
                         dayProgress: _workingDayProgressFraction(),
                         onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
@@ -1247,6 +1262,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               )
                             : null,
                       )
+                    : !s.isClassRep &&
+                            ApiService.studentDashboardTheme ==
+                                ApiService.studentDashboardThemeVioletCalendar
+                        ? StudentVioletCalendarDashboard(
+                            student: s,
+                            todaySlots: _todayTimetable,
+                            unmarkedSessions: um,
+                            heroTitle: hero['title']!,
+                            heroSubtitle: hero['subtitle']!,
+                            showMarkButton: showMark,
+                            onMarkAttendance: () => _handleDashboardAttendanceAction(um.first),
+                            primaryActionLabel: primaryActionLabel,
+                            lastCheckInLine: _lastCheckInLine,
+                            dayProgress: _workingDayProgressFraction(),
+                            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                            onBell: _onDashboardBell,
+                            onOpenFullTimetable: _openTimetable,
+                            onSeeAllClasses: _openTimetable,
+                            onSlotTap: _onTimetableSlotTap,
+                            statsClassesToday: _todayTimetable.length,
+                            statsLiveSessions: um.length,
+                            statsMarkedToday: _markedSessionIdsToday.length,
+                            dashboardClockLabel: focusClock.label,
+                            dashboardClockSegments: focusClock.parts,
+                            todayVenueHint: _firstTodayVenueHint(),
+                            classRepCard: null,
+                            dynamicBlocks: [
+                              if (Constants.debugShowSessionApiResponseOnHome) ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _buildSessionApiDebugPanel(context),
+                                ),
+                              ],
+                              if (_dynamicUi.isNotEmpty) ...[
+                                ...DynamicWidgetRenderer.render(context, _dynamicUi),
+                              ],
+                              if (extraSessions != null) extraSessions,
+                            ],
+                            warningBanner: _showAbsenceWarning &&
+                                    _absenceWarningsSnapshot.isNotEmpty
+                                ? _buildAbsenceWarningBanner(context)
+                                : null,
+                            pendingSyncChip: _pendingSyncCount > 0
+                                ? _buildPendingSyncChip(context)
+                                : null,
+                            errorText: _error,
+                            riskSection: _studentAtRisk
+                                ? _buildConsecutiveMissWarning(context)
+                                : null,
+                            demoBanner: Constants.useDemoActiveSessionWhenEmpty &&
+                                    _activeSessions.isNotEmpty &&
+                                    _activeSessions.first['course_code'] == 'DEMO-101'
+                                ? Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      'Demo session · API unavailable or empty',
+                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                            color: Theme.of(context).colorScheme.tertiary,
+                                          ),
+                                    ),
+                                  )
+                                : null,
+                          )
                     : StudentTodayDashboard(
                 student: s,
                 todaySlots: _todayTimetable,
@@ -1308,6 +1386,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       )
                     : null,
               ),
+        ),
       ),
     );
   }
@@ -1536,7 +1615,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ListTile(
                 leading: const Icon(Icons.person_outline_rounded),
                 title: const Text('Profile'),
-                subtitle: const Text('Details & photo'),
+                subtitle: const Text('Account details'),
                 onTap: () {
                   _scaffoldKey.currentState?.closeDrawer();
                   Navigator.of(context).pushNamed('/profile').then((_) => _load());
@@ -1580,33 +1659,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   _openAttendanceHistory();
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.bar_chart_rounded),
-                title: const Text('Statistics'),
-                subtitle: const Text('Marks per course'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _openStats();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_queue_rounded),
-                title: const Text('Offline queue'),
-                subtitle: const Text('Pending sync'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _openOfflineQueue();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Settings'),
-                subtitle: const Text('Theme & refresh'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/settings').then((_) => _load());
-                },
-              ),
               const Divider(),
               ListTile(
                 enabled: _logoutAllowed,
@@ -1645,15 +1697,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
-  }
-
-  Future<void> _openStats() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => appSelectableScope(const AttendanceStatsPage()),
-      ),
-    );
-    if (mounted) _load();
   }
 
   Future<void> _openOfflineQueue() async {
