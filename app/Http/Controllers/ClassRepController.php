@@ -210,9 +210,6 @@ class ClassRepController extends Controller
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expectedEnd = $course->computeSessionExpiresAt($duration);
         $expiresAt = $expectedEnd->copy();
-        if ($attendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
-            $expiresAt = $expiresAt->copy()->addHours(3);
-        }
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
@@ -261,7 +258,7 @@ class ClassRepController extends Controller
             ->count();
         event(new SessionLiveEvent($sessionModel->fresh(['course']), 'session_opened', ['present_count' => $presentCount]));
 
-        $activeMinutes = max(1, (int) ceil(($expiresAt->getTimestamp() - now()->getTimestamp()) / 60));
+        $activeMinutes = max(1, (int) ceil(($expectedEnd->getTimestamp() - now()->getTimestamp()) / 60));
 
         return back()->with('success', 'Session opened. Week ' . $week->week_number . '. Active for ~' . $activeMinutes . ' min.');
     }

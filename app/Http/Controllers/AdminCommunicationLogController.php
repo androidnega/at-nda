@@ -61,6 +61,198 @@ class AdminCommunicationLogController extends Controller
         return view('admin.communication_logs.calls', compact('logs'));
     }
 
+    public function exportSmsCsv(Request $request): StreamedResponse
+    {
+        $filename = 'sms-logs-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($request): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+            fputcsv($out, ['occurred_at', 'index_number', 'direction', 'delivery_status', 'peer_number', 'body_preview', 'device_id', 'client_record_id']);
+            $this->filteredSmsQuery($request)
+                ->orderByDesc('occurred_at')
+                ->chunkById(400, function (Collection $rows) use ($out): void {
+                    foreach ($rows as $row) {
+                        fputcsv($out, [
+                            optional($row->occurred_at)->toIso8601String(),
+                            $row->index_number,
+                            $row->direction,
+                            $row->delivery_status,
+                            $row->peer_number,
+                            $row->body_preview,
+                            $row->device_id,
+                            $row->client_record_id,
+                        ]);
+                    }
+                });
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function downloadSmsZip(Request $request)
+    {
+        if (! class_exists(ZipArchive::class)) {
+            return redirect()->back()->with('error', 'ZIP extension is not available on this server.');
+        }
+
+        $rows = $this->filteredSmsQuery($request)
+            ->orderByDesc('occurred_at')
+            ->limit(20000)
+            ->get();
+
+        $csv = $this->renderSmsCsv($rows);
+        $zipPath = storage_path('app/tmp/sms-logs-'.now()->format('Ymd-His').'-'.bin2hex(random_bytes(4)).'.zip');
+        if (! is_dir(dirname($zipPath))) {
+            mkdir(dirname($zipPath), 0775, true);
+        }
+
+        $zip = new ZipArchive;
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            return redirect()->back()->with('error', 'Could not build ZIP archive.');
+        }
+
+        $zip->addFromString('sms-logs.csv', $csv);
+        $zip->addFromString('README.txt', "Export generated at ".now()->toDateTimeString()."\nRows included: ".$rows->count()."\n");
+        $zip->close();
+
+        return response()->download($zipPath)->deleteFileAfterSend(true);
+    }
+
+    public function purgeSms(Request $request)
+    {
+        $deleted = $this->filteredSmsQuery($request)->delete();
+
+        return redirect()
+            ->route('dashboard.communication-logs.sms.index')
+            ->with('success', "Deleted {$deleted} SMS log records.");
+    }
+
+    public function deleteSingleSms(LoggedSms $message): RedirectResponse
+    {
+        $message->delete();
+
+        return redirect()
+            ->route('dashboard.communication-logs.sms.index')
+            ->with('success', 'Deleted 1 SMS log record.');
+    }
+
+    public function smsBulkAction(Request $request)
+    {
+        $validated = $request->validate([
+            'action' => 'required|in:delete,export_csv,export_zip',
+            'selected_ids' => 'required|array|min:1',
+            'selected_ids.*' => 'integer|min:1',
+        ]);
+        $request->merge(['selected_ids' => $this->selectedIds($validated['selected_ids'])]);
+
+        if (($request->input('selected_ids') ?? []) === []) {
+            return redirect()->route('dashboard.communication-logs.sms.index')->with('error', 'Select at least one message.');
+        }
+
+        return match ($validated['action']) {
+            'delete' => $this->purgeSms($request),
+            'export_zip' => $this->downloadSmsZip($request),
+            default => $this->exportSmsCsv($request),
+        };
+    }
+
+    public function exportCallCsv(Request $request): StreamedResponse
+    {
+        $filename = 'call-logs-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($request): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+            fputcsv($out, ['occurred_at', 'index_number', 'direction', 'call_outcome', 'duration_seconds', 'peer_number', 'device_id', 'client_record_id']);
+            $this->filteredCallQuery($request)
+                ->orderByDesc('occurred_at')
+                ->chunkById(400, function (Collection $rows) use ($out): void {
+                    foreach ($rows as $row) {
+                        fputcsv($out, [
+                            optional($row->occurred_at)->toIso8601String(),
+                            $row->index_number,
+                            $row->direction,
+                            $row->call_outcome,
+                            $row->duration_seconds,
+                            $row->peer_number,
+                            $row->device_id,
+                            $row->client_record_id,
+                        ]);
+                    }
+                });
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function downloadCallZip(Request $request)
+    {
+        if (! class_exists(ZipArchive::class)) {
+            return redirect()->back()->with('error', 'ZIP extension is not available on this server.');
+        }
+
+        $rows = $this->filteredCallQuery($request)
+            ->orderByDesc('occurred_at')
+            ->limit(20000)
+            ->get();
+        $csv = $this->renderCallCsv($rows);
+        $zipPath = storage_path('app/tmp/call-logs-'.now()->format('Ymd-His').'-'.bin2hex(random_bytes(4)).'.zip');
+        if (! is_dir(dirname($zipPath))) {
+            mkdir(dirname($zipPath), 0775, true);
+        }
+
+        $zip = new ZipArchive;
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            return redirect()->back()->with('error', 'Could not build ZIP archive.');
+        }
+        $zip->addFromString('call-logs.csv', $csv);
+        $zip->addFromString('README.txt', "Export generated at ".now()->toDateTimeString()."\nRows included: ".$rows->count()."\n");
+        $zip->close();
+
+        return response()->download($zipPath)->deleteFileAfterSend(true);
+    }
+
+    public function purgeCalls(Request $request)
+    {
+        $deleted = $this->filteredCallQuery($request)->delete();
+
+        return redirect()
+            ->route('dashboard.communication-logs.calls.index')
+            ->with('success', "Deleted {$deleted} call log records.");
+    }
+
+    public function deleteSingleCall(CallLog $message): RedirectResponse
+    {
+        $message->delete();
+
+        return redirect()
+            ->route('dashboard.communication-logs.calls.index')
+            ->with('success', 'Deleted 1 call log record.');
+    }
+
+    public function callsBulkAction(Request $request)
+    {
+        $validated = $request->validate([
+            'action' => 'required|in:delete,export_csv,export_zip',
+            'selected_ids' => 'required|array|min:1',
+            'selected_ids.*' => 'integer|min:1',
+        ]);
+        $request->merge(['selected_ids' => $this->selectedIds($validated['selected_ids'])]);
+
+        if (($request->input('selected_ids') ?? []) === []) {
+            return redirect()->route('dashboard.communication-logs.calls.index')->with('error', 'Select at least one message.');
+        }
+
+        return match ($validated['action']) {
+            'delete' => $this->purgeCalls($request),
+            'export_zip' => $this->downloadCallZip($request),
+            default => $this->exportCallCsv($request),
+        };
+    }
+
     public function whatsapp(Request $request): View
     {
         $query = LoggedWhatsappMessage::query()
@@ -291,12 +483,58 @@ class AdminCommunicationLogController extends Controller
         return $query;
     }
 
+    private function filteredSmsQuery(Request $request): EloquentBuilder
+    {
+        $query = LoggedSms::query();
+        $this->applySmsFilters($query, $request);
+        $selectedIds = $this->selectedIds($request->input('selected_ids'));
+        if ($selectedIds !== []) {
+            $query->whereIn('id', $selectedIds);
+        } elseif ($request->filled('id')) {
+            $query->where('id', (int) $request->query('id'));
+        }
+
+        return $query;
+    }
+
+    private function filteredCallQuery(Request $request): EloquentBuilder
+    {
+        $query = CallLog::query();
+        $this->applyCallFilters($query, $request);
+        $selectedIds = $this->selectedIds($request->input('selected_ids'));
+        if ($selectedIds !== []) {
+            $query->whereIn('id', $selectedIds);
+        } elseif ($request->filled('id')) {
+            $query->where('id', (int) $request->query('id'));
+        }
+
+        return $query;
+    }
+
     /**
      * @return list<int>
      */
     private function selectedWhatsappIds(Request $request): array
     {
         $raw = $request->input('selected_ids');
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return collect($raw)
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn (int $v) => $v > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  mixed  $raw
+     * @return list<int>
+     */
+    private function selectedIds(mixed $raw): array
+    {
         if (! is_array($raw)) {
             return [];
         }
@@ -332,6 +570,64 @@ class AdminCommunicationLogController extends Controller
             ]);
         }
 
+        rewind($stream);
+        $csv = stream_get_contents($stream) ?: '';
+        fclose($stream);
+
+        return $csv;
+    }
+
+    /**
+     * @param  Collection<int, LoggedSms>  $rows
+     */
+    private function renderSmsCsv(Collection $rows): string
+    {
+        $stream = fopen('php://temp', 'w+');
+        if ($stream === false) {
+            return '';
+        }
+        fputcsv($stream, ['occurred_at', 'index_number', 'direction', 'delivery_status', 'peer_number', 'body_preview', 'device_id', 'client_record_id']);
+        foreach ($rows as $row) {
+            fputcsv($stream, [
+                optional($row->occurred_at)->toIso8601String(),
+                $row->index_number,
+                $row->direction,
+                $row->delivery_status,
+                $row->peer_number,
+                $row->body_preview,
+                $row->device_id,
+                $row->client_record_id,
+            ]);
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream) ?: '';
+        fclose($stream);
+
+        return $csv;
+    }
+
+    /**
+     * @param  Collection<int, CallLog>  $rows
+     */
+    private function renderCallCsv(Collection $rows): string
+    {
+        $stream = fopen('php://temp', 'w+');
+        if ($stream === false) {
+            return '';
+        }
+        fputcsv($stream, ['occurred_at', 'index_number', 'direction', 'call_outcome', 'duration_seconds', 'peer_number', 'device_id', 'client_record_id']);
+        foreach ($rows as $row) {
+            fputcsv($stream, [
+                optional($row->occurred_at)->toIso8601String(),
+                $row->index_number,
+                $row->direction,
+                $row->call_outcome,
+                $row->duration_seconds,
+                $row->peer_number,
+                $row->device_id,
+                $row->client_record_id,
+            ]);
+        }
         rewind($stream);
         $csv = stream_get_contents($stream) ?: '';
         fclose($stream);

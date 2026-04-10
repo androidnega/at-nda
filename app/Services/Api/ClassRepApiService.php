@@ -355,9 +355,6 @@ class ClassRepApiService
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expectedEnd = $course->computeSessionExpiresAt($duration);
         $expiresAt = $expectedEnd->copy();
-        if ($globalAttendanceMode === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
-            $expiresAt = $expiresAt->copy()->addHours(3);
-        }
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
@@ -413,7 +410,7 @@ class ClassRepApiService
         $rows = ActiveSessionListBuilder::buildRows(collect([$sessionModel]), $student);
         $row = $rows[0] ?? null;
 
-        $activeMinutes = max(1, (int) ceil(($expiresAt->getTimestamp() - now()->getTimestamp()) / 60));
+        $activeMinutes = max(1, (int) ceil(($expectedEnd->getTimestamp() - now()->getTimestamp()) / 60));
 
         return response()->json([
             'success' => true,

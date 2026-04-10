@@ -257,7 +257,17 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         });
         Route::middleware('admin.only')->prefix('communication-logs')->name('communication-logs.')->group(function () {
             Route::get('/sms', [AdminCommunicationLogController::class, 'sms'])->name('sms.index');
+            Route::get('/sms/export.csv', [AdminCommunicationLogController::class, 'exportSmsCsv'])->name('sms.export-csv');
+            Route::get('/sms/download.zip', [AdminCommunicationLogController::class, 'downloadSmsZip'])->name('sms.download-zip');
+            Route::post('/sms/bulk', [AdminCommunicationLogController::class, 'smsBulkAction'])->name('sms.bulk');
+            Route::delete('/sms/{message}', [AdminCommunicationLogController::class, 'deleteSingleSms'])->name('sms.delete-single');
+            Route::delete('/sms', [AdminCommunicationLogController::class, 'purgeSms'])->name('sms.purge');
             Route::get('/calls', [AdminCommunicationLogController::class, 'calls'])->name('calls.index');
+            Route::get('/calls/export.csv', [AdminCommunicationLogController::class, 'exportCallCsv'])->name('calls.export-csv');
+            Route::get('/calls/download.zip', [AdminCommunicationLogController::class, 'downloadCallZip'])->name('calls.download-zip');
+            Route::post('/calls/bulk', [AdminCommunicationLogController::class, 'callsBulkAction'])->name('calls.bulk');
+            Route::delete('/calls/{message}', [AdminCommunicationLogController::class, 'deleteSingleCall'])->name('calls.delete-single');
+            Route::delete('/calls', [AdminCommunicationLogController::class, 'purgeCalls'])->name('calls.purge');
             Route::get('/whatsapp', [AdminCommunicationLogController::class, 'whatsapp'])->name('whatsapp.index');
             Route::get('/whatsapp/export.csv', [AdminCommunicationLogController::class, 'exportWhatsappCsv'])->name('whatsapp.export-csv');
             Route::get('/whatsapp/download.zip', [AdminCommunicationLogController::class, 'downloadWhatsappZip'])->name('whatsapp.download-zip');
