@@ -40,6 +40,63 @@
         width: 0;
         height: 0;
     }
+    .attendance-orb-wrap {
+        display: flex;
+        gap: 0.85rem;
+        flex-wrap: wrap;
+    }
+    .attendance-orb {
+        position: relative;
+        width: 132px;
+        height: 132px;
+        border-radius: 9999px;
+        border: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 0.3rem;
+        color: #fff;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.14);
+        transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+    }
+    .attendance-orb:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 7px 16px rgba(15, 23, 42, 0.16);
+    }
+    .attendance-orb i {
+        font-size: 1.22rem;
+        line-height: 1;
+    }
+    .attendance-orb span {
+        font-size: 1.42rem;
+        line-height: 1.1;
+        font-weight: 700;
+        text-align: center;
+        max-width: 90px;
+    }
+    .attendance-orb--checkin {
+        background: linear-gradient(180deg, #16984a 0%, #10863f 100%);
+    }
+    .attendance-orb--checkout {
+        background: linear-gradient(180deg, #e05e5a 0%, #c94844 100%);
+    }
+    .attendance-orb.is-disabled {
+        filter: saturate(.65);
+        opacity: .5;
+        cursor: not-allowed;
+        box-shadow: none;
+    }
+    @media (max-width: 430px) {
+        .attendance-orb {
+            width: 118px;
+            height: 118px;
+        }
+        .attendance-orb span {
+            font-size: 1.28rem;
+            max-width: 84px;
+        }
+    }
 </style>
 @endpush
 
@@ -119,24 +176,24 @@
                     </div>
                     <div class="w-full pt-0.5">
                         @if($isCheckMode)
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="attendance-orb-wrap">
                                 <button type="button"
-                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedIn ? 'bg-emerald-400 cursor-not-allowed' : ($isVioletTheme ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700') }}"
+                                        class="attendance-run-btn attendance-orb attendance-orb--checkin {{ $checkedIn ? 'is-disabled' : '' }}"
                                         data-action="checkin"
                                         data-course-id="{{ $course->id }}"
                                         data-session-id="{{ $session->id }}"
                                         {{ $checkedIn ? 'disabled' : '' }}>
                                     <i class="fas fa-hand-pointer"></i>
-                                    {{ $checkedIn ? 'Checked in' : 'Check-in' }}
+                                    <span>{{ $checkedIn ? 'Checked in' : 'Check in' }}</span>
                                 </button>
                                 <button type="button"
-                                        class="attendance-run-btn inline-flex w-full items-center justify-center gap-2 rounded-xl text-white px-4 py-3.5 text-sm font-semibold transition-colors {{ $checkedOut ? 'bg-rose-300 cursor-not-allowed' : (($session->checkout_enabled || !$checkedIn) ? ($isVioletTheme ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-rose-500 hover:bg-rose-600') : 'bg-rose-300 cursor-not-allowed') }}"
+                                        class="attendance-run-btn attendance-orb attendance-orb--checkout {{ ($checkedOut || !($session->checkout_enabled && $checkedIn)) ? 'is-disabled' : '' }}"
                                         data-action="checkout"
                                         data-course-id="{{ $course->id }}"
                                         data-session-id="{{ $session->id }}"
                                         {{ ($checkedOut || !($session->checkout_enabled && $checkedIn)) ? 'disabled' : '' }}>
-                                    <i class="fas fa-hand-pointer"></i>
-                                    {{ $checkedOut ? 'Checked out' : 'Check-out' }}
+                                    <i class="fas fa-arrow-right-from-bracket"></i>
+                                    <span>{{ $checkedOut ? 'Checked out' : 'Check out' }}</span>
                                 </button>
                             </div>
                             @if($checkedIn && !$checkedOut)
@@ -273,8 +330,7 @@
                 const checkoutBtn = document.querySelector(`.attendance-run-btn[data-action="checkout"][data-session-id="${sid}"]`);
                 if (checkoutBtn && checkoutBtn.hasAttribute('disabled')) {
                     checkoutBtn.removeAttribute('disabled');
-                    checkoutBtn.classList.remove('bg-rose-300', 'cursor-not-allowed');
-                    checkoutBtn.classList.add('bg-rose-500', 'hover:bg-rose-600');
+                    checkoutBtn.classList.remove('is-disabled');
                 }
             }
         };
