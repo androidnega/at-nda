@@ -31,7 +31,7 @@ class OfflineService {
     final path = join(await getDatabasesPath(), 'attendance_offline.db');
     return openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE students(
@@ -62,6 +62,7 @@ class OfflineService {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_index TEXT NOT NULL,
             session_id INTEGER,
+            endpoint TEXT DEFAULT 'attendance',
             course_id INTEGER NOT NULL,
             week_id INTEGER NOT NULL,
             lat REAL NOT NULL,
@@ -186,6 +187,13 @@ class OfflineService {
         if (oldVersion < 11) {
           try {
             await db.execute('ALTER TABLE students ADD COLUMN semester TEXT');
+          } catch (_) {}
+        }
+        if (oldVersion < 12) {
+          try {
+            await db.execute(
+              "ALTER TABLE attendance ADD COLUMN endpoint TEXT DEFAULT 'attendance'",
+            );
           } catch (_) {}
         }
       },
@@ -436,9 +444,13 @@ class OfflineService {
   static Future<int> insert(AttendanceRecord record, {String? deviceIp}) async {
     final database = await _database;
     if (database == null) return 0;
+    final endpoint = record.endpoint.trim().isEmpty
+        ? 'attendance'
+        : record.endpoint.trim();
     final map = {
       'student_index': record.studentIndex,
       if (record.sessionId != null) 'session_id': record.sessionId,
+      'endpoint': endpoint,
       'course_id': record.courseId,
       'week_id': record.weekId,
       'lat': record.lat,
@@ -451,7 +463,13 @@ class OfflineService {
       'timestamp': record.timestamp,
       'synced': 0,
     };
-    return await database.insert('attendance', map);
+    try {
+      return await database.insert('attendance', map);
+    } catch (_) {
+      // Backward safety for legacy DBs that may miss the `endpoint` column.
+      final fallback = Map<String, dynamic>.from(map)..remove('endpoint');
+      return await database.insert('attendance', fallback);
+    }
   }
 
   static Future<List<AttendanceRecord>> getPendingRecords() async {

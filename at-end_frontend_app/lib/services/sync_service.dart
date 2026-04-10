@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'api_service.dart';
 import 'device_service.dart';
@@ -17,15 +18,30 @@ class SyncService {
       final deviceId = await DeviceService.getDeviceId();
       for (final record in pending) {
         try {
-          final res = await ApiService.post(
-            'attendance',
-            record.toApiPayload(deviceIp: deviceIp, deviceId: deviceId),
-          );
+          final payload =
+              record.toApiPayload(deviceIp: deviceIp, deviceId: deviceId);
+          final endpoint = record.endpoint.trim().isEmpty
+              ? 'attendance'
+              : record.endpoint.trim();
+          var res = await ApiService.post(endpoint, payload);
+          if (!ApiService.isSuccessfulHttp(res.statusCode)) {
+            // Retry once for weak/edge networks before skipping this row.
+            await Future<void>.delayed(const Duration(milliseconds: 350));
+            try {
+              res = await ApiService.post(endpoint, payload);
+            } on TimeoutException {
+              continue;
+            }
+          }
           if (ApiService.isSuccessfulHttp(res.statusCode) && record.id != null) {
+            final shouldSaveAttendanceLog =
+                endpoint == 'attendance' || endpoint.isEmpty;
             final raw = res.body.trim();
             if (raw.isEmpty) {
               await OfflineService.markSynced(record.id!);
-              await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              if (shouldSaveAttendanceLog) {
+                await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              }
               synced++;
               continue;
             }
@@ -34,7 +50,9 @@ class SyncService {
               body = jsonDecode(res.body) as Map<String, dynamic>;
             } catch (_) {
               await OfflineService.markSynced(record.id!);
-              await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              if (shouldSaveAttendanceLog) {
+                await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              }
               synced++;
               continue;
             }
@@ -45,12 +63,15 @@ class SyncService {
                 body['already_marked'] == true;
             if (ok) {
               await OfflineService.markSynced(record.id!);
-              await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              if (shouldSaveAttendanceLog) {
+                await OfflineService.saveAttendanceLogFromSyncedRecord(record);
+              }
               synced++;
             }
           }
         } catch (_) {
-          break;
+          // Keep syncing other rows instead of aborting the entire queue.
+          continue;
         }
       }
     } catch (_) {}

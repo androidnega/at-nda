@@ -83,6 +83,9 @@ dependencies:
   flutter_sms_inbox: ^1.0.4
   url_launcher: ^6.3.1
 
+  # Local notifications (session live, check-in, checkout) with sound + vibration
+  flutter_local_notifications: ^18.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

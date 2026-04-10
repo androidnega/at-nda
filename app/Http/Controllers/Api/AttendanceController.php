@@ -302,6 +302,8 @@ class AttendanceController extends Controller
             'session_code' => 'nullable|string|max:48',
             'lat' => 'nullable|numeric',
             'lng' => 'nullable|numeric',
+            // Offline queue can submit original checkout time when back online.
+            'timestamp' => 'nullable|string',
         ])->validate();
 
         $indexUpper = strtoupper(trim($validated['index_number']));
@@ -347,7 +349,14 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'Checkout is not enabled yet'], 422);
         }
 
+        $checkoutAt = isset($validated['timestamp']) && $validated['timestamp'] !== ''
+            ? Carbon::parse($validated['timestamp'])
+            : now();
         $now = now();
+        // Guard against future client clocks when syncing queued checkout rows.
+        if ($checkoutAt->greaterThan($now->copy()->addMinutes(5))) {
+            $checkoutAt = $now->copy();
+        }
 
         if ($row->check_out_time !== null) {
             return response()->json([
@@ -359,15 +368,16 @@ class AttendanceController extends Controller
 
         $finalStatus = $outsideRadius ? 'absent' : ($row->status ?: 'present');
         $timeSpent = null;
-        if ($row->check_in_time !== null && ! $outsideRadius) {
-            $timeSpent = max(0, $now->diffInSeconds($row->check_in_time));
-        }
-        if ($row->check_in_time !== null && $outsideRadius) {
-            $timeSpent = max(0, $now->diffInSeconds($row->check_in_time));
+        if ($row->check_in_time !== null) {
+            $checkInAt = Carbon::parse($row->check_in_time);
+            if ($checkoutAt->lessThan($checkInAt)) {
+                $checkoutAt = $checkInAt->copy();
+            }
+            $timeSpent = max(0, $checkoutAt->diffInSeconds($checkInAt));
         }
 
         $row->update([
-            'check_out_time' => $now,
+            'check_out_time' => $checkoutAt,
             'status' => $finalStatus,
             'time_spent_seconds' => $timeSpent,
             'lat' => $lat ?? $row->lat,

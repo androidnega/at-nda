@@ -9,7 +9,8 @@ abstract final class NotificationPrefs {
 
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    enabledNotifier.value = p.getBool(prefsKey) ?? false;
+    // Default on so attendance alerts (local notifications) work without an extra step.
+    enabledNotifier.value = p.getBool(prefsKey) ?? true;
   }
 
   static Future<void> setEnabled(bool value) async {

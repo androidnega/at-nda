@@ -10,6 +10,7 @@ import '../widgets/modern_pull_to_refresh.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/attendance_local_notify.dart';
 import '../services/communication_log_sync.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/last_attendance_prefs.dart';
@@ -82,6 +83,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Today's timetable slots from `GET /api/timetable` (`by_day` for current weekday).
   List<Map<String, dynamic>> _todayTimetable = [];
+  bool _liteUiMode = false;
 
   String _lastCheckInLine =
       'Your last check-in: mark when your class session is live.';
@@ -312,13 +314,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _load({bool silent = false}) async {
     final online = await hasInternetConnectivity();
+    var nextLiteUiMode = !online;
     _dynamicUi = const [];
     if (online) {
+      final settingsSw = Stopwatch()..start();
       await ApiService.loadAppSettings();
+      settingsSw.stop();
+      if (settingsSw.elapsedMilliseconds >= 2500) {
+        nextLiteUiMode = true;
+      }
       _dynamicUi = ApiService.dynamicUi;
       unawaited(CommunicationLogSyncService.maybeSync());
     }
-    await SessionCachePrefs.clear();
     _sessionUiTicker?.cancel();
     _sessionUiTicker = null;
     if (!silent) {
@@ -358,16 +365,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       pendingSync = await OfflineService.getPendingAttendanceCount();
     } catch (_) {}
+    if (pendingSync > 0) {
+      nextLiteUiMode = true;
+    }
     if (mounted) {
       setState(() => _pendingSyncCount = pendingSync);
     }
 
+    Future<List<Map<String, dynamic>>> cachedSessionsForCurrentStudent() async {
+      final st = _student;
+      if (st == null) return const [];
+      return SessionCachePrefs.getActiveSessions(st.indexNumber);
+    }
+
     if (!online) {
+      final cached = await cachedSessionsForCurrentStudent();
       _absenceWarningAutoDismissTimer?.cancel();
       if (mounted) {
         setState(() {
-          _activeSessions = [];
-          _error = 'Offline — connect to the internet to load active sessions.';
+          _activeSessions = cached;
+          _error = cached.isEmpty
+              ? 'Offline — connect to the internet to load active sessions.'
+              : 'Offline — showing last synced sessions.';
           _showAbsenceWarning = false;
           _absenceWarningsSnapshot = [];
           _studentAtRisk = false;
@@ -376,13 +395,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } else {
       try {
+        final sessionsSw = Stopwatch()..start();
         final sessions = await ApiService.getActiveSessions(
           indexNumber: _student?.indexNumber,
         );
+        sessionsSw.stop();
+        if (sessionsSw.elapsedMilliseconds >= 2500) {
+          nextLiteUiMode = true;
+        }
         debugPrint('FULL RESPONSE: sessions count=${sessions.length}');
         for (var i = 0; i < sessions.length; i++) {
           debugPrint('CURRENT SESSION [$i]: id=${sessions[i]['id']} '
               'course=${sessions[i]['course_code'] ?? sessions[i]['course_name']}');
+        }
+        final hasValidationError =
+            sessions.isEmpty && ApiService.lastActiveSessionErrorMessage.isNotEmpty;
+        if (_student != null && !hasValidationError) {
+          await SessionCachePrefs.saveActiveSessions(_student!.indexNumber, sessions);
         }
         if (!mounted) return;
         if (sessions.isNotEmpty) {
@@ -399,27 +428,48 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           });
         } else {
           final apiErr = ApiService.lastActiveSessionErrorMessage;
-          setState(() {
-            _activeSessions = [];
-            _error = apiErr.isNotEmpty ? apiErr : null;
-          });
           if (apiErr.isNotEmpty) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(apiErr),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+            final cached = await cachedSessionsForCurrentStudent();
+            if (!mounted) return;
+            if (cached.isNotEmpty) {
+              setState(() {
+                _activeSessions = cached;
+                _error = 'Showing last synced sessions (server issue).';
+              });
+            } else {
+              setState(() {
+                _activeSessions = [];
+                _error = apiErr;
+              });
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(apiErr),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              });
+            }
+          } else {
+            setState(() {
+              _activeSessions = [];
+              _error = null;
             });
           }
         }
       } catch (e) {
         // ignore: avoid_print
         print('SESSION ERROR: $e');
+        nextLiteUiMode = true;
         if (!mounted) return;
-        if (Constants.useDemoActiveSessionWhenEmpty) {
+        final cached = await cachedSessionsForCurrentStudent();
+        if (cached.isNotEmpty) {
+          setState(() {
+            _activeSessions = cached;
+            _error = 'Offline — showing last synced sessions.';
+          });
+        } else if (Constants.useDemoActiveSessionWhenEmpty) {
           final demo = Map<String, dynamic>.from(Constants.demoActiveSession);
           debugPrint('activeSession: $demo');
           setState(() {
@@ -461,8 +511,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _restartSessionUiTicker();
 
     if (online && _student != null) {
-      await _loadStudentAttendanceInsights();
-      await _loadTodayTimetable();
+      unawaited(
+        AttendanceLocalNotify.afterSessionsRefresh(
+          List<Map<String, dynamic>>.from(
+            _activeSessions.map((m) => Map<String, dynamic>.from(m)),
+          ),
+          silentRefresh: silent,
+          isClassRep: _student!.isClassRep == true,
+          studentIndex: _student!.indexNumber.trim(),
+        ),
+      );
+    }
+
+    if (online && _student != null) {
+      unawaited(_loadStudentAttendanceInsights());
+      unawaited(_loadTodayTimetable());
     }
 
     var lastLine = _lastCheckInLine;
@@ -472,6 +535,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     if (mounted) {
       setState(() {
+        _liteUiMode = nextLiteUiMode;
+        if (_liteUiMode) {
+          _dynamicUi = const [];
+        }
         _isLoading = false;
         _lastCheckInLine = lastLine;
       });
@@ -481,21 +548,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadTodayTimetable() async {
     final s = _student;
     if (s == null) return;
-    final tok = await OfflineService.getApiSessionToken();
-    if (tok == null || tok.isEmpty) return;
-    ApiService.setSessionBearerToken(tok);
-    try {
-      final res = await ApiService.getTimetable();
-      if (!ApiService.isSuccessfulHttp(res.statusCode)) return;
-      final decoded = jsonDecode(res.body);
-      if (decoded is! Map) return;
-      var root = Map<String, dynamic>.from(decoded);
-      if (!root.containsKey('by_day') &&
-          !root.containsKey('ordered_days') &&
-          root['data'] is Map) {
-        root = Map<String, dynamic>.from(root['data'] as Map);
-      }
-      final by = root['by_day'];
+
+    Future<void> loadCachedTimetable() async {
+      final cachedRoot = await SessionCachePrefs.getTimetable(s.indexNumber);
+      if (cachedRoot == null) return;
+      final by = cachedRoot['by_day'];
       if (by is! Map) return;
       final dayKey = _weekdayApi[DateTime.now().weekday - 1];
       final rawList = by[dayKey];
@@ -509,7 +566,52 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .compareTo(_slotMinutes(b['start_time']?.toString())));
       if (!mounted) return;
       setState(() => _todayTimetable = out);
-    } catch (_) {}
+    }
+
+    final tok = await OfflineService.getApiSessionToken();
+    if (tok == null || tok.isEmpty) {
+      await loadCachedTimetable();
+      return;
+    }
+    ApiService.setSessionBearerToken(tok);
+    try {
+      final res = await ApiService.getTimetable();
+      if (!ApiService.isSuccessfulHttp(res.statusCode)) {
+        await loadCachedTimetable();
+        return;
+      }
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) {
+        await loadCachedTimetable();
+        return;
+      }
+      var root = Map<String, dynamic>.from(decoded);
+      if (!root.containsKey('by_day') &&
+          !root.containsKey('ordered_days') &&
+          root['data'] is Map) {
+        root = Map<String, dynamic>.from(root['data'] as Map);
+      }
+      await SessionCachePrefs.saveTimetable(s.indexNumber, root);
+      final by = root['by_day'];
+      if (by is! Map) {
+        await loadCachedTimetable();
+        return;
+      }
+      final dayKey = _weekdayApi[DateTime.now().weekday - 1];
+      final rawList = by[dayKey];
+      final out = <Map<String, dynamic>>[];
+      if (rawList is List) {
+        for (final e in rawList) {
+          if (e is Map) out.add(Map<String, dynamic>.from(e));
+        }
+      }
+      out.sort((a, b) => _slotMinutes(a['start_time']?.toString())
+          .compareTo(_slotMinutes(b['start_time']?.toString())));
+      if (!mounted) return;
+      setState(() => _todayTimetable = out);
+    } catch (_) {
+      await loadCachedTimetable();
+    }
   }
 
   int _slotMinutes(String? hhmm) {
@@ -1077,6 +1179,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final light = Theme.of(context).brightness == Brightness.light;
     final cs = Theme.of(context).colorScheme;
+    final studentTheme = (!s.isClassRep && _liteUiMode)
+        ? ApiService.studentDashboardThemeClassic
+        : ApiService.studentDashboardTheme;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1088,7 +1193,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: ModernPullToRefresh(
           onRefresh: () => _load(silent: true),
           child: !s.isClassRep &&
-                ApiService.studentDashboardTheme ==
+                studentTheme ==
                     ApiService.studentDashboardThemePastelProfile
             ? StudentPastelProfileDashboard(
                 student: s,
@@ -1150,7 +1255,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     : null,
               )
             : !s.isClassRep &&
-                    ApiService.studentDashboardTheme ==
+                    studentTheme ==
                         ApiService.studentDashboardThemeNoirTask
                 ? StudentNoirTaskDashboard(
                     student: s,
@@ -1213,7 +1318,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         : null,
                   )
                 : !s.isClassRep &&
-                        ApiService.studentDashboardTheme ==
+                        studentTheme ==
                             ApiService.studentDashboardThemeTeamReach
                     ? StudentTeamReachDashboard(
                         student: s,
@@ -1276,7 +1381,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             : null,
                       )
                     : !s.isClassRep &&
-                            ApiService.studentDashboardTheme ==
+                            studentTheme ==
                                 ApiService.studentDashboardThemeVioletCalendar
                         ? StudentVioletCalendarDashboard(
                             student: s,
@@ -1339,7 +1444,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 : null,
                           )
                     : !s.isClassRep &&
-                            ApiService.studentDashboardTheme ==
+                            studentTheme ==
                                 ApiService.studentDashboardThemeMidnightControl
                         ? StudentMidnightControlDashboard(
                             student: s,

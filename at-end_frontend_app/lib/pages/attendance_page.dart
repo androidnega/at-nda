@@ -7,6 +7,7 @@ import '../models/attendance_record.dart';
 import '../models/qr_submit_result.dart';
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/attendance_local_notify.dart';
 import '../services/device_service.dart';
 import '../services/location_service.dart';
 import '../services/offline_service.dart';
@@ -272,11 +273,33 @@ class _AttendancePageState extends State<AttendancePage> {
     _countTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickRemaining());
   }
 
+  Map<String, dynamic>? _pickSessionById(
+    List<Map<String, dynamic>> sessions, {
+    int? preferredId,
+  }) {
+    if (sessions.isEmpty) return null;
+    if (preferredId == null) return sessions.first;
+    for (final s in sessions) {
+      if (parseSessionId(Map<String, dynamic>.from(s)) == preferredId) {
+        return s;
+      }
+    }
+    return sessions.first;
+  }
+
+  Future<Map<String, dynamic>?> _loadCachedSession(
+    Student? student, {
+    int? preferredId,
+  }) async {
+    if (student == null) return null;
+    final cached = await SessionCachePrefs.getActiveSessions(student.indexNumber);
+    return _pickSessionById(cached, preferredId: preferredId);
+  }
+
   Future<void> _load() async {
     try {
       await ApiService.loadAppSettings();
     } catch (_) {}
-    await SessionCachePrefs.clear();
     if (await hasInternetConnectivity()) {
       await OfflineService.hasPasswordOrApiToken();
     }
@@ -295,6 +318,22 @@ class _AttendancePageState extends State<AttendancePage> {
       if (widget.session != null) {
         final s = Map<String, dynamic>.from(widget.session!);
         debugPrint('activeSession (from home): $s');
+        if (loadedStudent != null) {
+          final cached = await SessionCachePrefs.getActiveSessions(
+            loadedStudent.indexNumber,
+          );
+          final sid = parseSessionId(s);
+          final merged = <Map<String, dynamic>>[s];
+          for (final row in cached) {
+            final rid = parseSessionId(Map<String, dynamic>.from(row));
+            if (sid != null && rid == sid) continue;
+            merged.add(Map<String, dynamic>.from(row));
+          }
+          await SessionCachePrefs.saveActiveSessions(
+            loadedStudent.indexNumber,
+            merged,
+          );
+        }
         if (mounted) {
           setState(() {
             _session = s;
@@ -306,6 +345,12 @@ class _AttendancePageState extends State<AttendancePage> {
         final sessions = await ApiService.getActiveSessions(
           indexNumber: loadedStudent?.indexNumber,
         );
+        if (loadedStudent != null && sessions.isNotEmpty) {
+          await SessionCachePrefs.saveActiveSessions(
+            loadedStudent.indexNumber,
+            sessions,
+          );
+        }
         if (mounted) {
           if (sessions.isNotEmpty) {
             debugPrint('activeSession (first of ${sessions.length}): ${sessions.first}');
@@ -324,15 +369,39 @@ class _AttendancePageState extends State<AttendancePage> {
             _startSessionCountdown();
           } else {
             final apiErr = ApiService.lastActiveSessionErrorMessage;
-            setState(() {
-              _session = null;
-              _error = apiErr.isNotEmpty ? apiErr : 'No active session.';
-            });
+            if (apiErr.isNotEmpty) {
+              final cached = await _loadCachedSession(loadedStudent);
+              if (!mounted) return;
+              if (cached != null) {
+                setState(() {
+                  _session = cached;
+                  _error = 'Showing last synced session (server issue).';
+                });
+                _startSessionCountdown();
+              } else {
+                setState(() {
+                  _session = null;
+                  _error = apiErr;
+                });
+              }
+            } else {
+              setState(() {
+                _session = null;
+                _error = 'No active session.';
+              });
+            }
           }
         }
       }
     } catch (e) {
-      if (Constants.useDemoActiveSessionWhenEmpty && mounted) {
+      final cached = await _loadCachedSession(loadedStudent);
+      if (cached != null && mounted) {
+        setState(() {
+          _session = cached;
+          _error = 'Offline — showing last synced session.';
+        });
+        _startSessionCountdown();
+      } else if (Constants.useDemoActiveSessionWhenEmpty && mounted) {
         final demo = Map<String, dynamic>.from(Constants.demoActiveSession);
         debugPrint('activeSession: $demo');
         setState(() {
@@ -400,16 +469,34 @@ class _AttendancePageState extends State<AttendancePage> {
       final list = await ApiService.getActiveSessions(
         indexNumber: st?.indexNumber,
       );
+      if (st != null && list.isNotEmpty) {
+        await SessionCachePrefs.saveActiveSessions(st.indexNumber, list);
+      }
       if (!mounted) return;
+      var found = false;
       for (final raw in list) {
         final s = Map<String, dynamic>.from(raw);
         if (parseSessionId(s) == wantId) {
+          found = true;
           setState(() => _session = s);
           _startSessionCountdown();
           break;
         }
       }
-    } catch (_) {}
+      if (found) {
+        return;
+      }
+      final cached = await _loadCachedSession(st, preferredId: wantId);
+      if (!mounted || cached == null) return;
+      setState(() => _session = cached);
+      _startSessionCountdown();
+    } catch (_) {
+      final st = await OfflineService.getCurrentStudent();
+      final cached = await _loadCachedSession(st, preferredId: wantId);
+      if (!mounted || cached == null) return;
+      setState(() => _session = cached);
+      _startSessionCountdown();
+    }
   }
 
   /// Updates [_rangeChecked], [_withinRange]. Returns whether in range.
@@ -502,6 +589,40 @@ class _AttendancePageState extends State<AttendancePage> {
       _isCheckingOut = true;
       _error = null;
     });
+    final rawSession = Map<String, dynamic>.from(_session!);
+    final sessionId = parseSessionId(rawSession);
+    final courseId = parseOptionalCourseId(rawSession);
+    final weekId = parseOptionalWeekId(rawSession);
+    final ts = DateTime.now().toIso8601String();
+    double? lat;
+    double? lng;
+
+    Future<void> queueOfflineCheckout() async {
+      if (lat == null || lng == null) return;
+      final record = AttendanceRecord(
+        sessionId: sessionId,
+        endpoint: 'attendance/checkout',
+        studentIndex: AppState.studentIndex ?? _student!.indexNumber,
+        courseId: courseId ?? 0,
+        weekId: weekId ?? 0,
+        lat: lat,
+        lng: lng,
+        qrCode: null,
+        timestamp: ts,
+        faceDescriptor: ApiService.attachFaceDescriptorToAttendance
+            ? _student!.faceDescriptor
+            : null,
+      );
+      final dip = await DeviceService.getIp();
+      await OfflineService.insert(record, deviceIp: dip);
+      if (mounted) {
+        _showSuccessSnackBar(
+          'Checkout saved offline',
+          'Will sync automatically when internet returns.',
+        );
+      }
+    }
+
     try {
       final venue = _sessionVenueLatLng();
       if (venue == null) {
@@ -512,27 +633,40 @@ class _AttendancePageState extends State<AttendancePage> {
         return;
       }
       final position = await LocationService.getCurrentLocation();
+      lat = position.latitude;
+      lng = position.longitude;
       final payload = buildAttendancePostBody(
         indexNumber: AppState.studentIndex ?? _student!.indexNumber,
-        sessionId: parseSessionId(Map<String, dynamic>.from(_session!)),
-        courseId: parseOptionalCourseId(Map<String, dynamic>.from(_session!)),
-        weekId: parseOptionalWeekId(Map<String, dynamic>.from(_session!)),
-        lat: position.latitude,
-        lng: position.longitude,
+        sessionId: sessionId,
+        courseId: courseId,
+        weekId: weekId,
+        lat: lat,
+        lng: lng,
         includeLocation: true,
-        timestamp: DateTime.now().toIso8601String(),
+        timestamp: ts,
       );
       final res = await ApiService.post('attendance/checkout', payload);
       if (ApiService.isSuccessfulHttp(res.statusCode)) {
         await _refreshSessionFromActiveList();
         if (!mounted) return;
-        _showErrorSnackBar('Checkout recorded.');
+        await SuccessChime.celebrateAttendanceMarked(playChime: true);
+        _showSuccessSnackBar(
+          'Checked out',
+          'Your attendance for this session is complete.',
+        );
+        unawaited(
+          AttendanceLocalNotify.notifyCheckedOut(
+            _softCourseLine() ?? 'your class',
+          ),
+        );
       } else {
         final msg = ApiService.messageFromHttpResponse(res);
         if (mounted) setState(() => _error = msg.isEmpty ? 'Checkout failed.' : msg);
       }
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Checkout error: $e');
+    } on TimeoutException {
+      await queueOfflineCheckout();
+    } catch (_) {
+      await queueOfflineCheckout();
     } finally {
       if (mounted) setState(() => _isCheckingOut = false);
     }
@@ -716,12 +850,31 @@ class _AttendancePageState extends State<AttendancePage> {
     if (!mounted) return;
     if (result != null && result.success) {
       final code = result.httpStatus ?? 200;
-      _presentSuccessAndPop(
-        subtitle: code == 409
-            ? 'Your attendance was already recorded.'
-            : 'You have successfully marked attendance',
-        playCelebrationFeedback: false,
-      );
+      if (_isCheckInCheckoutMode) {
+        await _refreshSessionFromActiveList();
+        if (!mounted) return;
+        if (code == 409) {
+          _showInfoSnackBar('Already checked in for this session.');
+        } else {
+          await SuccessChime.celebrateAttendanceMarked(playChime: false);
+          _showSuccessSnackBar(
+            'Checked in',
+            'We will notify you when it is time to check out.',
+          );
+          unawaited(
+            AttendanceLocalNotify.notifyCheckedIn(
+              _softCourseLine() ?? 'your class',
+            ),
+          );
+        }
+      } else {
+        _presentSuccessAndPop(
+          subtitle: code == 409
+              ? 'Your attendance was already recorded.'
+              : 'You have successfully marked attendance',
+          playCelebrationFeedback: false,
+        );
+      }
     } else if (result != null && !result.success) {
       setState(() => _error = result.message ?? 'Could not submit attendance');
     } else {
@@ -839,11 +992,20 @@ class _AttendancePageState extends State<AttendancePage> {
           if (_isCheckInCheckoutMode) {
             await _refreshSessionFromActiveList();
             if (!mounted) return;
-            _showErrorSnackBar(
-              already
-                  ? 'Already checked in for this session.'
-                  : 'Check-in recorded. Wait for checkout to open.',
-            );
+            if (already) {
+              _showInfoSnackBar('Already checked in for this session.');
+            } else {
+              await SuccessChime.celebrateAttendanceMarked(playChime: true);
+              _showSuccessSnackBar(
+                'Checked in',
+                'We will notify you when it is time to check out.',
+              );
+              unawaited(
+                AttendanceLocalNotify.notifyCheckedIn(
+                  _softCourseLine() ?? 'your class',
+                ),
+              );
+            }
           } else {
             _presentSuccessAndPop(
               subtitle: already
@@ -860,7 +1022,7 @@ class _AttendancePageState extends State<AttendancePage> {
           if (_isCheckInCheckoutMode) {
             await _refreshSessionFromActiveList();
             if (!mounted) return;
-            _showErrorSnackBar('Already checked in for this session.');
+            _showInfoSnackBar('Already checked in for this session.');
           } else {
             _presentSuccessAndPop(
               subtitle: 'Your attendance was already recorded.',
@@ -882,7 +1044,10 @@ class _AttendancePageState extends State<AttendancePage> {
         await _persistAttendanceLog(ts);
         if (mounted) {
           if (_isCheckInCheckoutMode) {
-            _showErrorSnackBar('Weak network detected. Check-in saved offline and will sync.');
+            _showSuccessSnackBar(
+              'Check-in saved offline',
+              'Will sync when you are back online.',
+            );
           } else {
             _presentSuccessAndPop(
               subtitle: 'Weak network detected. Attendance saved offline and will sync.',
@@ -895,7 +1060,10 @@ class _AttendancePageState extends State<AttendancePage> {
         await _persistAttendanceLog(ts);
         if (mounted) {
           if (_isCheckInCheckoutMode) {
-            _showErrorSnackBar('Saved offline. Will sync when online.');
+            _showSuccessSnackBar(
+              'Check-in saved offline',
+              'Will sync when you are back online.',
+            );
           } else {
             _presentSuccessAndPop(
               subtitle: 'Saved offline. Will sync when online.',
@@ -921,20 +1089,94 @@ class _AttendancePageState extends State<AttendancePage> {
     );
   }
 
-  /// Errors / non-success feedback only (not used for successful attendance).
-  void _showErrorSnackBar(String message) {
+  double _snackBarBottomMargin() {
     final media = MediaQuery.of(context);
     final h = media.size.height;
     final topSafe = media.viewPadding.top;
     const snackBarEstimate = 52.0;
-    final bottomMargin = (h - topSafe - 8 - snackBarEstimate).clamp(0.0, double.infinity);
+    return (h - topSafe - 8 - snackBarEstimate).clamp(0.0, double.infinity);
+  }
 
+  /// Errors / non-success feedback only (not used for successful attendance).
+  void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.only(left: 16, right: 16, bottom: bottomMargin),
+        margin: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: _snackBarBottomMargin(),
+        ),
+        dismissDirection: DismissDirection.up,
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String title, String subtitle) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.green.shade800,
+        duration: const Duration(seconds: 5),
+        margin: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: _snackBarBottomMargin(),
+        ),
+        dismissDirection: DismissDirection.up,
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      fontSize: 14,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showInfoSnackBar(String message) {
+    final cs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: cs.secondaryContainer,
+        margin: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: _snackBarBottomMargin(),
+        ),
         dismissDirection: DismissDirection.up,
       ),
     );
@@ -1173,6 +1415,9 @@ class _AttendancePageState extends State<AttendancePage> {
                               onCheckIn: _handleSoftPrimaryAction,
                               checkInEnabled: _student != null &&
                                   hasVenueCoords &&
+                                  !_checkingRange &&
+                                  !_isSubmitting &&
+                                  !_isCheckingOut &&
                                   (_isCheckInCheckoutMode
                                       ? (_isCheckedOut
                                           ? false
@@ -1181,8 +1426,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                               : !_sessionEnded))
                                       : (!_alreadyMarkedForSession &&
                                           !_sessionEnded)),
-                              checkInBusy:
-                                  _checkingRange || _isSubmitting || _isCheckingOut,
+                              checkInBusy: false,
                               checkInLabel: _softPrimaryActionLabel(),
                               onCheckOut: null,
                               checkOutEnabled: false,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../services/attendance_local_notify.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/notification_bridge.dart';
 import '../services/notification_prefs.dart';
@@ -235,15 +236,20 @@ class _SettingsPageState extends State<SettingsPage> {
                   Icons.notifications_outlined,
                   color: cs.primary,
                 ),
-                title: const Text('In-app reminders'),
+                title: const Text('Attendance & reminders'),
                 subtitle: Text(
-                  on ? 'On' : 'Off',
+                  on
+                      ? 'Server reminders + session alerts (sound & vibration)'
+                      : 'Off',
                   style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                 ),
                 value: on,
                 onChanged: (v) async {
                   await NotificationPrefs.setEnabled(v);
-                  if (v) await NotificationBridge.pollPending();
+                  if (v) {
+                    await AttendanceLocalNotify.ensureOsPermission();
+                    await NotificationBridge.pollPending();
+                  }
                 },
               );
             },

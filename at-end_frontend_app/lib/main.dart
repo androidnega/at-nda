@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'pages/attendance_records_page.dart';
 import 'pages/attendance_page.dart';
@@ -18,6 +19,7 @@ import 'pages/rep_insights_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/timetable_page.dart';
+import 'services/attendance_local_notify.dart';
 import 'services/communication_log_sync.dart';
 import 'services/institution_theme_service.dart';
 import 'services/notification_bridge.dart';
@@ -28,10 +30,15 @@ import 'utils/app_selectable_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: SystemUiOverlay.values,
+  );
   await ThemeService.load();
   await InstitutionThemeService.loadCached();
   await NotificationPrefs.load();
   await NotificationBridge.initialize();
+  await AttendanceLocalNotify.init();
   runApp(
     const _AppLifecycleShell(
       child: AttendanceApp(),

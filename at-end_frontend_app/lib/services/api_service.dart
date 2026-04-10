@@ -100,6 +100,8 @@ class ApiService {
   static const String _prefsRepDashboardTheme = 'rep_dashboard_theme';
   static const String _prefsStudentDashboardTheme = 'student_dashboard_theme';
   static bool _dashboardThemesHydrated = false;
+  static DateTime? _lastSettingsFetchedAt;
+  static const Duration _settingsRefreshGap = Duration(minutes: 3);
 
   static bool _isValidRepTheme(String? v) =>
       v == repDashboardThemeClassic ||
@@ -158,8 +160,15 @@ class ApiService {
   }
 
   /// Loads `face_verification` / `face_verification_enabled` from GET /api/settings.
-  static Future<void> loadAppSettings() async {
+  /// Uses an in-memory refresh gap to avoid repeated calls on slow networks.
+  static Future<void> loadAppSettings({bool forceRemote = false}) async {
     await _hydrateDashboardThemesFromCache();
+    final now = DateTime.now();
+    if (!forceRemote &&
+        _lastSettingsFetchedAt != null &&
+        now.difference(_lastSettingsFetchedAt!) < _settingsRefreshGap) {
+      return;
+    }
     try {
       final r = await get('settings').timeout(const Duration(seconds: 15));
       if (r.statusCode != 200) return;
@@ -226,6 +235,7 @@ class ApiService {
         instantModeType = instantModeLocationQr;
       }
       await _persistDashboardThemes();
+      _lastSettingsFetchedAt = now;
     } catch (_) {
       // Keep last known settings on transient failures to avoid UI/theme flicker.
     }

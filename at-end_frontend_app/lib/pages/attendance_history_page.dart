@@ -75,6 +75,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
 
     for (final p in pending) {
       if (p.studentIndex != student.indexNumber) continue;
+      final isCheckoutPending = p.endpoint.trim() == 'attendance/checkout';
       final courseLabel = p.courseId > 0
           ? 'Course #${p.courseId}'
           : (p.sessionId != null ? 'Session #${p.sessionId}' : 'Attendance');
@@ -84,7 +85,9 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
           whenLabel: _formatTs(p.timestamp),
           status: _AttendanceUiStatus.pendingSync,
           sessionId: p.sessionId,
-          detail: 'Waiting to sync when you are online',
+          detail: isCheckoutPending
+              ? 'Checkout saved offline — waiting to sync'
+              : 'Waiting to sync when you are online',
         ),
       );
     }

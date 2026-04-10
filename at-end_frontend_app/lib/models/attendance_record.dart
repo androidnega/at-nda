@@ -8,6 +8,8 @@ class AttendanceRecord {
   final int? id;
   /// Laravel session PK — always prefer this in POST /api/attendance when set.
   final int? sessionId;
+  /// API endpoint path (relative), e.g. `attendance` or `attendance/checkout`.
+  final String endpoint;
   final String studentIndex;
   /// From session JSON [course_id] only; 0 = omit in API payload.
   final int courseId;
@@ -23,6 +25,7 @@ class AttendanceRecord {
   AttendanceRecord({
     this.id,
     this.sessionId,
+    this.endpoint = 'attendance',
     required this.studentIndex,
     required this.courseId,
     required this.weekId,
@@ -37,6 +40,9 @@ class AttendanceRecord {
   factory AttendanceRecord.fromMap(Map<String, dynamic> map) => AttendanceRecord(
         id: map['id'] as int?,
         sessionId: parseApiInt(map['session_id']),
+        endpoint: (map['endpoint']?.toString().trim().isNotEmpty ?? false)
+            ? map['endpoint'].toString().trim()
+            : 'attendance',
         studentIndex: map['student_index'] as String,
         courseId: parseApiInt(map['course_id']) ?? 0,
         weekId: parseApiInt(map['week_id']) ?? 0,
@@ -53,6 +59,7 @@ class AttendanceRecord {
         if (id != null) 'id': id,
         'student_index': studentIndex,
         if (sessionId != null) 'session_id': sessionId,
+        'endpoint': endpoint,
         'course_id': courseId,
         'week_id': weekId,
         'lat': lat,

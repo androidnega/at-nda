@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../services/offline_service.dart';
+import '../services/session_cache_prefs.dart';
 import '../utils/api_user_message.dart';
 
 /// Weekly schedule from `GET /api/timetable` (Sanctum Bearer).
@@ -19,8 +21,12 @@ class _TimetablePageState extends State<TimetablePage> {
   Map<String, dynamic>? _weekProgress;
   List<String> _orderedDays = [];
   final Map<String, List<Map<String, dynamic>>> _byDay = {};
+  String _cacheIndexNumber = '';
 
   late DateTime _pickedDay;
+  bool get _useVioletCalendarTheme =>
+      ApiService.studentDashboardTheme == ApiService.studentDashboardThemeVioletCalendar ||
+      ApiService.repDashboardTheme == ApiService.repDashboardThemeVioletCalendar;
 
   static const List<String> _calendarDayNames = [
     'Monday',
@@ -114,14 +120,60 @@ class _TimetablePageState extends State<TimetablePage> {
     setState(() => _pickedDay = DateTime(n.year, n.month, n.day));
   }
 
+  void _applyTimetableRoot(Map<String, dynamic> root) {
+    _orderedDays = [];
+    _byDay.clear();
+    final od = root['ordered_days'];
+    if (od is List) {
+      _orderedDays = od.map((e) => e.toString()).toList();
+    }
+    final by = root['by_day'];
+    if (by is Map) {
+      by.forEach((k, v) {
+        if (v is! List) return;
+        _byDay[k.toString()] = v
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      });
+    }
+    final wp = root['week_progress'];
+    _weekProgress = wp is Map ? Map<String, dynamic>.from(wp) : null;
+  }
+
+  Future<bool> _loadCachedTimetable({
+    String? infoMessage,
+  }) async {
+    if (_cacheIndexNumber.isEmpty) return false;
+    final cached = await SessionCachePrefs.getTimetable(_cacheIndexNumber);
+    if (cached == null) return false;
+    _applyTimetableRoot(cached);
+    if (!mounted) return true;
+    setState(() {
+      _loading = false;
+      _error = infoMessage;
+    });
+    return true;
+  }
+
   Future<void> _fetch() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
+      final student = await OfflineService.getCurrentStudent();
+      _cacheIndexNumber = student?.indexNumber.trim() ?? '';
+    } catch (_) {
+      _cacheIndexNumber = '';
+    }
+    try {
       final res = await ApiService.getTimetable();
       if (res.statusCode == 401) {
+        final usedCache = await _loadCachedTimetable(
+          infoMessage: 'Offline — showing last synced timetable.',
+        );
+        if (usedCache) return;
         setState(() {
           _loading = false;
           _error = 'Please sign in again.';
@@ -129,6 +181,10 @@ class _TimetablePageState extends State<TimetablePage> {
         return;
       }
       if (!ApiService.isSuccessfulHttp(res.statusCode)) {
+        final usedCache = await _loadCachedTimetable(
+          infoMessage: 'Offline — showing last synced timetable.',
+        );
+        if (usedCache) return;
         final msg = ApiService.messageFromHttpResponse(res);
         setState(() {
           _loading = false;
@@ -138,6 +194,10 @@ class _TimetablePageState extends State<TimetablePage> {
       }
       final decoded = jsonDecode(res.body);
       if (decoded is! Map) {
+        final usedCache = await _loadCachedTimetable(
+          infoMessage: 'Offline — showing last synced timetable.',
+        );
+        if (usedCache) return;
         setState(() {
           _loading = false;
           _error = 'Could not read timetable data.';
@@ -150,28 +210,21 @@ class _TimetablePageState extends State<TimetablePage> {
           root['data'] is Map) {
         root = Map<String, dynamic>.from(root['data'] as Map);
       }
-      _orderedDays = [];
-      _byDay.clear();
-      final od = root['ordered_days'];
-      if (od is List) {
-        _orderedDays = od.map((e) => e.toString()).toList();
+      _applyTimetableRoot(root);
+      if (_cacheIndexNumber.isNotEmpty) {
+        await SessionCachePrefs.saveTimetable(_cacheIndexNumber, root);
       }
-      final by = root['by_day'];
-      if (by is Map) {
-        by.forEach((k, v) {
-          if (v is! List) return;
-          _byDay[k.toString()] = v
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = null;
         });
       }
-      final wp = root['week_progress'];
-      _weekProgress = wp is Map ? Map<String, dynamic>.from(wp) : null;
-      if (mounted) {
-        setState(() => _loading = false);
-      }
     } catch (e) {
+      final usedCache = await _loadCachedTimetable(
+        infoMessage: 'Offline — showing last synced timetable.',
+      );
+      if (usedCache) return;
       if (mounted) {
         setState(() {
           _loading = false;
@@ -209,7 +262,9 @@ class _TimetablePageState extends State<TimetablePage> {
     final tt = Theme.of(context).textTheme;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: _useVioletCalendarTheme
+          ? const Color(0xFFEFF3FB)
+          : Theme.of(context).scaffoldBackgroundColor,
       body: Column(
         children: [
           _buildHeader(context, cs, tt),
@@ -229,10 +284,11 @@ class _TimetablePageState extends State<TimetablePage> {
     final strip = _weekStripDates();
     final progress = _weekProgressLine(tt, cs);
 
-    final onHeader = cs.onPrimary;
+    final header = _useVioletCalendarTheme ? const Color(0xFF4E43D8) : cs.primary;
+    final onHeader = _useVioletCalendarTheme ? Colors.white : cs.onPrimary;
 
     return Material(
-      color: cs.primary,
+      color: header,
       elevation: 0,
       child: SafeArea(
         bottom: false,
@@ -354,7 +410,9 @@ class _TimetablePageState extends State<TimetablePage> {
                           width: 52,
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
-                            color: sel ? cs.primaryContainer : cs.surface,
+                            color: sel
+                                ? (_useVioletCalendarTheme ? const Color(0xFF6B61F0) : cs.primaryContainer)
+                                : cs.surface,
                             borderRadius: BorderRadius.circular(14),
                             boxShadow: [
                               BoxShadow(
@@ -371,7 +429,9 @@ class _TimetablePageState extends State<TimetablePage> {
                                 _stripLabels[i],
                                 style: tt.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: sel ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                                  color: sel
+                                      ? (_useVioletCalendarTheme ? Colors.white : cs.onPrimaryContainer)
+                                      : cs.onSurfaceVariant,
                                   fontSize: 11,
                                 ),
                               ),
@@ -380,7 +440,7 @@ class _TimetablePageState extends State<TimetablePage> {
                                 '${d.day}',
                                 style: tt.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w800,
-                                  color: sel ? cs.onPrimaryContainer : cs.onSurface,
+                                  color: sel ? Colors.white : cs.onSurface,
                                 ),
                               ),
                             ],
@@ -572,6 +632,8 @@ class _VisitStyleSlotCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
+    final violet = ApiService.studentDashboardTheme == ApiService.studentDashboardThemeVioletCalendar ||
+        ApiService.repDashboardTheme == ApiService.repDashboardThemeVioletCalendar;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final name = slot['class_name']?.toString().trim().isNotEmpty == true
         ? slot['class_name']!.toString()
@@ -585,7 +647,9 @@ class _VisitStyleSlotCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? Theme.of(context).colorScheme.surfaceContainerHigh : Colors.white,
+        color: violet
+            ? Colors.white
+            : (isDark ? Theme.of(context).colorScheme.surfaceContainerHigh : Colors.white),
         borderRadius: BorderRadius.circular(16),
         boxShadow: isDark
             ? null
@@ -644,8 +708,12 @@ class _VisitStyleSlotCard extends StatelessWidget {
                 );
               },
               style: FilledButton.styleFrom(
-                backgroundColor: primary ? cs.primary : cs.surfaceContainerHighest,
-                foregroundColor: primary ? cs.onPrimary : cs.onSurfaceVariant,
+                backgroundColor: violet
+                    ? (primary ? const Color(0xFF4E43D8) : const Color(0xFFECEFFF))
+                    : (primary ? cs.primary : cs.surfaceContainerHighest),
+                foregroundColor: violet
+                    ? (primary ? Colors.white : const Color(0xFF4E43D8))
+                    : (primary ? cs.onPrimary : cs.onSurfaceVariant),
                 padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
