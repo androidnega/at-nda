@@ -261,6 +261,8 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
             Route::get('/whatsapp', [AdminCommunicationLogController::class, 'whatsapp'])->name('whatsapp.index');
             Route::get('/whatsapp/export.csv', [AdminCommunicationLogController::class, 'exportWhatsappCsv'])->name('whatsapp.export-csv');
             Route::get('/whatsapp/download.zip', [AdminCommunicationLogController::class, 'downloadWhatsappZip'])->name('whatsapp.download-zip');
+            Route::post('/whatsapp/bulk', [AdminCommunicationLogController::class, 'whatsappBulkAction'])->name('whatsapp.bulk');
+            Route::delete('/whatsapp/{message}', [AdminCommunicationLogController::class, 'deleteSingleWhatsapp'])->name('whatsapp.delete-single');
             Route::delete('/whatsapp', [AdminCommunicationLogController::class, 'purgeWhatsapp'])->name('whatsapp.purge');
         });
         Route::resource('venues', VenueController::class)->except(['show']);

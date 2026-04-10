@@ -7,6 +7,7 @@ use App\Models\LoggedSms;
 use App\Models\LoggedWhatsappMessage;
 use Illuminate\Contracts\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -149,6 +150,44 @@ class AdminCommunicationLogController extends Controller
             ->with('success', "Deleted {$deleted} WhatsApp log records.");
     }
 
+    public function deleteSingleWhatsapp(LoggedWhatsappMessage $message): RedirectResponse
+    {
+        $message->delete();
+
+        return redirect()
+            ->route('dashboard.communication-logs.whatsapp.index')
+            ->with('success', 'Deleted 1 WhatsApp log record.');
+    }
+
+    public function whatsappBulkAction(Request $request)
+    {
+        $validated = $request->validate([
+            'action' => 'required|in:delete,export_csv,export_zip',
+            'selected_ids' => 'required|array|min:1',
+            'selected_ids.*' => 'integer|min:1',
+        ]);
+
+        $selectedIds = collect($validated['selected_ids'])
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn (int $v) => $v > 0)
+            ->unique()
+            ->values()
+            ->all();
+        if ($selectedIds === []) {
+            return redirect()
+                ->route('dashboard.communication-logs.whatsapp.index')
+                ->with('error', 'Select at least one message.');
+        }
+
+        $request->merge(['selected_ids' => $selectedIds]);
+
+        return match ($validated['action']) {
+            'delete' => $this->purgeWhatsapp($request),
+            'export_zip' => $this->downloadWhatsappZip($request),
+            default => $this->exportWhatsappCsv($request),
+        };
+    }
+
     private function applySmsFilters(Builder $query, Request $request): void
     {
         if ($request->filled('index_number')) {
@@ -242,8 +281,32 @@ class AdminCommunicationLogController extends Controller
     {
         $query = LoggedWhatsappMessage::query();
         $this->applyWhatsappFilters($query, $request);
+        $selectedIds = $this->selectedWhatsappIds($request);
+        if ($selectedIds !== []) {
+            $query->whereIn('id', $selectedIds);
+        } elseif ($request->filled('id')) {
+            $query->where('id', (int) $request->query('id'));
+        }
 
         return $query;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function selectedWhatsappIds(Request $request): array
+    {
+        $raw = $request->input('selected_ids');
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return collect($raw)
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn (int $v) => $v > 0)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
