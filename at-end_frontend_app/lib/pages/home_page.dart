@@ -1179,9 +1179,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final light = Theme.of(context).brightness == Brightness.light;
     final cs = Theme.of(context).colorScheme;
-    final studentTheme = (!s.isClassRep && _liteUiMode)
-        ? ApiService.studentDashboardThemeClassic
-        : ApiService.studentDashboardTheme;
+    // Keep dashboard theme consistent even when offline/slow.
+    final studentTheme = ApiService.studentDashboardTheme;
 
     return Scaffold(
       key: _scaffoldKey,

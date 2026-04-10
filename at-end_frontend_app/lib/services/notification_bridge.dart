@@ -73,19 +73,60 @@ abstract final class NotificationBridge {
       if (showSnackBars) {
         final first = list.first;
         if (first is Map) {
-          final title = first['title']?.toString() ?? 'Reminder';
-          final body = first['body']?.toString() ?? '';
+          final rawTitle = first['title']?.toString() ?? '';
+          final rawBody = first['body']?.toString() ?? '';
+          final title = rawTitle.trim().isEmpty
+              ? 'Attendance reminder'
+              : rawTitle.trim();
+          final body = rawBody.trim();
+          final more = list.length > 1 ? ' +${list.length - 1} more' : '';
           if (!kIsWeb) {
             await SuccessChime.playNotificationTone();
           }
           final messenger = messengerKey.currentState;
           if (messenger != null) {
+            messenger.clearSnackBars();
             messenger.showSnackBar(
               SnackBar(
                 behavior: SnackBarBehavior.floating,
-                content: Text(
-                  body.isEmpty ? title : '$title\n$body',
-                  maxLines: 3,
+                duration: const Duration(seconds: 6),
+                content: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 1),
+                      child: Icon(
+                        Icons.notifications_active_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$title$more',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (body.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              body,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );

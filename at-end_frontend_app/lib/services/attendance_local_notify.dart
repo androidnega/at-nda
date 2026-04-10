@@ -227,8 +227,8 @@ abstract final class AttendanceLocalNotify {
       final name = _courseName(s);
       await _show(
         _notifIdForSession(sid, 1),
-        title: 'Attendance is live',
-        body: 'Check in now for $name.',
+        title: 'Attendance started',
+        body: '$name is live now. Open the app to check in.',
       );
     }
 
@@ -247,8 +247,8 @@ abstract final class AttendanceLocalNotify {
         final name = _courseName(s);
         await _show(
           _notifIdForSession(sid, 2),
-          title: 'Time to check out',
-          body: 'Checkout is open for $name. Open the app to finish.',
+          title: 'Checkout available',
+          body: 'You can check out for $name now.',
         );
       }
     }
@@ -260,16 +260,16 @@ abstract final class AttendanceLocalNotify {
   static Future<void> notifyCheckedIn(String courseLabel) async {
     await _show(
       920001,
-      title: 'Checked in',
-      body: 'You checked in for $courseLabel.',
+      title: 'Check-in confirmed',
+      body: 'Your check-in for $courseLabel was saved.',
     );
   }
 
   static Future<void> notifyCheckedOut(String courseLabel) async {
     await _show(
       920002,
-      title: 'Checked out',
-      body: 'Checkout recorded for $courseLabel.',
+      title: 'Checkout confirmed',
+      body: 'Your checkout for $courseLabel was saved.',
     );
   }
 }
