@@ -85,14 +85,17 @@ class StaffAccountController extends Controller
             if ($lecturerSource === 'new') {
                 $validated = $request->validate([
                     'lecturer_name' => 'required|string|max:255',
-                    'class_id' => 'nullable|exists:classes,id',
+                    'class_ids' => 'nullable|array',
+                    'class_ids.*' => 'integer|exists:classes,id',
                     'course_ids' => 'nullable|array',
                     'course_ids.*' => 'integer|exists:courses,id',
                 ]);
+                $classIds = array_values(array_unique(array_map('intval', $validated['class_ids'] ?? [])));
                 $lecturer = Lecturer::create([
                     'name' => $validated['lecturer_name'],
-                    'class_id' => $validated['class_id'] ?? null,
+                    'class_id' => $classIds[0] ?? null,
                 ]);
+                $lecturer->syncAssignedClasses($classIds);
                 $courseIds = array_values(array_unique(array_map('intval', $validated['course_ids'] ?? [])));
                 if ($courseIds !== []) {
                     Course::whereIn('id', $courseIds)->update(['lecturer_id' => $lecturer->id]);

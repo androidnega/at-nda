@@ -10,7 +10,7 @@
     <h1 class="text-2xl font-bold">{{ $university ? 'Edit' : 'Create' }} School</h1>
 </div>
 
-<form method="POST" action="{{ $university ? route('dashboard.universities.update', $university) : route('dashboard.universities.store') }}" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
+<form method="POST" action="{{ $university ? route('dashboard.universities.update', $university) : route('dashboard.universities.store') }}" enctype="multipart/form-data" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
     @csrf
     @if($university) @method('PUT') @endif
 
@@ -26,6 +26,21 @@
             <input type="text" id="location" name="location" value="{{ old('location', $university?->location) }}" placeholder="e.g. Takoradi, Ghana"
                 class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
             @error('location')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
+            <label for="school_logo" class="block text-sm font-medium text-gray-700 mb-2">School logo (PDF &amp; timetable)</label>
+            <input type="file" id="school_logo" name="school_logo" accept="image/png,image/jpeg,image/webp"
+                class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
+            <p class="text-xs text-gray-500 mt-1">Shown on attendance PDFs for every class under this school.</p>
+            @if($university?->logo_path)
+                <div class="mt-3">
+                    <img src="{{ $university->logoUrl() }}" alt="" class="h-16 w-16 object-contain border border-gray-200 rounded-lg bg-white p-1">
+                    <label class="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
+                        <input type="checkbox" name="remove_school_logo" value="1"> Remove logo
+                    </label>
+                </div>
+            @endif
         </div>
 
         <div>

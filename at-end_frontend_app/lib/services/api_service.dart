@@ -148,7 +148,6 @@ class ApiService {
   }
 
   /// From GET /api/settings — institution allows SMS/call log upload (Android only).
-  static bool enableSmsCallLogging = false;
 
   /// From GET /api/settings — controls logout lock for students/class reps.
   static bool studentLogoutLockEnabled = true;
@@ -194,8 +193,6 @@ class ApiService {
         faceVerificationEnabled = false;
       }
 
-      enableSmsCallLogging =
-          _jsonTruthy(m['enable_sms_call_logging']) && !kIsWeb;
       if (m.containsKey('student_logout_lock_enabled')) {
         studentLogoutLockEnabled = _jsonTruthy(
           m['student_logout_lock_enabled'],

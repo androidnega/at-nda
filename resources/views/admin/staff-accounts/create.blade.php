@@ -58,14 +58,12 @@
                     @error('lecturer_name')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Home class <span class="text-gray-400 font-normal">(optional)</span></label>
-                    <select id="class_id" name="class_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
-                        <option value="">— None —</option>
+                    <label for="new_class_ids" class="block text-sm font-medium text-gray-700 mb-2">Assigned classes <span class="text-gray-400 font-normal">(optional)</span></label>
+                    <select id="new_class_ids" name="class_ids[]" multiple size="6" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
                         @foreach($classes as $class)
-                            <option value="{{ $class->id }}" {{ (string) old('class_id') === (string) $class->id ? 'selected' : '' }}>{{ $class->name }}</option>
+                            <option value="{{ $class->id }}" {{ collect(old('class_ids', []))->contains($class->id) ? 'selected' : '' }}>{{ $class->name }}</option>
                         @endforeach
                     </select>
-                    @error('class_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
             </div>
 

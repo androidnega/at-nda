@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
-import '../services/communication_log_sync.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/permission_service.dart';
@@ -234,10 +233,8 @@ class _LoginPageState extends State<LoginPage> {
     await LogoutLockPrefs.recordFreshLoginBinding();
 
     try {
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
     } catch (_) {}
-    unawaited(CommunicationLogSyncService.maybeSync());
-
     if (!mounted) return;
 
     setState(() => _error = null);
@@ -273,9 +270,8 @@ class _LoginPageState extends State<LoginPage> {
     await PushService.registerAfterLogin(stored.indexNumber);
     await NotificationBridge.pollPending();
     try {
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
     } catch (_) {}
-    unawaited(CommunicationLogSyncService.maybeSync());
     if (!mounted) return;
     setState(() => _error = null);
     await _goToPostLoginHome(stored);

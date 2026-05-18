@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/student.dart';
-import 'profile_avatar.dart';
 
 /// Pastel “profile + progress” student home (admin-selectable theme).
 class StudentPastelProfileDashboard extends StatefulWidget {
@@ -14,6 +13,7 @@ class StudentPastelProfileDashboard extends StatefulWidget {
     required this.heroSubtitle,
     required this.showMarkButton,
     required this.onMarkAttendance,
+    this.primaryActionLabel = 'Mark attendance',
     required this.lastCheckInLine,
     required this.dayProgress,
     required this.onOpenDrawer,
@@ -43,6 +43,7 @@ class StudentPastelProfileDashboard extends StatefulWidget {
   final String heroSubtitle;
   final bool showMarkButton;
   final VoidCallback onMarkAttendance;
+  final String primaryActionLabel;
   final String lastCheckInLine;
   final double dayProgress;
   final VoidCallback onOpenDrawer;
@@ -207,7 +208,24 @@ class _StudentPastelProfileDashboardState
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
               child: Column(
                 children: [
-                  ProfileAvatar(student: widget.student, radius: 52),
+                  Container(
+                    width: 104,
+                    height: 104,
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEDE7F3),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      widget.student.greetingLastName.isNotEmpty
+                          ? widget.student.greetingLastName[0].toUpperCase()
+                          : 'S',
+                      style: tt.displaySmall?.copyWith(
+                        color: textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   Text(
                     widget.student.name.trim().isNotEmpty
@@ -341,7 +359,7 @@ class _StudentPastelProfileDashboardState
                             ),
                           ),
                           child: Text(
-                            'Mark · ${widget.heroTitle}',
+                            widget.primaryActionLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

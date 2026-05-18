@@ -248,7 +248,7 @@
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
     <div class="px-5 py-4 border-b border-gray-100">
         <h2 class="font-semibold text-gray-900">Assign as class rep</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Make this student a class rep or assistant rep for a class.</p>
+        <p class="text-sm text-gray-500 mt-0.5">Rep role applies only to this student’s own class.</p>
     </div>
     <form method="POST" action="{{ route('dashboard.students.assign-rep', $student) }}" class="p-5 flex flex-wrap gap-4 items-end">
         @csrf
@@ -256,9 +256,11 @@
             <label for="class_id" class="block text-sm font-medium text-gray-700 mb-1">Class</label>
             <select id="class_id" name="class_id" required class="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary">
                 <option value="">Select class...</option>
-                @foreach($classes ?? [] as $c)
-                <option value="{{ $c->id }}">{{ $c->name }}</option>
-                @endforeach
+                @forelse($repAssignableClasses ?? [] as $c)
+                <option value="{{ $c->id }}" selected>{{ $c->name }}</option>
+                @empty
+                <option value="" disabled>Student has no class — assign a class first</option>
+                @endforelse
             </select>
         </div>
         <div class="min-w-[140px]">

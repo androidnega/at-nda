@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -149,6 +150,18 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
     return 'Course';
   }
 
+  String _lecturerLastName() {
+    final raw = _name.trim();
+    if (raw.isEmpty) return 'Lecturer';
+    if (raw.contains(',')) {
+      final beforeComma = raw.split(',').first.trim();
+      if (beforeComma.isNotEmpty) return beforeComma;
+    }
+    final parts = raw.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return 'Lecturer';
+    return parts.last;
+  }
+
   Future<void> _toggleThemeMode() async {
     final current = ThemeService.modeNotifier.value;
     final platformDark =
@@ -203,7 +216,9 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
     );
   }
 
-  Future<void> _sendDirectMessage() async {
+  Future<bool> _sendDirectMessage({
+    void Function(bool value)? onLoadingChanged,
+  }) async {
     final courseId = _selectedCourseId;
     final title = _messageTitleController.text.trim();
     final body = _messageBodyController.text.trim();
@@ -211,14 +226,18 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
 
     if (courseId == null || courseId <= 0) {
       _showSnack('Select a course first.', error: true);
-      return;
+      return false;
     }
     if (title.isEmpty || body.isEmpty) {
       _showSnack('Add a title and message body.', error: true);
-      return;
+      return false;
     }
 
-    setState(() => _sendingMessage = true);
+    if (onLoadingChanged != null) {
+      onLoadingChanged(true);
+    } else if (mounted) {
+      setState(() => _sendingMessage = true);
+    }
     try {
       final res = await ApiService.lecturerSendDirectMessage(
         courseId: courseId,
@@ -246,7 +265,7 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
           msg.isEmpty ? 'Could not send lecturer message.' : msg,
           error: true,
         );
-        return;
+        return false;
       }
 
       final decodedMap = Map<String, dynamic>.from(decoded);
@@ -263,10 +282,16 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
             ? 'Message sent to $recipients student(s).'
             : 'Message sent successfully.',
       );
+      return true;
     } catch (e) {
       _showSnack('Failed to send message: $e', error: true);
+      return false;
     } finally {
-      if (mounted) setState(() => _sendingMessage = false);
+      if (onLoadingChanged != null) {
+        onLoadingChanged(false);
+      } else if (mounted) {
+        setState(() => _sendingMessage = false);
+      }
     }
   }
 
@@ -342,14 +367,7 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            cs.primaryContainer.withValues(alpha: 0.7),
-            cs.surfaceContainerLowest,
-          ],
-        ),
+        color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.8)),
       ),
@@ -456,111 +474,144 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
     );
   }
 
-  Widget _buildMessageComposer(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    final canSend = _selectedCourseId != null && !_sendingMessage;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.campaign_outlined, color: cs.primary),
-              const SizedBox(width: 8),
-              Text(
-                'Direct message to students',
-                style: tt.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.onSurface,
+  Future<void> _openMessageComposerModal() async {
+    if (_classes.isEmpty) {
+      _showSnack('No course available yet for messaging.', error: true);
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final cs = Theme.of(context).colorScheme;
+            final tt = Theme.of(context).textTheme;
+            final canSend = _selectedCourseId != null && !_sendingMessage;
+            final insets = MediaQuery.viewInsetsOf(context);
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, insets.bottom + 16),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.campaign_outlined, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Direct message to students',
+                          style: tt.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Send to a whole class or one student index.',
+                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      initialValue: _selectedCourseId,
+                      items:
+                          _classes
+                              .map((c) {
+                                final id = _courseIdFromClass(c);
+                                if (id == null) return null;
+                                return DropdownMenuItem<int>(
+                                  value: id,
+                                  child: Text(
+                                    _courseLabel(c),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                );
+                              })
+                              .whereType<DropdownMenuItem<int>>()
+                              .toList(),
+                      onChanged:
+                          (v) => setModalState(() {
+                            _selectedCourseId = v;
+                          }),
+                      decoration: const InputDecoration(
+                        labelText: 'Course',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _studentIndexController,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Student index (optional)',
+                        hintText: 'Leave empty to notify all students in class',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _messageTitleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Title',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _messageBodyController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Message',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed:
+                            canSend
+                                ? () async {
+                                  final sent = await _sendDirectMessage(
+                                    onLoadingChanged:
+                                        (value) => setModalState(
+                                          () => _sendingMessage = value,
+                                        ),
+                                  );
+                                  if (sent && context.mounted) {
+                                    Navigator.of(sheetContext).pop();
+                                  }
+                                }
+                                : null,
+                        icon:
+                            _sendingMessage
+                                ? SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: cs.onPrimary,
+                                  ),
+                                )
+                                : const Icon(Icons.send_rounded),
+                        label: Text(
+                          _sendingMessage ? 'Sending...' : 'Send notification',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Send to a whole class or one student index.',
-            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            initialValue: _selectedCourseId,
-            items:
-                _classes
-                    .map((c) {
-                      final id = _courseIdFromClass(c);
-                      if (id == null) return null;
-                      return DropdownMenuItem<int>(
-                        value: id,
-                        child: Text(
-                          _courseLabel(c),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    })
-                    .whereType<DropdownMenuItem<int>>()
-                    .toList(),
-            onChanged: (v) => setState(() => _selectedCourseId = v),
-            decoration: const InputDecoration(
-              labelText: 'Course',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _studentIndexController,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Student index (optional)',
-              hintText: 'Leave empty to notify all students in the class',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _messageTitleController,
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _messageBodyController,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Message',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: canSend ? _sendDirectMessage : null,
-              icon:
-                  _sendingMessage
-                      ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: cs.onPrimary,
-                        ),
-                      )
-                      : const Icon(Icons.send_rounded),
-              label: Text(_sendingMessage ? 'Sending...' : 'Send notification'),
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -646,6 +697,7 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lastName = _lecturerLastName();
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
@@ -688,12 +740,12 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: [
                     Text(
-                      _name,
+                      'Hello, $lastName',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Overview',
+                      'Yo, $lastName',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
@@ -741,8 +793,6 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
                     ),
                     const SizedBox(height: 14),
                     _buildTrendCard(context),
-                    const SizedBox(height: 14),
-                    _buildMessageComposer(context),
                     const SizedBox(height: 24),
                     Text(
                       'Your classes',
@@ -762,6 +812,34 @@ class _LecturerDashboardPageState extends State<LecturerDashboardPage> {
                       'Open a class for session history, exports, and flagged students.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      floatingActionButton:
+          kIsWeb
+              ? null
+              : FloatingActionButton(
+                onPressed: _openMessageComposerModal,
+                tooltip: 'Message students',
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.message_rounded),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: cs.onPrimary,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(Icons.add, size: 11, color: cs.primary),
                       ),
                     ),
                   ],

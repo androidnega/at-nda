@@ -7,10 +7,9 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\SchoolClass;
 use App\Models\Semester;
+use App\Models\University;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -18,7 +17,7 @@ class ClassController extends Controller
 {
     public function index(): View
     {
-        $classes = SchoolClass::with(['faculty', 'department', 'semester'])
+        $classes = SchoolClass::with(['university', 'faculty', 'department', 'semester'])
             ->withCount(['courses', 'students'])
             ->orderBy('level')
             ->orderBy('name')
@@ -30,8 +29,11 @@ class ClassController extends Controller
 
     public function show(Request $request, SchoolClass $schoolClass): View
     {
-        $schoolClass->load(['faculty', 'department']);
-        $query = $schoolClass->students()->orderBy('last_name')->orderBy('first_name');
+        $schoolClass->load(['university', 'faculty', 'department']);
+        $query = $schoolClass->students()
+            ->with(['classReps' => fn ($q) => $q->where('class_id', $schoolClass->id)])
+            ->orderBy('last_name')
+            ->orderBy('first_name');
 
         $search = $request->get('search');
         if ($search) {
@@ -45,101 +47,86 @@ class ClassController extends Controller
         }
 
         $students = $query->paginate(24)->withQueryString();
+
         return view('admin.class-students', compact('schoolClass', 'students'));
     }
 
     public function importStudents(Request $request, SchoolClass $schoolClass): RedirectResponse
     {
         $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
+            'file' => 'required|file|mimes:xlsx,xls,csv,txt|max:10240',
         ]);
 
-        Excel::import(new ClassStudentsImport($schoolClass), $request->file('file'));
+        $import = new ClassStudentsImport($schoolClass);
+        Excel::import($import, $request->file('file'));
 
-        return redirect()->route('dashboard.classes.show', $schoolClass)->with('success', 'Students imported successfully.');
+        return redirect()->route('dashboard.classes.show', $schoolClass)->with('success',
+            "Import complete: {$import->created} added, {$import->updated} updated, {$import->skipped} skipped.");
     }
 
     public function create(): View
     {
+        $universities = University::orderBy('name')->get();
         $faculties = Faculty::with('departments')->orderBy('name')->get();
         $semesters = Semester::orderByDesc('year_label')->orderByDesc('term')->get();
 
-        return view('admin.class-form', ['schoolClass' => null, 'faculties' => $faculties, 'semesters' => $semesters]);
+        return view('admin.class-form', [
+            'schoolClass' => null,
+            'universities' => $universities,
+            'faculties' => $faculties,
+            'semesters' => $semesters,
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
+            'university_id' => 'required|exists:universities,id',
             'faculty_id' => 'required|exists:faculties,id',
             'department_id' => 'required|exists:departments,id',
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
             'semester_id' => 'required|exists:semesters,id',
-            'class_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
-        $dept = Department::find($validated['department_id']);
-        if ($dept && $dept->faculty_id != $validated['faculty_id']) {
-            return back()->withInput()->with('error', 'Department must belong to selected faculty');
+        if ($redirect = $this->ensureHierarchy($validated)) {
+            return $redirect;
         }
-        $class = SchoolClass::create(collect($validated)->except('class_logo')->all());
-        $logoColumnExists = Schema::hasColumn('classes', 'logo_path');
-        if ($request->hasFile('class_logo') && $logoColumnExists) {
-            $class->logo_path = $request->file('class_logo')->store('class-logos', 'public');
-            $class->save();
-        }
-        $redirect = redirect()->route('dashboard.classes.index')->with('success', 'Class created');
-        if ($request->hasFile('class_logo') && ! $logoColumnExists) {
-            $redirect->with('error', 'Class created, but logo was skipped because database is not updated yet. Run migrations.');
-        }
+        SchoolClass::create($validated);
 
-        return $redirect;
+        return redirect()->route('dashboard.classes.index')->with('success', 'Class created.');
     }
 
     public function edit(SchoolClass $schoolClass): View
     {
+        $universities = University::orderBy('name')->get();
         $faculties = Faculty::with('departments')->orderBy('name')->get();
         $semesters = Semester::orderByDesc('year_label')->orderByDesc('term')->get();
+        $schoolClass->load(['university', 'faculty', 'department']);
 
-        return view('admin.class-form', ['schoolClass' => $schoolClass, 'faculties' => $faculties, 'semesters' => $semesters]);
+        return view('admin.class-form', [
+            'schoolClass' => $schoolClass,
+            'universities' => $universities,
+            'faculties' => $faculties,
+            'semesters' => $semesters,
+        ]);
     }
 
     public function update(Request $request, SchoolClass $schoolClass): RedirectResponse
     {
         $validated = $request->validate([
+            'university_id' => 'required|exists:universities,id',
             'faculty_id' => 'required|exists:faculties,id',
             'department_id' => 'required|exists:departments,id',
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
             'semester_id' => 'required|exists:semesters,id',
-            'class_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
-            'remove_class_logo' => 'nullable|boolean',
         ]);
-        $dept = Department::find($validated['department_id']);
-        if ($dept && $dept->faculty_id != $validated['faculty_id']) {
-            return back()->withInput()->with('error', 'Department must belong to selected faculty');
+        if ($redirect = $this->ensureHierarchy($validated)) {
+            return $redirect;
         }
-        $schoolClass->update(collect($validated)->except(['class_logo', 'remove_class_logo'])->all());
-        $logoColumnExists = Schema::hasColumn('classes', 'logo_path');
-        if ($logoColumnExists && $request->boolean('remove_class_logo') && $schoolClass->logo_path) {
-            Storage::disk('public')->delete($schoolClass->logo_path);
-            $schoolClass->logo_path = null;
-        }
-        if ($logoColumnExists && $request->hasFile('class_logo')) {
-            if ($schoolClass->logo_path) {
-                Storage::disk('public')->delete($schoolClass->logo_path);
-            }
-            $schoolClass->logo_path = $request->file('class_logo')->store('class-logos', 'public');
-        }
-        if ($logoColumnExists) {
-            $schoolClass->save();
-        }
+        $schoolClass->update($validated);
 
-        $redirect = redirect()->route('dashboard.classes.index')->with('success', 'Class updated');
-        if (($request->hasFile('class_logo') || $request->boolean('remove_class_logo')) && ! $logoColumnExists) {
-            $redirect->with('error', 'Class updated, but logo changes were skipped because database is not updated yet. Run migrations.');
-        }
-
-        return $redirect;
+        return redirect()->route('dashboard.classes.index')->with('success', 'Class updated.');
     }
 
     public function destroy(SchoolClass $schoolClass): RedirectResponse
@@ -151,6 +138,25 @@ class ClassController extends Controller
             return back()->with('error', 'Cannot delete class with students. Reassign students first.');
         }
         $schoolClass->delete();
+
         return back()->with('success', 'Class deleted');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function ensureHierarchy(array $validated): ?RedirectResponse
+    {
+        $dept = Department::find($validated['department_id']);
+        if ($dept && (int) $dept->faculty_id !== (int) $validated['faculty_id']) {
+            return back()->withInput()->with('error', 'Department must belong to the selected faculty.');
+        }
+
+        $faculty = Faculty::find($validated['faculty_id']);
+        if ($faculty && $faculty->university_id && (int) $faculty->university_id !== (int) $validated['university_id']) {
+            return back()->withInput()->with('error', 'Faculty must belong to the selected school.');
+        }
+
+        return null;
     }
 }

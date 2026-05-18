@@ -2,40 +2,93 @@
 
 namespace App\Imports;
 
+use App\Models\SchoolClass;
 use App\Models\Student;
-use Maatwebsite\Excel\Concerns\ToModel;
+use App\Support\StudentRosterRowParser;
+use Illuminate\Support\Collection;
+use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
-class StudentsImport implements ToModel, WithHeadingRow
+class StudentsImport implements ToCollection, WithHeadingRow
 {
-    public function model(array $row): ?Student
+    public int $created = 0;
+
+    public int $updated = 0;
+
+    public int $skipped = 0;
+
+    public function collection(Collection $rows): void
     {
-        $index = strtoupper(trim((string) ($row['index_number'] ?? $row['indexnumber'] ?? $row['index'] ?? '')));
-        if (empty($index)) {
+        foreach ($rows as $row) {
+            if (! $row instanceof Collection) {
+                continue;
+            }
+            $array = $row->toArray();
+            $parsed = StudentRosterRowParser::parse($array);
+            if ($parsed === null) {
+                $this->skipped++;
+
+                continue;
+            }
+
+            $classId = $this->resolveClassId($array);
+            $departmentId = null;
+            if ($classId) {
+                $class = SchoolClass::query()->find($classId);
+                $departmentId = $class?->department_id;
+            }
+
+            $existing = Student::query()->where('index_number', $parsed['index'])->first();
+            $payload = [
+                'first_name' => $parsed['first_name'],
+                'middle_name' => $parsed['middle_name'],
+                'last_name' => $parsed['last_name'],
+            ];
+            if ($classId) {
+                $payload['class_id'] = $classId;
+            }
+            if ($departmentId) {
+                $payload['department_id'] = $departmentId;
+            }
+
+            if ($existing) {
+                $existing->update($payload);
+                $this->updated++;
+            } else {
+                if (! $classId) {
+                    $this->skipped++;
+
+                    continue;
+                }
+                Student::create(array_merge($payload, [
+                    'index_number' => $parsed['index'],
+                    'password' => null,
+                ]));
+                $this->created++;
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function resolveClassId(array $row): ?int
+    {
+        if (isset($row['class_id']) && is_numeric($row['class_id']) && (int) $row['class_id'] > 0) {
+            return (int) $row['class_id'];
+        }
+
+        $label = trim((string) ($row['class'] ?? $row['class_name'] ?? $row['cohort'] ?? ''));
+        if ($label === '') {
             return null;
         }
 
-        $firstName = trim((string) ($row['first_name'] ?? $row['firstname'] ?? $row['first'] ?? '')) ?: null;
-        $middleName = trim((string) ($row['middle_name'] ?? $row['middlename'] ?? $row['middle'] ?? '')) ?: null;
-        $lastName = trim((string) ($row['last_name'] ?? $row['lastname'] ?? $row['last'] ?? '')) ?: null;
+        $class = SchoolClass::query()
+            ->where('name', $label)
+            ->orWhere('name', 'like', $label)
+            ->orWhere('code', $label)
+            ->first();
 
-        $classId = null;
-        if (isset($row['class_id']) && is_numeric($row['class_id']) && (int) $row['class_id'] > 0) {
-            $classId = (int) $row['class_id'];
-        } elseif (!empty($row['class'] ?? $row['class_name'] ?? null)) {
-            $classMatch = \App\Models\SchoolClass::where('name', 'like', '%' . trim($row['class'] ?? $row['class_name']) . '%')->first();
-            $classId = $classMatch?->id;
-        }
-
-        $data = [
-            'first_name' => $firstName ?: null,
-            'middle_name' => $middleName ?: null,
-            'last_name' => $lastName ?: null,
-        ];
-        if ($classId) {
-            $data['class_id'] = $classId;
-        }
-
-        return Student::updateOrCreate(['index_number' => $index], $data);
+        return $class?->id;
     }
 }

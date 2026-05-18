@@ -31,10 +31,31 @@
     </td>
     @if($showRepColumn)
     <td class="{{ $tc }} align-top">
-        @if($student->isClassRep())
+        @php
+            $contextClassId = $contextClassId ?? null;
+            $classRep = $contextClassId
+                ? $student->classReps->firstWhere('class_id', $contextClassId)
+                : ($student->isClassRep() ? $student->classReps->first() : null);
+        @endphp
+        @if($classRep)
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">{{ $classRep->role === 'assist' ? 'Asst. rep' : 'Rep' }}</span>
+            @if($contextClassId)
+            <form method="POST" action="{{ route('dashboard.students.remove-rep', $student) }}" class="inline ml-1" onsubmit="return confirm('Remove rep role?');">
+                @csrf
+                <input type="hidden" name="class_id" value="{{ $contextClassId }}">
+                <button type="submit" class="text-[10px] text-red-600 hover:underline">Remove</button>
+            </form>
+            @endif
+        @elseif($contextClassId)
+            <form method="POST" action="{{ route('dashboard.students.assign-rep', $student) }}" class="inline-flex flex-wrap gap-1 items-center">
+                @csrf
+                <input type="hidden" name="class_id" value="{{ $contextClassId }}">
+                <input type="hidden" name="role" value="rep">
+                <button type="submit" class="text-[10px] font-medium text-primary hover:underline">Make rep</button>
+            </form>
+        @elseif($student->isClassRep())
             <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">Class rep</span>
-        @endif
-        @if(!$student->isClassRep())
+        @else
             <span class="text-gray-400 {{ $compact ? 'text-xs' : 'text-sm' }}">—</span>
         @endif
     </td>

@@ -3,7 +3,6 @@ import '../utils/connectivity_util.dart';
 import '../utils/login_response_parser.dart';
 import 'api_service.dart';
 import 'offline_service.dart';
-import 'profile_image_cache.dart';
 
 /// Refreshes the signed-in student from `POST /api/me` (same as login payload).
 /// Preserves local [Student.faceDescriptor] when the API omits it.
@@ -18,11 +17,8 @@ Future<Student?> refreshStudentProfileFromApi(Student current) async {
     final fresh = Student.fromJson(map);
     final merged = fresh.copyWith(
       faceDescriptor: fresh.faceDescriptor ?? current.faceDescriptor,
+      profileImage: '',
     );
-    final oldPic = current.profileImage.trim();
-    if (merged.profileImage.trim() != oldPic) {
-      await ProfileImageCache.instance.invalidate(current.indexNumber);
-    }
     await OfflineService.setCurrentStudent(merged);
     final tokenStr = parseLoginResponseToken(body['token']);
     if (tokenStr != null && tokenStr.isNotEmpty) {

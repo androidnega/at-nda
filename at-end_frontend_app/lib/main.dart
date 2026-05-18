@@ -20,7 +20,6 @@ import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/timetable_page.dart';
 import 'services/attendance_local_notify.dart';
-import 'services/communication_log_sync.dart';
 import 'services/institution_theme_service.dart';
 import 'services/notification_bridge.dart';
 import 'services/notification_prefs.dart';
@@ -75,7 +74,6 @@ class _AppLifecycleShellState extends State<_AppLifecycleShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       NotificationBridge.onAppForegrounded();
-      unawaited(CommunicationLogSyncService.maybeSync());
     }
   }
 

@@ -43,8 +43,14 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
-    final p = await ProfileImageCache.instance.resolve(widget.student);
+    setState(() {
+      _loading = true;
+      _networkLoading = true;
+    });
+    ImageProvider? p;
+    try {
+      p = await ProfileImageCache.instance.resolve(widget.student);
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _provider = p;
@@ -113,7 +119,14 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
                 }
                 return const SizedBox.shrink();
               },
-              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              errorBuilder: (_, __, ___) {
+                if (_networkLoading) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _networkLoading = false);
+                  });
+                }
+                return const SizedBox.shrink();
+              },
             ),
             if (_networkLoading)
               SizedBox(

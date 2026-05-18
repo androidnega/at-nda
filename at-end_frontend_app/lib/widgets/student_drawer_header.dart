@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/student.dart';
-import 'profile_avatar.dart';
 
-/// Drawer header: avatar, then class + level, then name, then index (under the image).
+/// Drawer header: class + name + index only (no profile photo on app).
 class StudentDrawerHeader extends StatelessWidget {
   const StudentDrawerHeader({
     super.key,
@@ -26,6 +25,9 @@ class StudentDrawerHeader extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final classLine = student.classGroupWithLevelLabel;
     final displayName = student.greetingLastName;
+    final initials = displayName.trim().isNotEmpty
+        ? displayName.trim().split(RegExp(r'\s+')).take(2).map((p) => p[0]).join().toUpperCase()
+        : 'S';
 
     final classStyle = GoogleFonts.inter(
       fontSize: isLight ? 13 : 12.5,
@@ -56,20 +58,39 @@ class StudentDrawerHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ProfileAvatar(
-              key: ValueKey<String>(
-                '${student.indexNumber}_${student.profileImage.hashCode}_${student.serverId}',
-              ),
-              student: student,
-              radius: 28,
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isLight ? Colors.white.withValues(alpha: 0.75) : cs.primary.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    initials,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: isLight ? _lightName : cs.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    displayName,
+                    style: nameStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            SizedBox(
-              height: (classLine != null && classLine.isNotEmpty) ? 12 : 10,
-            ),
+            const SizedBox(height: 10),
             if (classLine != null && classLine.isNotEmpty)
               Text(classLine, style: classStyle),
-            const SizedBox(height: 10),
-            Text(displayName, style: nameStyle),
             const SizedBox(height: 6),
             Text(student.indexNumber, style: indexStyle),
           ],

@@ -5,7 +5,7 @@
 @section('content')
 <div class="mb-6">
     <h1 class="text-2xl font-bold">{{ $schoolClass ? 'Edit' : 'Add' }} Class</h1>
-    <p class="text-gray-600 text-sm mt-1">{{ $schoolClass ? 'Update class details, semester, or level (e.g. promote 100 → 200).' : 'Onboard a new class (faculty, department, name, level, semester).' }}</p>
+    <p class="text-gray-600 text-sm mt-1">{{ $schoolClass ? 'Update class details under school → faculty → department.' : 'Onboard a class under school → faculty → department (name, level, semester).' }}</p>
 </div>
 
 @if (session('error'))
@@ -19,17 +19,26 @@
     </div>
 @endif
 
-<form method="POST" action="{{ $schoolClass ? route('dashboard.classes.update', $schoolClass) : route('dashboard.classes.store') }}" enctype="multipart/form-data" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+<form method="POST" action="{{ $schoolClass ? route('dashboard.classes.update', $schoolClass) : route('dashboard.classes.store') }}" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     @csrf
     @if($schoolClass) @method('PUT') @endif
 
     <div class="p-6 space-y-5">
         <div>
+            <label for="university_id" class="block text-sm font-medium text-gray-700 mb-2">School</label>
+            <select name="university_id" id="university_id" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                <option value="">Select school...</option>
+                @foreach($universities as $u)
+                <option value="{{ $u->id }}" {{ (string) old('university_id', $schoolClass?->university_id ?? $schoolClass?->faculty?->university_id) === (string) $u->id ? 'selected' : '' }}>{{ $u->name }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
             <label for="faculty_id" class="block text-sm font-medium text-gray-700 mb-2">Faculty</label>
             <select name="faculty_id" id="faculty_id" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
                 <option value="">Select faculty...</option>
                 @foreach($faculties as $f)
-                <option value="{{ $f->id }}" {{ old('faculty_id', $schoolClass?->faculty_id) == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
+                <option value="{{ $f->id }}" data-university="{{ $f->university_id }}" {{ old('faculty_id', $schoolClass?->faculty_id) == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
                 @endforeach
             </select>
         </div>
@@ -77,30 +86,7 @@
             @endif
             @error('semester_id')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
         </div>
-        <div>
-            <label for="class_logo" class="block text-sm font-medium text-gray-700 mb-2">Class Logo (PDF)</label>
-            <input type="file" id="class_logo" name="class_logo" accept="image/png,image/jpeg,image/webp"
-                class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-            <p class="text-xs text-gray-500 mt-1.5">Optional. Used on attendance sheet PDFs for this class.</p>
-            <div id="class-logo-preview-wrap" class="mt-3 {{ $schoolClass?->logo_path ? '' : 'hidden' }}">
-                <p class="text-xs font-medium text-slate-600 mb-1">Preview</p>
-                <img
-                    id="class-logo-preview"
-                    src="{{ $schoolClass?->logo_path ? $schoolClass->logoUrl() : '' }}"
-                    alt="Class logo preview"
-                    class="h-20 w-20 rounded-lg border border-gray-200 object-cover bg-white"
-                >
-            </div>
-            @if($schoolClass?->logo_path)
-                <div class="mt-3 flex items-center gap-3">
-                    <label class="inline-flex items-center gap-2 text-xs text-red-700">
-                        <input type="checkbox" name="remove_class_logo" value="1">
-                        Remove current logo
-                    </label>
-                </div>
-            @endif
-            @error('class_logo')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
-        </div>
+        <p class="text-xs text-gray-500">Attendance PDFs use the <strong>school logo</strong> from <a href="{{ route('dashboard.universities.index') }}" class="text-primary underline">Schools</a>.</p>
     </div>
 
     <div class="px-6 py-4 bg-gray-50 flex flex-wrap items-center gap-3">
@@ -114,35 +100,32 @@
 
 <script>
 (function() {
+    var school = document.getElementById('university_id');
     var faculty = document.getElementById('faculty_id');
     var dept = document.getElementById('department_id');
-    var opts = dept.querySelectorAll('option[data-faculty]');
-    function filter() {
+    var facultyOpts = faculty.querySelectorAll('option[value]');
+    var deptOpts = dept.querySelectorAll('option[data-faculty]');
+    function filterFaculty() {
+        var u = school.value;
+        facultyOpts.forEach(function(o) {
+            if (!o.value) return;
+            var show = !u || o.dataset.university == u;
+            o.hidden = !show;
+            o.disabled = !show;
+        });
+        filterDept();
+    }
+    function filterDept() {
         var v = faculty.value;
-        opts.forEach(function(o) {
+        deptOpts.forEach(function(o) {
             o.style.display = (o.dataset.faculty == v || o.value == '') ? '' : 'none';
             o.disabled = (o.value && o.dataset.faculty != v);
         });
-        if (!dept.querySelector('option:not([disabled]):not([value=""])[selected]')) dept.value = '';
+        if (!dept.querySelector('option:not([disabled]):not([value=""]):checked')) dept.value = '';
     }
-    faculty.addEventListener('change', filter);
-    filter();
-})();
-
-(function () {
-    var input = document.getElementById('class_logo');
-    var wrap = document.getElementById('class-logo-preview-wrap');
-    var preview = document.getElementById('class-logo-preview');
-    if (!input || !wrap || !preview) return;
-
-    input.addEventListener('change', function () {
-        var file = input.files && input.files[0] ? input.files[0] : null;
-        if (!file) return;
-        if (!file.type || file.type.indexOf('image/') !== 0) return;
-        var url = URL.createObjectURL(file);
-        preview.src = url;
-        wrap.classList.remove('hidden');
-    });
+    school.addEventListener('change', filterFaculty);
+    faculty.addEventListener('change', filterDept);
+    filterFaculty();
 })();
 </script>
 @endsection

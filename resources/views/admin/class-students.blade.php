@@ -30,7 +30,7 @@
 @endif
 
 <div class="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 mb-6">
-    <p class="text-sm text-gray-600">Excel format: <strong>index_number</strong>, <strong>first_name</strong>, <strong>middle_name</strong> (optional), <strong>last_name</strong>. First row = headers.</p>
+    <p class="text-sm text-gray-600">Upload CSV or Excel. Headers are flexible — e.g. <strong>index_number</strong> (or Index, Student ID), <strong>first_name</strong>, <strong>last_name</strong>, or a single <strong>name</strong> / <strong>full_name</strong> column. Empty rows are skipped. Students are linked to <strong>{{ $schoolClass->name }}</strong> and its department.</p>
 </div>
 
 @if(!$students->isEmpty())
@@ -76,7 +76,8 @@
                     @include('partials.student-table-row', [
                         'student' => $student,
                         'serial' => $students->firstItem() + $loop->index,
-                        'detailUrl' => route('dashboard.students.show', $student),
+                        'detailUrl' => route('dashboard.students.show', ['student' => $student, 'from_class' => $schoolClass->id]),
+                        'contextClassId' => $schoolClass->id,
                     ])
                     @endforeach
                 </tbody>

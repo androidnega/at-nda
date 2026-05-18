@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
-import '../services/communication_log_sync.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/notification_bridge.dart';
@@ -131,7 +130,6 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
 
     try {
       await ApiService.loadAppSettings(forceRemote: true);
-      unawaited(CommunicationLogSyncService.maybeSync());
     } catch (_) {}
 
     setState(() {

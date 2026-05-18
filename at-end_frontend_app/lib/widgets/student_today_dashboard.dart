@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../models/student.dart';
 import '../theme/student_soft_ui.dart';
-import '../widgets/profile_avatar.dart';
 
 /// Soft student home — colors follow [ColorScheme] (institution seed).
 abstract final class StudentDashboardPalette {
@@ -253,7 +252,24 @@ class StudentTodayDashboard extends StatelessWidget {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: 4, right: 4),
-                      child: ProfileAvatar(student: student, radius: 22),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: onHeader.withValues(alpha: 0.14),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          student.greetingLastName.isNotEmpty
+                              ? student.greetingLastName[0].toUpperCase()
+                              : 'S',
+                          style: tt.titleMedium?.copyWith(
+                            color: onHeader,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),

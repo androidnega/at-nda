@@ -194,8 +194,9 @@ class _RepSessionPageState extends State<RepSessionPage> {
     if (!mounted) return;
 
     try {
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
     } catch (_) {}
+    if (!mounted) return;
     String mode = 'qr';
     final isCheckInCheckout =
         ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
@@ -642,6 +643,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
       );
       final data = jsonDecode(res.body);
       String msg;
+      final closedOk = (data is Map && data['success'] == true) ||
+          ApiService.isSuccessfulHttp(res.statusCode);
       if (data is Map && data['success'] == true) {
         msg = data['message']?.toString() ?? 'Session closed.';
       } else if (data is Map && data['message'] != null) {
@@ -652,6 +655,22 @@ class _RepSessionPageState extends State<RepSessionPage> {
             : 'Could not close (${res.statusCode})';
       }
       if (mounted) {
+        if (closedOk) {
+          final updated = _courses
+              .map((c) => c.activeSessionId == id ? _withoutActiveSession(c) : c)
+              .toList();
+          setState(() {
+            _courses = updated;
+            if (_classActiveSession != null) {
+              final curId = int.tryParse('${_classActiveSession!['id']}');
+              if (curId == id) {
+                _classActiveSession = null;
+                _statsTotalStudents = 0;
+                _statsPresent = 0;
+              }
+            }
+          });
+        }
         NotificationBridge.showSnackBar(SnackBar(content: Text(msg)));
         _refresh();
       }
@@ -662,6 +681,19 @@ class _RepSessionPageState extends State<RepSessionPage> {
         );
       }
     }
+  }
+
+  RepCourse _withoutActiveSession(RepCourse c) {
+    return RepCourse(
+      courseId: c.courseId,
+      courseName: c.courseName,
+      courseCode: c.courseCode,
+      classId: c.classId,
+      repRole: c.repRole,
+      canOpenSession: c.canOpenSession,
+      hasSchedule: c.hasSchedule,
+      activeSession: null,
+    );
   }
 
   Future<void> _extendSession(RepCourse course) async {

@@ -32,6 +32,8 @@ class CourseController extends Controller
             'course_name' => 'required|string|max:255',
             'course_code' => 'nullable|string|max:50',
             'class_id' => 'required|exists:classes,id',
+            'class_ids' => 'nullable|array',
+            'class_ids.*' => 'integer|exists:classes,id',
             'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
@@ -55,7 +57,9 @@ class CourseController extends Controller
             }
         }
 
-        Course::create($validated);
+        $classIds = $this->mergeClassIds($validated);
+        $course = Course::create(collect($validated)->except('class_ids')->all());
+        $course->syncAssignedClasses($classIds);
 
         return redirect()->route('dashboard.courses.index')->with('success', 'Course created.');
     }
@@ -63,8 +67,9 @@ class CourseController extends Controller
     public function edit(Course $course): View
     {
         $classes = SchoolClass::orderBy('name')->get();
-        $lecturers = \App\Models\Lecturer::with('schoolClass')->orderBy('name')->get();
+        $lecturers = \App\Models\Lecturer::with('schoolClasses')->orderBy('name')->get();
         $venues = \App\Models\Venue::orderBy('name')->get();
+        $course->load('schoolClasses');
 
         return view('admin.course-form', compact('course', 'classes', 'lecturers', 'venues'));
     }
@@ -75,6 +80,8 @@ class CourseController extends Controller
             'course_name' => 'required|string|max:255',
             'course_code' => 'nullable|string|max:50',
             'class_id' => 'required|exists:classes,id',
+            'class_ids' => 'nullable|array',
+            'class_ids.*' => 'integer|exists:classes,id',
             'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
@@ -104,7 +111,9 @@ class CourseController extends Controller
             unset($validated['attendance_window_minutes']);
         }
 
-        $course->update($validated);
+        $classIds = $this->mergeClassIds($validated);
+        $course->update(collect($validated)->except('class_ids')->all());
+        $course->syncAssignedClasses($classIds);
 
         return redirect()->route('dashboard.courses.index')->with('success', 'Course updated.');
     }
@@ -130,5 +139,20 @@ class CourseController extends Controller
         }
 
         return trim((string) ($validated['lecturer_name'] ?? ''));
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return list<int>
+     */
+    private function mergeClassIds(array $validated): array
+    {
+        $ids = array_map('intval', $validated['class_ids'] ?? []);
+        $primary = (int) ($validated['class_id'] ?? 0);
+        if ($primary > 0) {
+            $ids[] = $primary;
+        }
+
+        return array_values(array_unique(array_filter($ids)));
     }
 }

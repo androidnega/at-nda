@@ -4,22 +4,40 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SchoolClass extends Model
 {
     protected $table = 'classes';
 
-    protected $fillable = ['name', 'code', 'faculty_id', 'department_id', 'level', 'semester_id', 'logo_path'];
+    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'semester_id', 'logo_path'];
 
     protected $casts = ['level' => 'integer'];
 
     /** Levels used in forms and progression (100 → 200 → …). */
     public const LEVELS = [100, 200, 300, 400];
 
+    public function university(): BelongsTo
+    {
+        return $this->belongsTo(University::class);
+    }
+
     public function faculty(): BelongsTo
     {
         return $this->belongsTo(Faculty::class);
+    }
+
+    public function lecturers(): BelongsToMany
+    {
+        return $this->belongsToMany(Lecturer::class, 'class_lecturer', 'class_id', 'lecturer_id')
+            ->withTimestamps();
+    }
+
+    public function sharedCourses(): BelongsToMany
+    {
+        return $this->belongsToMany(Course::class, 'course_class', 'class_id', 'course_id')
+            ->withTimestamps();
     }
 
     public function department(): BelongsTo
@@ -44,11 +62,28 @@ class SchoolClass extends Model
 
     public function logoUrl(): ?string
     {
+        $university = $this->resolveUniversity();
+        if ($university?->logo_path) {
+            return $university->logoUrl();
+        }
+
         if (! $this->logo_path) {
             return null;
         }
 
         return route('media.classes.logo', ['schoolClass' => $this->id]) . '?v=' . $this->updated_at?->timestamp;
+    }
+
+    public function resolveUniversity(): ?University
+    {
+        if ($this->relationLoaded('university') && $this->university) {
+            return $this->university;
+        }
+        if ($this->university_id) {
+            return $this->university ?? University::query()->find($this->university_id);
+        }
+
+        return $this->faculty?->university;
     }
 
     public function getDisplayNameAttribute(): string

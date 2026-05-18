@@ -298,7 +298,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
   Future<void> _load() async {
     try {
-      await ApiService.loadAppSettings();
+      await ApiService.loadAppSettings(forceRemote: true);
     } catch (_) {}
     if (await hasInternetConnectivity()) {
       await OfflineService.hasPasswordOrApiToken();

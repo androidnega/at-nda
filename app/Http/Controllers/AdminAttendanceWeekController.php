@@ -78,7 +78,7 @@ class AdminAttendanceWeekController extends Controller
             'confirm' => 'required|accepted',
         ]);
 
-        $ids = Course::where('class_id', $validated['class_id'])->pluck('id')->all();
+        $ids = Course::forClass((int) $validated['class_id'])->pluck('id')->all();
         $this->purgeWeekDataForCourseIds($ids, 'class');
 
         $class = SchoolClass::find($validated['class_id']);

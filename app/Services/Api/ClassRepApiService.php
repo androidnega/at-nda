@@ -307,7 +307,7 @@ class ClassRepApiService
 
         $course = Course::findOrFail($validated['course_id']);
         $classIds = $student->repManagedClassIds();
-        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+        if (! $course->overlapsClassIds($classIds)) {
             return response()->json(['message' => 'You can only open sessions for courses in your class.'], 403);
         }
         if (! $this->isMainRepForCourse($student, $course->id)) {
@@ -427,7 +427,7 @@ class ClassRepApiService
             return response()->json(['message' => 'Course not found'], 404);
         }
         $classIds = $student->repManagedClassIds();
-        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+        if (! $course->overlapsClassIds($classIds)) {
             return response()->json(['message' => 'You can only manage sessions for courses in your class.'], 403);
         }
         if (! $this->isMainRepForCourse($student, $session->course_id)) {
@@ -487,7 +487,7 @@ class ClassRepApiService
             return response()->json(['message' => 'Course not found'], 404);
         }
         $classIds = $student->repManagedClassIds();
-        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+        if (! $course->overlapsClassIds($classIds)) {
             return response()->json(['message' => 'You can only manage sessions for your class courses.'], 403);
         }
         if (! $this->isMainRepForCourse($student, (int) $session->course_id)) {

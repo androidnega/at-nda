@@ -24,11 +24,10 @@ class AttendancePdfController extends Controller
 
         $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
 
-        $studentsQuery = Student::query()->orderBy('last_name')->orderBy('first_name');
-        if ($course->class_id) {
-            $studentsQuery->where('class_id', $course->class_id);
-        }
-        $students = $studentsQuery->get();
+        $students = $course->studentsQuery()
+            ->orderBy('last_name')
+            ->orderBy('first_name')
+            ->get();
 
         $lecturerDisplay = trim((string) ($course->lecturer_name ?? ''));
         if ($lecturerDisplay === '' && $course->lecturer) {
@@ -56,7 +55,8 @@ class AttendancePdfController extends Controller
         $departmentName = (string) ($course->schoolClass?->department?->name ?? '—');
 
         $classLogoDataUri = null;
-        $logoPath = $course->schoolClass?->logo_path;
+        $university = $course->schoolClass?->resolveUniversity();
+        $logoPath = $university?->logo_path ?: $course->schoolClass?->logo_path;
         if ($logoPath && Storage::disk('public')->exists($logoPath)) {
             $abs = Storage::disk('public')->path($logoPath);
             $mime = Storage::disk('public')->mimeType($logoPath) ?: 'image/png';
@@ -123,7 +123,8 @@ class AttendancePdfController extends Controller
                 abort(403);
             }
             $classIds = $student->repManagedClassIds();
-            if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+            $allowed = collect($course->assignedClassIds())->intersect($classIds)->isNotEmpty();
+            if (! $allowed) {
                 abort(403, 'You can only export attendance for your class courses.');
             }
 

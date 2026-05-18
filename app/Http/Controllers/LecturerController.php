@@ -12,14 +12,14 @@ class LecturerController extends Controller
 {
     public function index(): View
     {
-        $lecturers = Lecturer::with('schoolClass')->latest()->paginate(15);
+        $lecturers = Lecturer::with(['schoolClasses', 'schoolClass'])->latest()->paginate(15);
 
         return view('admin.lecturers', compact('lecturers'));
     }
 
     public function create(): View
     {
-        $classes = SchoolClass::orderBy('name')->get();
+        $classes = SchoolClass::with(['faculty', 'department'])->orderBy('name')->get();
 
         return view('admin.lecturer-form', ['lecturer' => null, 'classes' => $classes]);
     }
@@ -28,20 +28,24 @@ class LecturerController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'class_id' => 'nullable|exists:classes,id',
+            'class_ids' => 'nullable|array',
+            'class_ids.*' => 'integer|exists:classes,id',
         ]);
 
-        Lecturer::create([
+        $classIds = array_values(array_unique(array_map('intval', $validated['class_ids'] ?? [])));
+        $lecturer = Lecturer::create([
             'name' => $validated['name'],
-            'class_id' => $validated['class_id'] ?? null,
+            'class_id' => $classIds[0] ?? null,
         ]);
+        $lecturer->syncAssignedClasses($classIds);
 
         return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer added.');
     }
 
     public function edit(Lecturer $lecturer): View
     {
-        $classes = SchoolClass::orderBy('name')->get();
+        $classes = SchoolClass::with(['faculty', 'department'])->orderBy('name')->get();
+        $lecturer->load('schoolClasses');
 
         return view('admin.lecturer-form', ['lecturer' => $lecturer, 'classes' => $classes]);
     }
@@ -50,9 +54,15 @@ class LecturerController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'class_id' => 'nullable|exists:classes,id',
+            'class_ids' => 'nullable|array',
+            'class_ids.*' => 'integer|exists:classes,id',
         ]);
-        $lecturer->update($validated);
+        $classIds = array_values(array_unique(array_map('intval', $validated['class_ids'] ?? [])));
+        $lecturer->update([
+            'name' => $validated['name'],
+            'class_id' => $classIds[0] ?? null,
+        ]);
+        $lecturer->syncAssignedClasses($classIds);
 
         return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer updated.');
     }
@@ -65,6 +75,7 @@ class LecturerController extends Controller
         }
 
         $lecturer->courses()->update(['lecturer_id' => null]);
+        $lecturer->schoolClasses()->detach();
         $lecturer->delete();
 
         return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer removed.');

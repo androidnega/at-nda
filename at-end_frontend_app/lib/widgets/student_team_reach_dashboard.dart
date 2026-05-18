@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/student.dart';
-import 'profile_avatar.dart';
 
 /// Fourth theme inspired by "Team Reach" clean blue cards.
 class StudentTeamReachDashboard extends StatelessWidget {
@@ -14,6 +13,7 @@ class StudentTeamReachDashboard extends StatelessWidget {
     required this.heroSubtitle,
     required this.showMarkButton,
     required this.onMarkAttendance,
+    this.primaryActionLabel = 'Mark attendance',
     required this.lastCheckInLine,
     required this.dayProgress,
     required this.onOpenDrawer,
@@ -43,6 +43,7 @@ class StudentTeamReachDashboard extends StatelessWidget {
   final String heroSubtitle;
   final bool showMarkButton;
   final VoidCallback onMarkAttendance;
+  final String primaryActionLabel;
   final String lastCheckInLine;
   final double dayProgress;
   final VoidCallback onOpenDrawer;
@@ -108,7 +109,24 @@ class StudentTeamReachDashboard extends StatelessWidget {
                     onPressed: onBell,
                     icon: const Icon(Icons.notifications_none_rounded),
                   ),
-                  ProfileAvatar(student: student, radius: 20),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: headline.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      student.greetingLastName.isNotEmpty
+                          ? student.greetingLastName[0].toUpperCase()
+                          : 'S',
+                      style: tt.titleSmall?.copyWith(
+                        color: headline,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -166,7 +184,7 @@ class StudentTeamReachDashboard extends StatelessWidget {
                           foregroundColor: blueDark,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
-                        label: Text(showMarkButton ? 'Mark attendance' : 'Open class timetable'),
+                        label: Text(showMarkButton ? primaryActionLabel : 'Open class timetable'),
                       ),
                     ),
                   ],

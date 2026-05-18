@@ -17,22 +17,13 @@ class AttendanceSoftLocationBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFE8E0F5),
-            Color(0xFFFFEDE5),
-            Color(0xFFF9F5F2),
-          ],
-          stops: [0.0, 0.42, 1.0],
-        ),
+    return ColoredBox(
+      color: Colors.white,
+      child: SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: child,
       ),
-      child: child,
     );
   }
 }
@@ -204,34 +195,96 @@ class _BreathingMapMarkerState extends State<BreathingMapMarker>
 class _FakeMapPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final base = Paint()..color = const Color(0xFFE4E4E4);
+    final base = Paint()..color = const Color(0xFFE5E8EC);
     canvas.drawRect(Offset.zero & size, base);
 
-    final rnd = math.Random(42);
-    for (var i = 0; i < 10; i++) {
-      final ox = rnd.nextDouble() * size.width;
-      final oy = rnd.nextDouble() * size.height;
-      final r = 18.0 + rnd.nextDouble() * 40;
-      final colors = [
-        const Color(0xFFB8D4B8),
-        const Color(0xFFC8D0E0),
-        const Color(0xFFE8DFD0),
-      ];
-      canvas.drawCircle(
-        Offset(ox, oy),
-        r,
-        Paint()..color = colors[i % colors.length].withValues(alpha: 0.55),
+    final rnd = math.Random(21);
+    // Land blocks.
+    final block = Paint()..color = const Color(0xFFD4DADF);
+    for (var i = 0; i < 14; i++) {
+      final w = 26.0 + rnd.nextDouble() * 70;
+      final h = 18.0 + rnd.nextDouble() * 46;
+      final x = rnd.nextDouble() * (size.width - w);
+      final y = rnd.nextDouble() * (size.height - h);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, w, h),
+          const Radius.circular(7),
+        ),
+        block,
       );
     }
 
-    final grid = Paint()
-      ..color = Colors.white.withValues(alpha: 0.4)
-      ..strokeWidth = 0.7;
-    for (var x = 0.0; x < size.width; x += 22) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    // Parks / greener patches.
+    final park = Paint()..color = const Color(0xFFC6DBCA);
+    for (var i = 0; i < 5; i++) {
+      final w = 40.0 + rnd.nextDouble() * 55;
+      final h = 20.0 + rnd.nextDouble() * 34;
+      final x = rnd.nextDouble() * (size.width - w);
+      final y = rnd.nextDouble() * (size.height - h);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, w, h),
+          const Radius.circular(10),
+        ),
+        park,
+      );
     }
-    for (var y = 0.0; y < size.height; y += 22) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+
+    // Road network.
+    final road = Paint()
+      ..color = const Color(0xFFF7F9FB)
+      ..strokeWidth = 11
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final roadEdge = Paint()
+      ..color = const Color(0xFFD0D7DE)
+      ..strokeWidth = 12.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final roads = <List<Offset>>[
+      [
+        Offset(size.width * 0.02, size.height * 0.2),
+        Offset(size.width * 0.25, size.height * 0.25),
+        Offset(size.width * 0.55, size.height * 0.18),
+        Offset(size.width * 0.98, size.height * 0.28),
+      ],
+      [
+        Offset(size.width * 0.05, size.height * 0.7),
+        Offset(size.width * 0.35, size.height * 0.62),
+        Offset(size.width * 0.68, size.height * 0.74),
+        Offset(size.width * 0.95, size.height * 0.66),
+      ],
+      [
+        Offset(size.width * 0.2, size.height * 0.05),
+        Offset(size.width * 0.32, size.height * 0.34),
+        Offset(size.width * 0.28, size.height * 0.58),
+        Offset(size.width * 0.36, size.height * 0.95),
+      ],
+    ];
+    for (final pts in roads) {
+      final p = Path()..moveTo(pts.first.dx, pts.first.dy);
+      for (var i = 1; i < pts.length; i++) {
+        p.lineTo(pts[i].dx, pts[i].dy);
+      }
+      canvas.drawPath(p, roadEdge);
+      canvas.drawPath(p, road);
+    }
+
+    // Minor streets.
+    final minor = Paint()
+      ..color = Colors.white.withValues(alpha: 0.88)
+      ..strokeWidth = 5.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 7; i++) {
+      final y = 12 + i * (size.height - 24) / 7;
+      canvas.drawLine(
+        Offset(4, y + rnd.nextDouble() * 6 - 3),
+        Offset(size.width - 4, y + rnd.nextDouble() * 6 - 3),
+        minor,
+      );
     }
   }
 
@@ -380,6 +433,7 @@ class SoftLocationCheckInCard extends StatelessWidget {
     this.onHistory,
     this.onRefreshLocation,
     this.onScheduleInfo,
+    this.showQuickActions = true,
   });
 
   final String dateLabel;
@@ -399,6 +453,7 @@ class SoftLocationCheckInCard extends StatelessWidget {
   final VoidCallback? onHistory;
   final VoidCallback? onRefreshLocation;
   final VoidCallback? onScheduleInfo;
+  final bool showQuickActions;
 
   @override
   Widget build(BuildContext context) {
@@ -406,9 +461,9 @@ class SoftLocationCheckInCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
-        color: AttendanceSoftPalette.cream,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
@@ -421,26 +476,8 @@ class SoftLocationCheckInCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            dateLabel,
-            style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF1A1A1A),
-            ),
-          ),
-          if (courseLine != null && courseLine!.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              courseLine!,
-              style: tt.bodySmall?.copyWith(
-                color: const Color(0xFF757575),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-          const SizedBox(height: 18),
           SessionCountdownBoxes(remainingText: countdownRemainingText),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -463,15 +500,16 @@ class SoftLocationCheckInCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           const SoftAttendanceMapPreview(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           statusWidget,
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           if (onCheckOut == null)
             Center(
               child: _actionCircle(
                 color: AttendanceSoftPalette.green,
+                icon: Icons.touch_app_rounded,
                 enabled: checkInEnabled,
                 busy: checkInBusy,
                 label: checkInLabel,
@@ -484,14 +522,16 @@ class SoftLocationCheckInCard extends StatelessWidget {
               children: [
                 _actionCircle(
                   color: AttendanceSoftPalette.green,
+                  icon: Icons.touch_app_rounded,
                   enabled: checkInEnabled,
                   busy: checkInBusy,
                   label: checkInLabel,
                   onTap: onCheckIn,
                 ),
-                const SizedBox(width: 24),
+                const SizedBox(width: 16),
                 _actionCircle(
                   color: const Color(0xFFEF5350),
+                  icon: Icons.logout_rounded,
                   enabled: checkOutEnabled,
                   busy: checkOutBusy,
                   label: checkOutLabel,
@@ -499,24 +539,26 @@ class SoftLocationCheckInCard extends StatelessWidget {
                 ),
               ],
             ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _quickIcon(
-                icon: Icons.schedule_outlined,
-                onTap: onScheduleInfo,
-              ),
-              _quickIcon(
-                icon: Icons.my_location_outlined,
-                onTap: onRefreshLocation,
-              ),
-              _quickIcon(
-                icon: Icons.history_rounded,
-                onTap: onHistory,
-              ),
-            ],
-          ),
+          if (showQuickActions) ...[
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _quickIcon(
+                  icon: Icons.schedule_outlined,
+                  onTap: onScheduleInfo,
+                ),
+                _quickIcon(
+                  icon: Icons.my_location_outlined,
+                  onTap: onRefreshLocation,
+                ),
+                _quickIcon(
+                  icon: Icons.history_rounded,
+                  onTap: onHistory,
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -524,50 +566,102 @@ class SoftLocationCheckInCard extends StatelessWidget {
 
   Widget _actionCircle({
     required Color color,
+    required IconData icon,
     required bool enabled,
     required bool busy,
     required String label,
     required VoidCallback? onTap,
   }) {
+    final inactive = !enabled && !busy;
+    final activeTop = Color.alphaBlend(const Color(0x10000000), color);
+    final activeBottom = Color.alphaBlend(const Color(0x22000000), color);
+    final inactiveFill = color.withValues(alpha: 0.48);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled && !busy ? onTap : null,
         customBorder: const CircleBorder(),
         child: Ink(
-          width: 116,
-          height: 116,
+          width: 96,
+          height: 96,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: enabled ? color : color.withValues(alpha: 0.35),
-            border: Border.all(color: Colors.white, width: 5),
+            color: color.withValues(alpha: inactive ? 0.06 : 0.08),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.13),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
+                color: Colors.black.withValues(alpha: inactive ? 0.04 : 0.10),
+                blurRadius: 8,
+                spreadRadius: 0,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: busy
-              ? const Padding(
-                  padding: EdgeInsets.all(30),
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(5),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: (enabled || busy)
+                    ? LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [activeTop, activeBottom],
+                      )
+                    : LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [inactiveFill, inactiveFill],
+                      ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
                   ),
-                )
-              : Center(
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                ],
+              ),
+              child: busy
+                  ? const Padding(
+                      padding: EdgeInsets.all(22),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                icon,
+                                size: 20,
+                                color: Colors.white.withValues(alpha: enabled ? 1 : 0.92),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                label,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: enabled ? 1 : 0.94),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+            ),
+          ),
         ),
       ),
     );

@@ -1,14 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/offline_service.dart';
 import '../theme/student_soft_ui.dart';
 import '../widgets/modern_pull_to_refresh.dart';
-import '../widgets/profile_avatar.dart';
 
 /// Class rep: student profile + class-scoped attendance (from `POST /api/class-rep/student-detail`).
 class ClassRepStudentDetailPage extends StatefulWidget {
@@ -120,20 +118,12 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
     final s = _student;
     final idx = (s?['index_number'] ?? p['index_number'])?.toString() ?? '';
     final name = (s?['name'] ?? p['name'])?.toString() ?? 'Student';
-    final serverPic = s?['profile_image']?.toString().trim();
-    final previewPic = p['profile_image']?.toString().trim();
-    final previewProfilePicture = p['profile_picture']?.toString().trim();
-    final pic = (serverPic != null && serverPic.isNotEmpty)
-        ? serverPic
-        : ((previewPic != null && previewPic.isNotEmpty)
-              ? previewPic
-              : previewProfilePicture);
     final id = int.tryParse('${s?['id'] ?? p['id']}');
     return Student(
       serverId: id,
       indexNumber: idx.isNotEmpty ? idx : '—',
       name: name,
-      profileImage: (pic != null && pic.isNotEmpty) ? pic : '',
+      profileImage: '',
     );
   }
 
@@ -149,45 +139,6 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
     } catch (_) {
       return iso;
     }
-  }
-
-  String? _normalizedPhoneDigits(String? raw) {
-    if (raw == null) return null;
-    final cleaned = raw.replaceAll(RegExp(r'[^0-9+]'), '');
-    if (cleaned.isEmpty) return null;
-    final digits = cleaned.startsWith('+') ? cleaned.substring(1) : cleaned;
-    if (digits.length < 7) return null;
-    return digits;
-  }
-
-  Future<void> _openWhatsappForPhone(String? rawPhone) async {
-    final phone = _normalizedPhoneDigits(rawPhone);
-    if (phone == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No valid phone number available for WhatsApp.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    final msg = Uri.encodeComponent('Hello, this is your class rep.');
-    final appUri = Uri.parse('whatsapp://send?phone=$phone&text=$msg');
-    final webUri = Uri.parse('https://wa.me/$phone?text=$msg');
-
-    final openedApp = await launchUrl(appUri);
-    if (openedApp) return;
-    final openedWeb = await launchUrl(webUri, mode: LaunchMode.externalApplication);
-    if (openedWeb || !mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Could not open WhatsApp on this device.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   @override
@@ -302,7 +253,28 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
                                 ),
                                 child: Column(
                                   children: [
-                                    ProfileAvatar(student: merged, radius: 40),
+                                    Container(
+                                      width: 80,
+                                      height: 80,
+                                      decoration: BoxDecoration(
+                                        color: light
+                                            ? const Color(0xFFF2ECE8)
+                                            : cs.surfaceContainerHighest,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        merged.greetingLastName.isNotEmpty
+                                            ? merged.greetingLastName[0].toUpperCase()
+                                            : 'S',
+                                        style: tt.headlineSmall?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: light
+                                              ? StudentSoftUi.titleBrown(cs)
+                                              : cs.onSurface,
+                                        ),
+                                      ),
+                                    ),
                                     const SizedBox(height: 14),
                                     Text(
                                       merged.name,
@@ -378,62 +350,21 @@ class _ClassRepStudentDetailPageState extends State<ClassRepStudentDetailPage> {
                                           return const SizedBox.shrink();
                                         }
                                         return Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 12),
-                                          child: Wrap(
-                                            alignment: WrapAlignment.center,
-                                            crossAxisAlignment:
-                                                WrapCrossAlignment.center,
-                                            spacing: 8,
-                                            runSpacing: 8,
+                                          padding: const EdgeInsets.only(top: 12),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
-                                              InkWell(
-                                                onTap: () =>
-                                                    _openWhatsappForPhone(phone),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                                child: Padding(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 4,
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.phone_rounded,
-                                                        size: 16,
-                                                        color: Color(0xFF1D9F50),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      Text(
-                                                        phone,
-                                                        style: tt.bodyMedium
-                                                            ?.copyWith(
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                          color: cs.primary,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
+                                              const Icon(
+                                                Icons.phone_rounded,
+                                                size: 16,
+                                                color: Color(0xFF2563EB),
                                               ),
-                                              FilledButton.tonalIcon(
-                                                onPressed: () =>
-                                                    _openWhatsappForPhone(phone),
-                                                icon: const Icon(
-                                                  Icons.message_rounded,
-                                                  size: 16,
-                                                ),
-                                                label: const Text(
-                                                    'WhatsApp student'),
-                                                style:
-                                                    FilledButton.styleFrom(
-                                                  visualDensity:
-                                                      VisualDensity.compact,
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                phone,
+                                                style: tt.bodyMedium?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                  color: cs.primary,
                                                 ),
                                               ),
                                             ],

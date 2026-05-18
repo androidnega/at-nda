@@ -6,6 +6,8 @@ use App\Models\Faculty;
 use App\Models\University;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class UniversityController extends Controller
@@ -38,17 +40,16 @@ class UniversityController extends Controller
             'location' => 'nullable|string|max:255',
             'faculty_ids' => 'nullable|array',
             'faculty_ids.*' => 'integer|exists:faculties,id',
+            'school_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
-        $university = new University();
-        $university->name = $validated['name'];
-        $university->location = $validated['location'] ?? null;
-        $university->save();
+        $university = University::create([
+            'name' => $validated['name'],
+            'location' => $validated['location'] ?? null,
+        ]);
 
-        $facultyIds = $validated['faculty_ids'] ?? [];
-        if (!empty($facultyIds)) {
-            Faculty::query()->whereIn('id', $facultyIds)->update(['university_id' => $university->id]);
-        }
+        $this->syncFaculties($university, $validated['faculty_ids'] ?? []);
+        $this->storeLogo($request, $university);
 
         return redirect()->route('dashboard.universities.index')->with('success', 'School created');
     }
@@ -68,31 +69,70 @@ class UniversityController extends Controller
             'location' => 'nullable|string|max:255',
             'faculty_ids' => 'nullable|array',
             'faculty_ids.*' => 'integer|exists:faculties,id',
+            'school_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'remove_school_logo' => 'nullable|boolean',
         ]);
 
-        $university->name = $validated['name'];
-        $university->location = $validated['location'] ?? null;
-        $university->save();
+        $university->update([
+            'name' => $validated['name'],
+            'location' => $validated['location'] ?? null,
+        ]);
 
-        $facultyIds = collect($validated['faculty_ids'] ?? [])->map(fn ($id) => (int) $id)->all();
-
-        Faculty::query()
-            ->where('university_id', $university->id)
-            ->whereNotIn('id', $facultyIds)
-            ->update(['university_id' => null]);
-
-        if (!empty($facultyIds)) {
-            Faculty::query()->whereIn('id', $facultyIds)->update(['university_id' => $university->id]);
-        }
+        $this->syncFaculties($university, $validated['faculty_ids'] ?? []);
+        $this->storeLogo($request, $university, $validated);
 
         return redirect()->route('dashboard.universities.index')->with('success', 'School updated');
     }
 
     public function destroy(University $university): RedirectResponse
     {
+        if ($university->logo_path) {
+            Storage::disk('public')->delete($university->logo_path);
+        }
         Faculty::query()->where('university_id', $university->id)->update(['university_id' => null]);
         $university->delete();
 
         return redirect()->route('dashboard.universities.index')->with('success', 'School deleted');
+    }
+
+    /**
+     * @param  list<int|string>  $facultyIds
+     */
+    private function syncFaculties(University $university, array $facultyIds): void
+    {
+        $facultyIds = collect($facultyIds)->map(fn ($id) => (int) $id)->all();
+
+        Faculty::query()
+            ->where('university_id', $university->id)
+            ->whereNotIn('id', $facultyIds)
+            ->update(['university_id' => null]);
+
+        if ($facultyIds !== []) {
+            Faculty::query()->whereIn('id', $facultyIds)->update(['university_id' => $university->id]);
+        }
+    }
+
+  /**
+     * @param  array<string, mixed>|null  $validated
+     */
+    private function storeLogo(Request $request, University $university, ?array $validated = null): void
+    {
+        if (! Schema::hasColumn('universities', 'logo_path')) {
+            return;
+        }
+
+        if ($validated && $request->boolean('remove_school_logo') && $university->logo_path) {
+            Storage::disk('public')->delete($university->logo_path);
+            $university->logo_path = null;
+            $university->save();
+        }
+
+        if ($request->hasFile('school_logo')) {
+            if ($university->logo_path) {
+                Storage::disk('public')->delete($university->logo_path);
+            }
+            $university->logo_path = $request->file('school_logo')->store('school-logos', 'public');
+            $university->save();
+        }
     }
 }

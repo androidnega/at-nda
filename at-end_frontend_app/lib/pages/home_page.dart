@@ -11,7 +11,6 @@ import '../widgets/modern_pull_to_refresh.dart';
 import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/attendance_local_notify.dart';
-import '../services/communication_log_sync.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/offline_service.dart';
@@ -343,7 +342,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         nextLiteUiMode = true;
       }
       _dynamicUi = ApiService.dynamicUi;
-      unawaited(CommunicationLogSyncService.maybeSync());
     }
     _sessionUiTicker?.cancel();
     _sessionUiTicker = null;

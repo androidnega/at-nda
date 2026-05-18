@@ -2,14 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/offline_service.dart';
 import '../theme/student_soft_ui.dart';
 import '../utils/app_selectable_scope.dart';
 import '../widgets/jump_reveal_on_scroll.dart';
 import '../widgets/modern_pull_to_refresh.dart';
-import '../widgets/profile_avatar.dart';
 import 'class_rep_student_detail_page.dart';
 import 'login_page.dart';
 
@@ -79,21 +77,6 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
       final idx = _norm(r['index_number']?.toString()).toLowerCase();
       return name.contains(q) || idx.contains(q);
     }).toList();
-  }
-
-  Student _rowToStudent(Map<String, dynamic> r) {
-    final idx = _norm(r['index_number']?.toString());
-    final display = _norm(r['name']?.toString());
-    final id = int.tryParse('${r['id']}');
-    final picPreferred = _norm(r['profile_picture']?.toString());
-    final picAlt = _norm(r['profile_image']?.toString());
-    final pic = picPreferred.isNotEmpty ? picPreferred : picAlt;
-    return Student(
-      serverId: id,
-      indexNumber: idx.isNotEmpty ? idx : '—',
-      name: display.isNotEmpty ? display : (idx.isNotEmpty ? idx : 'Student'),
-      profileImage: pic,
-    );
   }
 
   void _openStudentDetail(Map<String, dynamic> r) {
@@ -425,12 +408,23 @@ class _ClassRepStudentsPageState extends State<ClassRepStudentsPage> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ProfileAvatar(
-                      key: ValueKey(
-                        '${idx}_${r['id']}_${r['profile_image']}_${r['profile_picture']}',
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: light ? const Color(0xFFF2ECE8) : cs.surfaceContainerHighest,
+                        shape: BoxShape.circle,
                       ),
-                      student: _rowToStudent(r),
-                      radius: 28,
+                      alignment: Alignment.center,
+                      child: Text(
+                        primaryLine.isNotEmpty ? primaryLine[0].toUpperCase() : 'S',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: light
+                                  ? StudentSoftUi.titleBrown(cs)
+                                  : Theme.of(context).colorScheme.onSurface,
+                            ),
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(

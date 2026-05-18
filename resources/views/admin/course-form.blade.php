@@ -17,13 +17,23 @@
             <h3 class="text-sm font-semibold text-gray-800 mb-3">Course Details</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Class</label>
+                    <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Primary class</label>
                     <select id="class_id" name="class_id" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
                         @foreach($classes ?? [] as $c)
                         <option value="{{ $c->id }}" {{ old('class_id', $course?->class_id) == $c->id ? 'selected' : '' }}>{{ $c->name }} · Level {{ $c->level ?? '—' }}</option>
                         @endforeach
                     </select>
                     @error('class_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div class="sm:col-span-2">
+                    <label for="class_ids" class="block text-sm font-medium text-gray-700 mb-2">Also offered to classes <span class="text-gray-400 font-normal">(optional)</span></label>
+                    @php $courseClassIds = old('class_ids', $course ? $course->assignedClassIds() : []); @endphp
+                    <select id="class_ids" name="class_ids[]" multiple size="6" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500">
+                        @foreach($classes ?? [] as $c)
+                        <option value="{{ $c->id }}" {{ collect($courseClassIds)->contains($c->id) ? 'selected' : '' }}>{{ $c->name }} · Level {{ $c->level ?? '—' }}</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Attendance is isolated per class roster. Primary class is always included.</p>
                 </div>
                 <div class="sm:col-span-2">
                     <label for="course_name" class="block text-sm font-medium text-gray-700 mb-2">Course Name</label>

@@ -23,15 +23,17 @@
             @error('name')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
         </div>
         <div>
-            <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Home class <span class="text-gray-400 font-normal">(optional)</span></label>
-            <select id="class_id" name="class_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
-                <option value="">— None —</option>
+            <label for="class_ids" class="block text-sm font-medium text-gray-700 mb-2">Assigned classes</label>
+            @php $assigned = old('class_ids', $lecturer ? $lecturer->schoolClasses->pluck('id')->all() : []); @endphp
+            <select id="class_ids" name="class_ids[]" multiple size="8" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
                 @foreach($classes ?? [] as $c)
-                <option value="{{ $c->id }}" {{ old('class_id', $lecturer?->class_id) == $c->id ? 'selected' : '' }}>{{ $c->name }} · Level {{ $c->level ?? '—' }}</option>
+                <option value="{{ $c->id }}" {{ collect($assigned)->contains($c->id) ? 'selected' : '' }}>
+                    {{ $c->name }} · L{{ $c->level ?? '—' }}@if($c->department) · {{ $c->department->name }}@endif
+                </option>
                 @endforeach
             </select>
-            <p class="text-xs text-gray-500 mt-1">Helps filter lists; course assignment is still set per course.</p>
-            @error('class_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+            <p class="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple. Lecturers only see students in these classes.</p>
+            @error('class_ids')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
         </div>
     </div>
 

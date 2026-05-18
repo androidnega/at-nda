@@ -24,7 +24,7 @@ class SyncService {
               ? 'attendance'
               : record.endpoint.trim();
           var res = await ApiService.post(endpoint, payload);
-          if (!ApiService.isSuccessfulHttp(res.statusCode)) {
+          if (!ApiService.isSuccessfulHttp(res.statusCode) && res.statusCode != 409) {
             // Retry once for weak/edge networks before skipping this row.
             await Future<void>.delayed(const Duration(milliseconds: 350));
             try {
@@ -33,7 +33,8 @@ class SyncService {
               continue;
             }
           }
-          if (ApiService.isSuccessfulHttp(res.statusCode) && record.id != null) {
+          if ((ApiService.isSuccessfulHttp(res.statusCode) || res.statusCode == 409) &&
+              record.id != null) {
             final shouldSaveAttendanceLog =
                 endpoint == 'attendance' || endpoint.isEmpty;
             final raw = res.body.trim();
@@ -56,11 +57,16 @@ class SyncService {
               synced++;
               continue;
             }
-            final status = body['status'] as String?;
+            final status = body['status']?.toString().toLowerCase().trim();
+            final message = body['message']?.toString().toLowerCase().trim() ?? '';
             final ok = status == 'success' ||
                 status == 'already_marked' ||
                 body['success'] == true ||
-                body['already_marked'] == true;
+                body['already_marked'] == true ||
+                message.contains('already checked in') ||
+                message.contains('already checked out') ||
+                message.contains('already marked') ||
+                message.contains('attendance already completed');
             if (ok) {
               await OfflineService.markSynced(record.id!);
               if (shouldSaveAttendanceLog) {

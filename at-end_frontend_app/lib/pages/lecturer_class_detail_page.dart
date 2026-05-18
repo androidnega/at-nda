@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
@@ -11,14 +12,15 @@ import '../utils/constants.dart';
 import '../widgets/attendance_trend_chart.dart';
 import '../widgets/modern_pull_to_refresh.dart';
 
-/// Course drill-down: trend, session history, flagged students, export last session CSV.
+/// Course drill-down: trend, session history, flagged students, and exports.
 class LecturerClassDetailPage extends StatefulWidget {
   const LecturerClassDetailPage({super.key, required this.courseId});
 
   final int courseId;
 
   @override
-  State<LecturerClassDetailPage> createState() => _LecturerClassDetailPageState();
+  State<LecturerClassDetailPage> createState() =>
+      _LecturerClassDetailPageState();
 }
 
 class _LecturerClassDetailPageState extends State<LecturerClassDetailPage> {
@@ -56,15 +58,24 @@ class _LecturerClassDetailPageState extends State<LecturerClassDetailPage> {
         if (!mounted) return;
         setState(() {
           _course = c is Map ? Map<String, dynamic>.from(c) : null;
-          _trend = trend is List
-              ? trend.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-              : [];
-          _sessions = sess is List
-              ? sess.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-              : [];
-          _flagged = flag is List
-              ? flag.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-              : [];
+          _trend =
+              trend is List
+                  ? trend
+                      .map((e) => Map<String, dynamic>.from(e as Map))
+                      .toList()
+                  : [];
+          _sessions =
+              sess is List
+                  ? sess
+                      .map((e) => Map<String, dynamic>.from(e as Map))
+                      .toList()
+                  : [];
+          _flagged =
+              flag is List
+                  ? flag
+                      .map((e) => Map<String, dynamic>.from(e as Map))
+                      .toList()
+                  : [];
           _loading = false;
         });
       } else {
@@ -84,10 +95,10 @@ class _LecturerClassDetailPageState extends State<LecturerClassDetailPage> {
     }
   }
 
-  Future<void> _exportSessionCsv(int sessionId) async {
+  Future<void> _exportSessionFile(int sessionId, String format) async {
     try {
       final uri = Uri.parse(
-        '${Constants.baseUrl.trim().replaceAll(RegExp(r'/+$'), '')}/attendance/$sessionId/export/csv',
+        '${Constants.baseUrl.trim().replaceAll(RegExp(r'/+$'), '')}/attendance/$sessionId/export/$format',
       );
       final res = await http
           .get(uri, headers: ApiService.requestHeaders())
@@ -95,15 +106,27 @@ class _LecturerClassDetailPageState extends State<LecturerClassDetailPage> {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         if (mounted) {
           NotificationBridge.showSnackBar(
-            const SnackBar(content: Text('Export failed — check permissions')),
+            const SnackBar(content: Text('Export failed - check permissions')),
           );
         }
         return;
       }
-      await Share.share(
-        res.body,
-        subject: 'Attendance session $sessionId',
-      );
+      if (kIsWeb && format == 'csv') {
+        await Share.share(res.body, subject: 'Attendance session $sessionId');
+        return;
+      }
+      final ext = format == 'excel' ? 'xlsx' : format;
+      final mime =
+          format == 'pdf'
+              ? 'application/pdf'
+              : (format == 'csv' ? 'text/csv' : 'application/octet-stream');
+      await Share.shareXFiles([
+        XFile.fromData(
+          res.bodyBytes,
+          mimeType: mime,
+          name: 'attendance_session_$sessionId.$ext',
+        ),
+      ], subject: 'Attendance session $sessionId');
     } catch (e) {
       if (mounted) {
         NotificationBridge.showSnackBar(
@@ -120,148 +143,176 @@ class _LecturerClassDetailPageState extends State<LecturerClassDetailPage> {
       appBar: AppBar(
         title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
               ? Center(child: Text(_error!, textAlign: TextAlign.center))
               : ModernPullToRefresh(
-                  onRefresh: _load,
-                  child: ListView(
-                    physics: modernPullToRefreshPhysics,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    children: [
-                      if (_course != null) ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
+                onRefresh: _load,
+                child: ListView(
+                  physics: modernPullToRefreshPhysics,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  children: [
+                    if (_course != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: FlatDashboard.cardDecoration(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _course!['course_code']?.toString() ?? '',
+                              style: FlatDashboard.captionStyle(context),
+                            ),
+                            Text(
+                              name,
+                              style: FlatDashboard.titleStyle(context),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${_course!['student_count'] ?? 0} students',
+                              style: FlatDashboard.captionStyle(context),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    AttendanceTrendChart(
+                      points: _trend,
+                      title: 'Attendance % (recent weeks)',
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Session history',
+                      style: FlatDashboard.titleStyle(context),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_sessions.isEmpty)
+                      Text(
+                        'No sessions yet.',
+                        style: FlatDashboard.captionStyle(context),
+                      )
+                    else
+                      ..._sessions.map((s) {
+                        final id = s['id'];
+                        final sid =
+                            id is int
+                                ? id
+                                : int.tryParse(id?.toString() ?? '') ?? 0;
+                        final active = s['is_active'] == true;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
                           decoration: FlatDashboard.cardDecoration(),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: ListTile(
+                            title: Text(
+                              s['session_code']?.toString() ?? 'Session $sid',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: FlatDashboard.textPrimary,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${s['start_time'] ?? ''}',
+                              style: FlatDashboard.captionStyle(context),
+                            ),
+                            trailing:
+                                sid > 0
+                                    ? PopupMenuButton<String>(
+                                      tooltip: 'Export attendance',
+                                      onSelected: (value) {
+                                        if (value == 'csv') {
+                                          _exportSessionFile(sid, 'csv');
+                                        } else if (value == 'pdf') {
+                                          _exportSessionFile(sid, 'pdf');
+                                        }
+                                      },
+                                      itemBuilder:
+                                          (context) => const [
+                                            PopupMenuItem(
+                                              value: 'csv',
+                                              child: Text('Download CSV'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'pdf',
+                                              child: Text('Download PDF'),
+                                            ),
+                                          ],
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        child: Icon(Icons.download_rounded),
+                                      ),
+                                    )
+                                    : null,
+                            leading: Icon(
+                              active
+                                  ? Icons.radio_button_checked
+                                  : Icons.history,
+                              color:
+                                  active
+                                      ? Colors.green.shade700
+                                      : FlatDashboard.textSecondary,
+                            ),
+                          ),
+                        );
+                      }),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Flagged students (3+ consecutive misses)',
+                      style: FlatDashboard.titleStyle(context),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_flagged.isEmpty)
+                      Text(
+                        'None in this class.',
+                        style: FlatDashboard.captionStyle(context),
+                      )
+                    else
+                      ..._flagged.map(
+                        (f) => Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: FlatDashboard.cardDecoration(),
+                          child: Row(
                             children: [
-                              Text(
-                                _course!['course_code']?.toString() ?? '',
-                                style: FlatDashboard.captionStyle(context),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      f['name']?.toString() ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: FlatDashboard.textPrimary,
+                                      ),
+                                    ),
+                                    Text(
+                                      f['index_number']?.toString() ?? '',
+                                      style: FlatDashboard.captionStyle(
+                                        context,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                               Text(
-                                name,
-                                style: FlatDashboard.titleStyle(context),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '${_course!['student_count'] ?? 0} students',
-                                style: FlatDashboard.captionStyle(context),
+                                '${f['consecutive_missed'] ?? 0} miss',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.orange.shade800,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 16),
-                      ],
-                      AttendanceTrendChart(
-                        points: _trend,
-                        title: 'Attendance % (recent weeks)',
                       ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Session history',
-                        style: FlatDashboard.titleStyle(context),
-                      ),
-                      const SizedBox(height: 8),
-                      if (_sessions.isEmpty)
-                        Text(
-                          'No sessions yet.',
-                          style: FlatDashboard.captionStyle(context),
-                        )
-                      else
-                        ..._sessions.map((s) {
-                          final id = s['id'];
-                          final sid = id is int
-                              ? id
-                              : int.tryParse(id?.toString() ?? '') ?? 0;
-                          final active = s['is_active'] == true;
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: FlatDashboard.cardDecoration(),
-                            child: ListTile(
-                              title: Text(
-                                s['session_code']?.toString() ?? 'Session $sid',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: FlatDashboard.textPrimary,
-                                ),
-                              ),
-                              subtitle: Text(
-                                '${s['start_time'] ?? ''}',
-                                style: FlatDashboard.captionStyle(context),
-                              ),
-                              trailing: sid > 0
-                                  ? TextButton(
-                                      onPressed: () => _exportSessionCsv(sid),
-                                      child: const Text('CSV'),
-                                    )
-                                  : null,
-                              leading: Icon(
-                                active ? Icons.radio_button_checked : Icons.history,
-                                color: active
-                                    ? Colors.green.shade700
-                                    : FlatDashboard.textSecondary,
-                              ),
-                            ),
-                          );
-                        }),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Flagged students (3+ consecutive misses)',
-                        style: FlatDashboard.titleStyle(context),
-                      ),
-                      const SizedBox(height: 8),
-                      if (_flagged.isEmpty)
-                        Text(
-                          'None in this class.',
-                          style: FlatDashboard.captionStyle(context),
-                        )
-                      else
-                        ..._flagged.map(
-                          (f) => Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
-                            decoration: FlatDashboard.cardDecoration(),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        f['name']?.toString() ?? '',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: FlatDashboard.textPrimary,
-                                        ),
-                                      ),
-                                      Text(
-                                        f['index_number']?.toString() ?? '',
-                                        style: FlatDashboard.captionStyle(
-                                          context,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  '${f['consecutive_missed'] ?? 0} miss',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.orange.shade800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
+              ),
     );
   }
 }

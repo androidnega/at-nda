@@ -8,6 +8,7 @@ use App\Http\Controllers\AttendancePdfController;
 use App\Http\Controllers\AttendanceSessionController;
 use App\Http\Controllers\ClassController;
 use App\Http\Controllers\ClassLogoController;
+use App\Http\Controllers\UniversityLogoController;
 use App\Http\Controllers\ClassRepController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\DashboardController;
@@ -106,7 +107,10 @@ Route::get('/media/students/{student}/profile-image', [StudentImageController::c
     ->scopeBindings();
 Route::get('/media/classes/{schoolClass}/logo', [ClassLogoController::class, 'show'])
     ->name('media.classes.logo')
-    ->scopeBindings();
+    ->whereNumber('schoolClass');
+Route::get('/media/universities/{university}/logo', [UniversityLogoController::class, 'show'])
+    ->name('media.universities.logo')
+    ->whereNumber('university');
 
 /*
 | Web-only student attendance (Blade + fetch). Canonical paths under /web/attendance.

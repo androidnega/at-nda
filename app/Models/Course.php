@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Student;
 
 class Course extends Model
 {
@@ -35,6 +38,87 @@ class Course extends Model
     public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(SchoolClass::class, 'class_id');
+    }
+
+    public function schoolClasses(): BelongsToMany
+    {
+        return $this->belongsToMany(SchoolClass::class, 'course_class', 'course_id', 'class_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function assignedClassIds(): array
+    {
+        $ids = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+            $ids = $this->schoolClasses()->pluck('classes.id')->map(fn ($id) => (int) $id)->all();
+        }
+        if ($this->class_id && ! in_array((int) $this->class_id, $ids, true)) {
+            $ids[] = (int) $this->class_id;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    public function isAssignedToClass(int $classId): bool
+    {
+        return in_array($classId, $this->assignedClassIds(), true);
+    }
+
+    public function overlapsClassIds(iterable $classIds): bool
+    {
+        $mine = $this->assignedClassIds();
+        foreach ($classIds as $id) {
+            if (in_array((int) $id, $mine, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function studentMayAttend(Student $student): bool
+    {
+        return $student->class_id && $this->isAssignedToClass((int) $student->class_id);
+    }
+
+    public function syncAssignedClasses(array $classIds): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $classIds))));
+        if ($ids === []) {
+            return;
+        }
+        if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+            $this->schoolClasses()->sync($ids);
+        }
+        $this->class_id = $ids[0];
+        $this->save();
+    }
+
+    /**
+     * @param  Builder<Course>  $query
+     */
+    public function scopeForClass(Builder $query, int $classId): Builder
+    {
+        return $query->where(function (Builder $q) use ($classId): void {
+            $q->where('class_id', $classId);
+            if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+                $q->orWhereHas('schoolClasses', fn (Builder $sq) => $sq->where('classes.id', $classId));
+            }
+        });
+    }
+
+    public function studentsQuery(): Builder
+    {
+        $classIds = $this->assignedClassIds();
+        $query = Student::query();
+        if ($classIds === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn('class_id', $classIds);
     }
 
     public function lecturer(): \Illuminate\Database\Eloquent\Relations\BelongsTo

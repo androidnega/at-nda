@@ -146,7 +146,7 @@ class AttendanceController extends Controller
 
         $supplementalRepMark = false;
 
-        if ($student->class_id && $course->class_id && (int) $student->class_id !== (int) $course->class_id) {
+        if ($student->class_id && ! $course->studentMayAttend($student)) {
             return response()->json(['status' => 'error', 'message' => 'Course not for your class'], 403);
         }
 

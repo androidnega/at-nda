@@ -106,6 +106,9 @@ class StudentController extends Controller
             'class_id' => 'required|exists:classes,id',
             'role' => 'required|in:rep,assist',
         ]);
+        if ((int) $student->class_id !== (int) $validated['class_id']) {
+            return back()->with('error', 'A student can only be a rep for the class they belong to.');
+        }
         $existing = \App\Models\ClassRep::where('student_id', $student->id)
             ->where('class_id', $validated['class_id'])
             ->first();
@@ -152,11 +155,18 @@ class StudentController extends Controller
         $courseIds = $student->schoolClass ? $student->schoolClass->courses()->pluck('id')->toArray() : [];
         $totalWeeks = $courseIds ? \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count() : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
-        $classesQuery = \App\Models\SchoolClass::orderBy('name');
-        if ($lecturerClassIds !== null) {
-            $classesQuery->whereIn('id', $lecturerClassIds);
+        $repAssignableClasses = collect();
+        if ($student->class_id) {
+            $repAssignableClasses = \App\Models\SchoolClass::query()
+                ->where('id', $student->class_id)
+                ->get();
         }
-        $classes = $classesQuery->get();
+        $fromClassId = (int) $request->query('from_class', 0);
+        if ($fromClassId > 0 && (int) $student->class_id === $fromClassId) {
+            $repAssignableClasses = \App\Models\SchoolClass::query()
+                ->where('id', $fromClassId)
+                ->get();
+        }
         $recentAttendance = $student->attendances()
             ->with(['course', 'attendanceWeek'])
             ->latest('id')
@@ -169,7 +179,7 @@ class StudentController extends Controller
             'presentCount',
             'absentCount',
             'totalWeeks',
-            'classes',
+            'repAssignableClasses',
             'recentAttendance'
         ));
     }
@@ -203,9 +213,11 @@ class StudentController extends Controller
             'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
         ]);
 
-        Excel::import(new StudentsImport, $request->file('file'));
+        $import = new StudentsImport;
+        Excel::import($import, $request->file('file'));
 
-        return redirect()->route('dashboard.students.index')->with('success', 'Students imported successfully.');
+        return redirect()->route('dashboard.students.index')->with('success',
+            "Import complete: {$import->created} added, {$import->updated} updated, {$import->skipped} skipped.");
     }
 
     private function lecturerClassIdsFromSession(Request $request): ?\Illuminate\Support\Collection
@@ -220,6 +232,6 @@ class StudentController extends Controller
             return collect();
         }
 
-        return $lecturer->courses()->whereNotNull('class_id')->distinct()->pluck('class_id');
+        return $lecturer->assignedClassIds();
     }
 }

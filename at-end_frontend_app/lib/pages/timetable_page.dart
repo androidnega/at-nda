@@ -24,9 +24,6 @@ class _TimetablePageState extends State<TimetablePage> {
   String _cacheIndexNumber = '';
 
   late DateTime _pickedDay;
-  bool get _useVioletCalendarTheme =>
-      ApiService.studentDashboardTheme == ApiService.studentDashboardThemeVioletCalendar ||
-      ApiService.repDashboardTheme == ApiService.repDashboardThemeVioletCalendar;
 
   static const List<String> _calendarDayNames = [
     'Monday',
@@ -54,17 +51,6 @@ class _TimetablePageState extends State<TimetablePage> {
     final n = DateTime.now();
     _pickedDay = DateTime(n.year, n.month, n.day);
     _fetch();
-  }
-
-  /// Monday 00:00 of the ISO week containing [day].
-  DateTime _mondayOfWeek(DateTime day) {
-    final d = DateTime(day.year, day.month, day.day);
-    return d.subtract(Duration(days: d.weekday - 1));
-  }
-
-  List<DateTime> _weekStripDates() {
-    final mon = _mondayOfWeek(_pickedDay);
-    return List.generate(7, (i) => mon.add(Duration(days: i)));
   }
 
   List<Map<String, dynamic>> _slotsForPickedDay() {
@@ -256,15 +242,55 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
+  List<DateTime?> _calendarGridDays(DateTime month) {
+    final first = DateTime(month.year, month.month, 1);
+    final leading = first.weekday - 1; // Monday = 0
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final out = List<DateTime?>.filled(42, null);
+    for (var i = 0; i < daysInMonth; i++) {
+      out[leading + i] = DateTime(month.year, month.month, i + 1);
+    }
+    return out;
+  }
+
+  void _changeMonth(int delta) {
+    final target = DateTime(_pickedDay.year, _pickedDay.month + delta, 1);
+    final maxDay = DateTime(target.year, target.month + 1, 0).day;
+    final safeDay = _pickedDay.day <= maxDay ? _pickedDay.day : maxDay;
+    setState(() => _pickedDay = DateTime(target.year, target.month, safeDay));
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _fmt24(String? t) {
+    if (t == null || t.isEmpty) return '--:--';
+    final p = t.split(':');
+    final h = int.tryParse(p[0].trim()) ?? 0;
+    final mBits = p.length > 1 ? p[1].trim().split(RegExp(r'[^\d]')) : <String>[];
+    final m = mBits.isEmpty ? 0 : (int.tryParse(mBits.first) ?? 0);
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  Color _slotAccent(ColorScheme cs, int index) {
+    final palette = <Color>[
+      cs.primary,
+      cs.tertiary,
+      cs.secondary,
+      cs.primary.withValues(alpha: 0.78),
+      cs.secondary.withValues(alpha: 0.78),
+    ];
+    return palette[index % palette.length];
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
     return Scaffold(
-      backgroundColor: _useVioletCalendarTheme
-          ? const Color(0xFFEFF3FB)
-          : Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: cs.surface,
       body: Column(
         children: [
           _buildHeader(context, cs, tt),
@@ -281,190 +307,58 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   Widget _buildHeader(BuildContext context, ColorScheme cs, TextTheme tt) {
-    final strip = _weekStripDates();
-    final progress = _weekProgressLine(tt, cs);
-
-    final header = _useVioletCalendarTheme ? const Color(0xFF4E43D8) : cs.primary;
-    final onHeader = _useVioletCalendarTheme ? Colors.white : cs.onPrimary;
-
-    return Material(
-      color: header,
-      elevation: 0,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 12, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  if (Navigator.canPop(context))
-                    IconButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon: Icon(Icons.arrow_back_ios_new_rounded, color: onHeader, size: 20),
-                    )
-                  else
-                    const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Timetable',
-                      textAlign: TextAlign.center,
-                      style: tt.titleLarge?.copyWith(
-                        color: onHeader,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${_pickedDay.day}',
-                    style: tt.displaySmall?.copyWith(
-                      color: onHeader,
-                      fontWeight: FontWeight.w800,
-                      height: 1,
-                      fontSize: 44,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: InkWell(
-                      onTap: _pickMonthDay,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _weekdayLong(_pickedDay),
-                              style: tt.titleMedium?.copyWith(
-                                color: onHeader,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    _monthYearLong(_pickedDay),
-                                    style: tt.bodyMedium?.copyWith(
-                                      color: onHeader.withValues(alpha: 0.92),
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: onHeader.withValues(alpha: 0.9),
-                                  size: 22,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _goToday,
-                    style: TextButton.styleFrom(
-                      backgroundColor: cs.primaryContainer,
-                      foregroundColor: cs.onPrimaryContainer,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: const Text('Today', style: TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                ],
-              ),
-              if (progress != null) progress,
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 72,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: strip.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, i) {
-                    final d = strip[i];
-                    final sel = d.year == _pickedDay.year &&
-                        d.month == _pickedDay.month &&
-                        d.day == _pickedDay.day;
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => setState(() => _pickedDay = d),
-                        borderRadius: BorderRadius.circular(14),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          width: 52,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color: sel
-                                ? (_useVioletCalendarTheme ? const Color(0xFF6B61F0) : cs.primaryContainer)
-                                : cs.surface,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _stripLabels[i],
-                                style: tt.labelSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: sel
-                                      ? (_useVioletCalendarTheme ? Colors.white : cs.onPrimaryContainer)
-                                      : cs.onSurfaceVariant,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${d.day}',
-                                style: tt.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: sel ? Colors.white : cs.onSurface,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 12, 6),
+        child: Row(
+          children: [
+            if (Navigator.canPop(context))
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: cs.onSurface,
+                  size: 20,
+                ),
+              )
+            else
+              const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Timetable',
+                textAlign: TextAlign.center,
+                style: tt.titleLarge?.copyWith(
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-            ],
-          ),
+            ),
+            TextButton(
+              onPressed: _goToday,
+              style: TextButton.styleFrom(
+                foregroundColor: cs.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              child: const Text(
+                'Today',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildBody(BuildContext context, TextTheme tt) {
+    final cs = Theme.of(context).colorScheme;
     if (_loading) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
-          Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)),
+          Center(child: CircularProgressIndicator(color: cs.primary)),
         ],
       );
     }
@@ -509,269 +403,263 @@ class _TimetablePageState extends State<TimetablePage> {
     }
 
     final slots = _slotsForPickedDay();
-    if (slots.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
-        children: [
-          const SizedBox(height: 32),
-          Text(
-            'No classes on ${_weekdayLong(_pickedDay)}',
-            textAlign: TextAlign.center,
-            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Nothing scheduled for this weekday in your timetable.',
-            textAlign: TextAlign.center,
-            style: tt.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-        ],
-      );
-    }
+    final grid = _calendarGridDays(_pickedDay);
+    final today = DateTime.now();
+    final progress = _weekProgressLine(tt, cs);
 
-    return ListView.builder(
+    return ListView(
       physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: slots.length,
-      itemBuilder: (context, index) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: _VisitStyleSlotCard(
-            slot: slots[index],
-            pickedDay: _pickedDay,
-            slotIndex: index,
-            allSlots: slots,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.38)),
           ),
-        );
-      },
-    );
-  }
-}
-
-class _VisitStyleSlotCard extends StatelessWidget {
-  const _VisitStyleSlotCard({
-    required this.slot,
-    required this.pickedDay,
-    required this.slotIndex,
-    required this.allSlots,
-  });
-
-  final Map<String, dynamic> slot;
-  final DateTime pickedDay;
-  final int slotIndex;
-  final List<Map<String, dynamic>> allSlots;
-
-  static String _fmt24(String? t) {
-    if (t == null || t.isEmpty) return '—';
-    final p = t.split(':');
-    final h = int.tryParse(p[0].trim()) ?? 0;
-    final minuteBits = p.length > 1 ? p[1].trim().split(RegExp(r'[^\d]')) : <String>[];
-    final m = minuteBits.isEmpty ? 0 : (int.tryParse(minuteBits.first) ?? 0);
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-  }
-
-  static ({int h, int m})? _parse(String? t) {
-    if (t == null || t.isEmpty) return null;
-    final p = t.split(':');
-    final h = int.tryParse(p[0].trim());
-    if (h == null) return null;
-    final minuteBits = p.length > 1 ? p[1].trim().split(RegExp(r'[^\d]')) : <String>[];
-    final m = minuteBits.isEmpty ? 0 : (int.tryParse(minuteBits.first) ?? 0);
-    return (h: h, m: m);
-  }
-
-  /// Primary = main action for this day (nearest upcoming / in session); others muted.
-  bool _primaryAction() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final pd = DateTime(pickedDay.year, pickedDay.month, pickedDay.day);
-    if (pd != today) return true;
-
-    int? firstActive;
-    for (var i = 0; i < allSlots.length; i++) {
-      final st = _parse(allSlots[i]['start_time']?.toString());
-      final en = _parse(allSlots[i]['end_time']?.toString());
-      if (st == null || en == null) continue;
-      final end = DateTime(now.year, now.month, now.day, en.h, en.m);
-      if (now.isBefore(end)) {
-        firstActive = i;
-        break;
-      }
-    }
-    if (firstActive == null) return false;
-    return slotIndex == firstActive;
-  }
-
-  String _statusLine() {
-    final now = DateTime.now();
-    final pd = DateTime(pickedDay.year, pickedDay.month, pickedDay.day);
-    final today = DateTime(now.year, now.month, now.day);
-    if (pd != today) return 'Scheduled';
-
-    final st = _parse(slot['start_time']?.toString());
-    final en = _parse(slot['end_time']?.toString());
-    if (st == null || en == null) return 'Scheduled';
-
-    final start = DateTime(now.year, now.month, now.day, st.h, st.m);
-    final end = DateTime(now.year, now.month, now.day, en.h, en.m);
-    if (now.isBefore(start)) return 'Not started yet';
-    if (now.isAfter(end)) return 'Completed';
-    return 'In session';
-  }
-
-  Color _statusColor(ColorScheme cs) {
-    final s = _statusLine();
-    if (s == 'Not started yet') return cs.error;
-    if (s == 'In session') return cs.tertiary;
-    if (s == 'Completed') return cs.outline;
-    return cs.onSurfaceVariant;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
-    final cs = Theme.of(context).colorScheme;
-    final violet = ApiService.studentDashboardTheme == ApiService.studentDashboardThemeVioletCalendar ||
-        ApiService.repDashboardTheme == ApiService.repDashboardThemeVioletCalendar;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final name = slot['class_name']?.toString().trim().isNotEmpty == true
-        ? slot['class_name']!.toString()
-        : (slot['course_name']?.toString() ?? 'Class');
-    final venue = slot['venue']?.toString() ?? '—';
-    final start = slot['start_time']?.toString() ?? '';
-    final end = slot['end_time']?.toString() ?? '';
-    final timeRange = '${_fmt24(start)} - ${_fmt24(end)}';
-    final dateLine = _dateLine(pickedDay);
-    final primary = _primaryAction();
-
-    return Container(
-      decoration: BoxDecoration(
-        color: violet
-            ? Colors.white
-            : (isDark ? Theme.of(context).colorScheme.surfaceContainerHigh : Colors.white),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-      ),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            name,
-            style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: isDark ? Theme.of(context).colorScheme.onSurface : const Color(0xFF212121),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _row('Date', dateLine, tt, isDark),
-          _row('Venue', venue, tt, isDark),
-          _row('Status', _statusLine(), tt, isDark, valueColor: _statusColor(cs), strong: true),
-          _row('Class time', timeRange, tt, isDark),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: () {
-                final code = slot['course_code']?.toString() ?? '';
-                final lec = slot['lecturer_name']?.toString() ?? '';
-                showModalBottomSheet<void>(
-                  context: context,
-                  showDragHandle: true,
-                  builder: (ctx) => Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name, style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                        if (code.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(code, style: tt.titleSmall?.copyWith(color: Theme.of(ctx).colorScheme.primary)),
-                        ],
-                        const SizedBox(height: 12),
-                        Text('Lecturer: $lec', style: tt.bodyLarge),
-                        const SizedBox(height: 8),
-                        Text(timeRange, style: tt.bodyMedium?.copyWith(color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
-                      ],
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.chevron_left_rounded, color: cs.onSurfaceVariant),
+                    onPressed: () => _changeMonth(-1),
+                    tooltip: 'Previous month',
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: _pickMonthDay,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          _monthYearLong(_pickedDay),
+                          textAlign: TextAlign.center,
+                          style: tt.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                );
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: violet
-                    ? (primary ? const Color(0xFF4E43D8) : const Color(0xFFECEFFF))
-                    : (primary ? cs.primary : cs.surfaceContainerHighest),
-                foregroundColor: violet
-                    ? (primary ? Colors.white : const Color(0xFF4E43D8))
-                    : (primary ? cs.onPrimary : cs.onSurfaceVariant),
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  IconButton(
+                    icon: Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                    onPressed: () => _changeMonth(1),
+                    tooltip: 'Next month',
+                  ),
+                ],
               ),
-              child: const Text('Visit', style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Row(
+                children: _stripLabels
+                    .map(
+                      (d) => Expanded(
+                        child: Text(
+                          d.substring(0, 1),
+                          textAlign: TextAlign.center,
+                          style: tt.labelMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 6),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: grid.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
+                  childAspectRatio: 1.1,
+                ),
+                itemBuilder: (context, i) {
+                  final d = grid[i];
+                  if (d == null) return const SizedBox.shrink();
+                  final selected = _isSameDate(d, _pickedDay);
+                  final isToday = _isSameDate(d, today);
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: () => setState(() => _pickedDay = d),
+                      child: Container(
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: selected ? cs.primary : Colors.transparent,
+                          border: isToday && !selected
+                              ? Border.all(color: cs.primary, width: 1.4)
+                              : null,
+                        ),
+                        child: Text(
+                          '${d.day}',
+                          style: tt.bodyMedium?.copyWith(
+                            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                            color: selected ? cs.onPrimary : cs.onSurface,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        if (progress != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(14),
             ),
+            child: progress,
           ),
         ],
-      ),
-    );
-  }
-
-  String _dateLine(DateTime d) {
-    const names = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${d.day} ${names[d.month]} ${d.year}';
-  }
-
-  Widget _row(
-    String label,
-    String value,
-    TextTheme tt,
-    bool isDark, {
-    Color? valueColor,
-    bool strong = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: RichText(
-        text: TextSpan(
-          style: tt.bodyMedium?.copyWith(
-            color: isDark ? Colors.white70 : const Color(0xFF424242),
-            height: 1.35,
+        const SizedBox(height: 14),
+        Text(
+          _weekdayLong(_pickedDay),
+          style: tt.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: cs.onSurface,
           ),
-          children: [
-            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
-            TextSpan(
-              text: value,
-              style: TextStyle(
-                fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
-                color: valueColor ?? (isDark ? Colors.white : const Color(0xFF424242)),
-              ),
-            ),
-          ],
         ),
-      ),
+        const SizedBox(height: 10),
+        if (slots.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              'No classes scheduled for this day.',
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          )
+        else
+          Column(
+            children: [
+              for (var i = 0; i < slots.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 58,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Text(
+                            _fmt24(slots[i]['start_time']?.toString()),
+                            style: tt.labelLarge?.copyWith(
+                              color: cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(0, 12, 10, 12),
+                          decoration: BoxDecoration(
+                            color: cs.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: cs.outlineVariant.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 4,
+                                height: 48,
+                                margin: const EdgeInsets.only(left: 8, right: 10),
+                                decoration: BoxDecoration(
+                                  color: _slotAccent(cs, i),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (slots[i]['class_name']?.toString().trim().isNotEmpty ==
+                                              true)
+                                          ? slots[i]['class_name'].toString()
+                                          : (slots[i]['course_name']?.toString() ??
+                                              'Class'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: tt.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: cs.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.access_time_rounded,
+                                          size: 14,
+                                          color: cs.onSurfaceVariant,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            '${_fmt24(slots[i]['start_time']?.toString())} - '
+                                            '${_fmt24(slots[i]['end_time']?.toString())}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: tt.bodySmall?.copyWith(
+                                              color: cs.onSurfaceVariant,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if ((slots[i]['venue']?.toString().trim().isNotEmpty ??
+                                        false)) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        slots[i]['venue'].toString(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: tt.bodySmall?.copyWith(
+                                          color: cs.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.more_vert_rounded,
+                                size: 18,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+      ],
     );
   }
 }

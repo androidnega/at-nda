@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/student.dart';
-import '../widgets/profile_avatar.dart';
 
 /// Third student home theme: dark "task board" inspired layout.
 class StudentNoirTaskDashboard extends StatelessWidget {
@@ -15,6 +14,7 @@ class StudentNoirTaskDashboard extends StatelessWidget {
     required this.heroSubtitle,
     required this.showMarkButton,
     required this.onMarkAttendance,
+    this.primaryActionLabel = 'Mark attendance',
     required this.lastCheckInLine,
     required this.dayProgress,
     required this.onOpenDrawer,
@@ -44,6 +44,7 @@ class StudentNoirTaskDashboard extends StatelessWidget {
   final String heroSubtitle;
   final bool showMarkButton;
   final VoidCallback onMarkAttendance;
+  final String primaryActionLabel;
   final String lastCheckInLine;
   final double dayProgress;
   final VoidCallback onOpenDrawer;
@@ -159,7 +160,7 @@ class StudentNoirTaskDashboard extends StatelessWidget {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 label: Text(
-                  showMarkButton ? 'Mark attendance' : 'Open class timetable',
+                  showMarkButton ? primaryActionLabel : 'Open class timetable',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -201,7 +202,24 @@ class StudentNoirTaskDashboard extends StatelessWidget {
                     icon: Icon(Icons.notifications_none_rounded, color: topBarText),
                     onPressed: onBell,
                   ),
-                  ProfileAvatar(student: student, radius: 20),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: topBarText.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      student.greetingLastName.isNotEmpty
+                          ? student.greetingLastName[0].toUpperCase()
+                          : 'S',
+                      style: tt.titleSmall?.copyWith(
+                        color: topBarText,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

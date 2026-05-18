@@ -529,14 +529,18 @@ class Student extends Model implements AuthenticatableContract
      */
     public function isClassRepForCourse(int $courseId): bool
     {
-        $course = Course::query()->select('id', 'class_id')->find($courseId);
-        if (! $course?->class_id) {
+        $course = Course::query()->find($courseId);
+        if (! $course) {
             return false;
         }
 
-        return $this->classReps()
-            ->where('class_id', $course->class_id)
-            ->exists();
+        foreach ($course->assignedClassIds() as $classId) {
+            if ($this->classReps()->where('class_id', $classId)->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function deviceToken(): HasOne
