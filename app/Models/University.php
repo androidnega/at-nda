@@ -2,10 +2,9 @@
 
 namespace App\Models;
 
+use App\Support\UniversityLogoStorage;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 
 class University extends Model
 {
@@ -23,22 +22,11 @@ class University extends Model
 
     public function hasStoredLogo(): bool
     {
-        if (! Schema::hasColumn('universities', 'logo_path')) {
-            return false;
-        }
-
-        $path = trim((string) ($this->logo_path ?? ''));
-
-        return $path !== '' && Storage::disk('public')->exists($path);
+        return UniversityLogoStorage::exists($this);
     }
 
     public function logoUrl(): ?string
     {
-        if (! $this->hasStoredLogo()) {
-            return null;
-        }
-
-        return route('media.universities.logo', ['university' => $this->id])
-            . '?v=' . ($this->updated_at?->timestamp ?? time());
+        return UniversityLogoStorage::publicUrl($this);
     }
 }

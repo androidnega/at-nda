@@ -3,12 +3,22 @@
 @section('title', $university ? 'Edit School' : 'Create School')
 
 @section('content')
+@php
+    $existingLogoUrl = $university?->logoUrl();
+@endphp
 <div class="mb-6">
     <a href="{{ route('dashboard.universities.index') }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
         <i class="fas fa-arrow-left"></i> Schools
     </a>
     <h1 class="text-2xl font-bold">{{ $university ? 'Edit' : 'Create' }} School</h1>
 </div>
+
+@if (session('success'))
+    <div class="mb-4 p-4 bg-green-50 text-green-800 rounded-xl border border-green-100">{{ session('success') }}</div>
+@endif
+@if (session('error'))
+    <div class="mb-4 p-4 bg-red-50 text-red-800 rounded-xl border border-red-100">{{ session('error') }}</div>
+@endif
 
 <form method="POST" action="{{ $university ? route('dashboard.universities.update', $university) : route('dashboard.universities.store') }}" enctype="multipart/form-data" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
     @csrf
@@ -29,22 +39,32 @@
         </div>
 
         <div>
-            <label for="school_logo" class="block text-sm font-medium text-gray-700 mb-2">School logo (PDF &amp; timetable)</label>
-            <input type="file" id="school_logo" name="school_logo" accept="image/png,image/jpeg,image/webp"
-                class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary file:font-medium">
-            <p class="text-xs text-gray-500 mt-1">Shown on attendance PDFs for every class under this school. PNG, JPEG, or WebP up to 4&nbsp;MB.</p>
+            <p class="block text-sm font-medium text-gray-700 mb-2">School logo (PDF &amp; timetable)</p>
+            <label for="school_logo" class="flex flex-col sm:flex-row sm:items-center gap-3 w-full border-2 border-dashed border-gray-200 rounded-xl px-4 py-4 cursor-pointer hover:border-primary/40 hover:bg-primary/5">
+                <span class="inline-flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium shrink-0">
+                    <i class="fas fa-upload"></i> Choose image
+                </span>
+                <span id="school-logo-filename" class="text-sm text-gray-500 truncate">PNG, JPEG, or WebP · max 4 MB</span>
+                <input type="file" id="school_logo" name="school_logo" accept="image/png,image/jpeg,image/jpg,image/webp,image/*" class="sr-only">
+            </label>
             @error('school_logo')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
 
-            <div id="school-logo-preview-wrap" class="mt-4 flex flex-wrap items-start gap-4 {{ ($university && $university->hasStoredLogo()) ? '' : 'hidden' }}">
-                <x-school-logo-thumb
-                    id="school-logo-preview-thumb"
-                    :url="$university?->logoUrl()"
-                    :name="old('name', $university?->name ?? '')"
-                    size="lg"
-                />
+            <div class="mt-4 flex flex-wrap items-start gap-4">
+                <div class="relative h-24 w-24 shrink-0 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                    <img
+                        id="school-logo-preview-img"
+                        src="{{ $existingLogoUrl ?? '' }}"
+                        alt="School logo preview"
+                        class="absolute inset-0 h-full w-full object-contain bg-white p-1 {{ $existingLogoUrl ? 'block' : 'hidden' }}"
+                    >
+                    <div id="school-logo-preview-empty" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 {{ $existingLogoUrl ? 'hidden' : 'flex' }}">
+                        <i class="fas fa-image text-2xl mb-1"></i>
+                        <span class="text-[10px] uppercase tracking-wide">Preview</span>
+                    </div>
+                </div>
                 <div class="min-w-0 pt-1">
                     <p class="text-sm font-medium text-gray-700">Preview</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Updates when you choose a new file. Save to apply.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Shows immediately when you pick a file. Click <strong>Save</strong> to store it on the server.</p>
                     @if($university?->hasStoredLogo())
                         <label class="mt-3 inline-flex items-center gap-2 text-xs text-red-700 cursor-pointer">
                             <input type="checkbox" id="remove_school_logo" name="remove_school_logo" value="1" class="rounded border-gray-300 text-red-600 focus:ring-red-500">
@@ -83,27 +103,30 @@
 <script>
 (function () {
     var fileInput = document.getElementById('school_logo');
-    var wrap = document.getElementById('school-logo-preview-wrap');
-    var thumb = document.getElementById('school-logo-preview-thumb');
-    var img = thumb ? thumb.querySelector('.school-logo-thumb-img') : null;
+    var fileName = document.getElementById('school-logo-filename');
+    var img = document.getElementById('school-logo-preview-img');
+    var empty = document.getElementById('school-logo-preview-empty');
     var remove = document.getElementById('remove_school_logo');
-    var hadSavedLogo = @json((bool) ($university && $university->hasStoredLogo()));
+    var savedUrl = @json($existingLogoUrl);
 
-    function showWrap() {
-        if (wrap) wrap.classList.remove('hidden');
-    }
-    function hideWrap() {
-        if (wrap) wrap.classList.add('hidden');
-    }
-    function setPreviewSrc(src) {
-        if (!img) return;
+    function showImage(src) {
+        if (!img || !empty) return;
         img.src = src;
         img.classList.remove('hidden');
-        var fallback = thumb ? thumb.querySelector('.school-logo-thumb-fallback') : null;
-        if (fallback) {
-            fallback.classList.add('hidden');
-            fallback.classList.remove('flex');
-        }
+        img.classList.add('block');
+        img.style.display = 'block';
+        empty.classList.add('hidden');
+        empty.classList.remove('flex');
+    }
+
+    function showEmpty() {
+        if (!img || !empty) return;
+        img.removeAttribute('src');
+        img.classList.add('hidden');
+        img.classList.remove('block');
+        img.style.display = 'none';
+        empty.classList.remove('hidden');
+        empty.classList.add('flex');
     }
 
     if (fileInput) {
@@ -111,10 +134,17 @@
             var file = fileInput.files && fileInput.files[0];
             if (!file) return;
             if (remove) remove.checked = false;
+            if (fileName) fileName.textContent = file.name;
+            if (!file.type || file.type.indexOf('image/') !== 0) {
+                if (fileName) fileName.textContent = 'Please choose an image file (PNG, JPEG, or WebP).';
+                return;
+            }
             var reader = new FileReader();
             reader.onload = function (e) {
-                setPreviewSrc(e.target.result);
-                showWrap();
+                showImage(e.target.result);
+            };
+            reader.onerror = function () {
+                if (fileName) fileName.textContent = 'Could not read that file. Try another image.';
             };
             reader.readAsDataURL(file);
         });
@@ -123,30 +153,15 @@
     if (remove) {
         remove.addEventListener('change', function () {
             if (remove.checked) {
-                if (img) {
-                    img.removeAttribute('src');
-                    img.style.display = 'none';
-                }
-                if (!fileInput || !fileInput.files.length) {
-                    hideWrap();
-                }
-            } else if (hadSavedLogo && img) {
-                setPreviewSrc(@json($university?->logoUrl()));
-                showWrap();
+                showEmpty();
+                if (fileInput) fileInput.value = '';
+                if (fileName) fileName.textContent = 'Logo will be removed when you save.';
+            } else if (savedUrl) {
+                showImage(savedUrl);
+                if (fileName) fileName.textContent = 'Saved logo restored in preview.';
             }
         });
     }
-
-    document.querySelectorAll('.school-logo-thumb-img').forEach(function (el) {
-        el.addEventListener('error', function () {
-            el.style.display = 'none';
-            var fb = el.parentElement && el.parentElement.querySelector('.school-logo-thumb-fallback');
-            if (fb) {
-                fb.classList.remove('hidden');
-                fb.classList.add('flex');
-            }
-        });
-    });
 })();
 </script>
 @endsection

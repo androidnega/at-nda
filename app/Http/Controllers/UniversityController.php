@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Faculty;
 use App\Models\University;
+use App\Support\UniversityLogoStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
@@ -40,7 +40,7 @@ class UniversityController extends Controller
             'location' => 'nullable|string|max:255',
             'faculty_ids' => 'nullable|array',
             'faculty_ids.*' => 'integer|exists:faculties,id',
-            'school_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'school_logo' => 'nullable|file|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
         $university = University::create([
@@ -49,7 +49,14 @@ class UniversityController extends Controller
         ]);
 
         $this->syncFaculties($university, $validated['faculty_ids'] ?? []);
-        $this->storeLogo($request, $university);
+        $logoMessage = $this->handleLogo($request, $university);
+
+        if ($logoMessage) {
+            return redirect()
+                ->route('dashboard.universities.edit', $university)
+                ->with('error', $logoMessage)
+                ->with('success', 'School saved, but the logo could not be stored.');
+        }
 
         return redirect()->route('dashboard.universities.index')->with('success', 'School created');
     }
@@ -69,7 +76,7 @@ class UniversityController extends Controller
             'location' => 'nullable|string|max:255',
             'faculty_ids' => 'nullable|array',
             'faculty_ids.*' => 'integer|exists:faculties,id',
-            'school_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'school_logo' => 'nullable|file|mimes:jpg,jpeg,png,webp|max:4096',
             'remove_school_logo' => 'nullable|boolean',
         ]);
 
@@ -79,16 +86,21 @@ class UniversityController extends Controller
         ]);
 
         $this->syncFaculties($university, $validated['faculty_ids'] ?? []);
-        $this->storeLogo($request, $university, $validated);
+        $logoMessage = $this->handleLogo($request, $university, $validated);
+
+        if ($logoMessage) {
+            return redirect()
+                ->route('dashboard.universities.edit', $university)
+                ->withInput()
+                ->with('error', $logoMessage);
+        }
 
         return redirect()->route('dashboard.universities.index')->with('success', 'School updated');
     }
 
     public function destroy(University $university): RedirectResponse
     {
-        if ($university->logo_path) {
-            Storage::disk('public')->delete($university->logo_path);
-        }
+        UniversityLogoStorage::remove($university);
         Faculty::query()->where('university_id', $university->id)->update(['university_id' => null]);
         $university->delete();
 
@@ -112,32 +124,45 @@ class UniversityController extends Controller
         }
     }
 
-  /**
+    /**
      * @param  array<string, mixed>|null  $validated
+     * @return string|null Error message when logo handling failed
      */
-    private function storeLogo(Request $request, University $university, ?array $validated = null): void
+    private function handleLogo(Request $request, University $university, ?array $validated = null): ?string
     {
-        if (! Schema::hasColumn('universities', 'logo_path')) {
-            return;
+        if (! UniversityLogoStorage::ensureColumn()) {
+            if ($request->hasFile('school_logo')) {
+                return 'Could not save the logo: run database migrations (logo_path column missing).';
+            }
+
+            return null;
         }
 
         if ($university->logo_path && ! Storage::disk('public')->exists($university->logo_path)) {
-            $university->logo_path = null;
-            $university->save();
+            $university->forceFill(['logo_path' => null])->save();
+            $university->refresh();
         }
 
-        if ($validated && $request->boolean('remove_school_logo') && $university->logo_path) {
-            Storage::disk('public')->delete($university->logo_path);
-            $university->logo_path = null;
-            $university->save();
+        if ($validated && $request->boolean('remove_school_logo')) {
+            UniversityLogoStorage::remove($university);
+            $university->refresh();
         }
 
-        if ($request->hasFile('school_logo')) {
-            if ($university->logo_path) {
-                Storage::disk('public')->delete($university->logo_path);
-            }
-            $university->logo_path = $request->file('school_logo')->store('school-logos', 'public');
-            $university->save();
+        if (! $request->hasFile('school_logo')) {
+            return null;
         }
+
+        $file = $request->file('school_logo');
+        if (! $file || ! $file->isValid()) {
+            return 'The logo file could not be uploaded. Check file size (max 4 MB) and try again.';
+        }
+
+        if (! UniversityLogoStorage::store($university, $file)) {
+            return 'The logo was uploaded but could not be saved to storage. Run php artisan storage:link on the server.';
+        }
+
+        $university->refresh();
+
+        return null;
     }
 }
