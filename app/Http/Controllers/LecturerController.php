@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lecturer;
 use App\Models\SchoolClass;
+use App\Support\SchemaFeatures;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -12,7 +13,11 @@ class LecturerController extends Controller
 {
     public function index(): View
     {
-        $lecturers = Lecturer::with(['schoolClasses', 'schoolClass'])->latest()->paginate(15);
+        $with = ['schoolClass'];
+        if (SchemaFeatures::hasClassLecturerPivot()) {
+            $with[] = 'schoolClasses';
+        }
+        $lecturers = Lecturer::with($with)->latest()->paginate(15);
 
         return view('admin.lecturers', compact('lecturers'));
     }
@@ -21,7 +26,11 @@ class LecturerController extends Controller
     {
         $classes = SchoolClass::with(['faculty', 'department'])->orderBy('name')->get();
 
-        return view('admin.lecturer-form', ['lecturer' => null, 'classes' => $classes]);
+        return view('admin.lecturer-form', [
+            'lecturer' => null,
+            'classes' => $classes,
+            'assignedClassIds' => [],
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -45,9 +54,16 @@ class LecturerController extends Controller
     public function edit(Lecturer $lecturer): View
     {
         $classes = SchoolClass::with(['faculty', 'department'])->orderBy('name')->get();
-        $lecturer->load('schoolClasses');
+        if (SchemaFeatures::hasClassLecturerPivot()) {
+            $lecturer->load('schoolClasses');
+        }
+        $assignedClassIds = $lecturer->assignedClassIds()->all();
 
-        return view('admin.lecturer-form', ['lecturer' => $lecturer, 'classes' => $classes]);
+        return view('admin.lecturer-form', [
+            'lecturer' => $lecturer,
+            'classes' => $classes,
+            'assignedClassIds' => $assignedClassIds,
+        ]);
     }
 
     public function update(Request $request, Lecturer $lecturer): RedirectResponse
@@ -75,7 +91,9 @@ class LecturerController extends Controller
         }
 
         $lecturer->courses()->update(['lecturer_id' => null]);
-        $lecturer->schoolClasses()->detach();
+        if (SchemaFeatures::hasClassLecturerPivot()) {
+            $lecturer->schoolClasses()->detach();
+        }
         $lecturer->delete();
 
         return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer removed.');

@@ -24,7 +24,7 @@
         </div>
         <div>
             <label for="class_ids" class="block text-sm font-medium text-gray-700 mb-2">Assigned classes</label>
-            @php $assigned = old('class_ids', $lecturer ? $lecturer->schoolClasses->pluck('id')->all() : []); @endphp
+            @php $assigned = old('class_ids', $assignedClassIds ?? []); @endphp
             <select id="class_ids" name="class_ids[]" multiple size="8" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
                 @foreach($classes ?? [] as $c)
                 <option value="{{ $c->id }}" {{ collect($assigned)->contains($c->id) ? 'selected' : '' }}>

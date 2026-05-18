@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\Student;
+use App\Support\SchemaFeatures;
 
 class Course extends Model
 {
@@ -52,7 +53,7 @@ class Course extends Model
     public function assignedClassIds(): array
     {
         $ids = [];
-        if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+        if (SchemaFeatures::hasCourseClassPivot()) {
             $ids = $this->schoolClasses()->pluck('classes.id')->map(fn ($id) => (int) $id)->all();
         }
         if ($this->class_id && ! in_array((int) $this->class_id, $ids, true)) {
@@ -90,7 +91,7 @@ class Course extends Model
         if ($ids === []) {
             return;
         }
-        if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+        if (SchemaFeatures::hasCourseClassPivot()) {
             $this->schoolClasses()->sync($ids);
         }
         $this->class_id = $ids[0];
@@ -104,7 +105,7 @@ class Course extends Model
     {
         return $query->where(function (Builder $q) use ($classId): void {
             $q->where('class_id', $classId);
-            if (\Illuminate\Support\Facades\Schema::hasTable('course_class')) {
+            if (SchemaFeatures::hasCourseClassPivot()) {
                 $q->orWhereHas('schoolClasses', fn (Builder $sq) => $sq->where('classes.id', $classId));
             }
         });

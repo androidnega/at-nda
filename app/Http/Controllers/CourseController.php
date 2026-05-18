@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Course;
 use App\Models\Lecturer;
 use App\Models\SchoolClass;
+use App\Support\SchemaFeatures;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -67,9 +68,12 @@ class CourseController extends Controller
     public function edit(Course $course): View
     {
         $classes = SchoolClass::orderBy('name')->get();
-        $lecturers = \App\Models\Lecturer::with('schoolClasses')->orderBy('name')->get();
+        $lecturerWith = SchemaFeatures::hasClassLecturerPivot() ? ['schoolClasses'] : [];
+        $lecturers = Lecturer::with($lecturerWith)->orderBy('name')->get();
         $venues = \App\Models\Venue::orderBy('name')->get();
-        $course->load('schoolClasses');
+        if (SchemaFeatures::hasCourseClassPivot()) {
+            $course->load('schoolClasses');
+        }
 
         return view('admin.course-form', compact('course', 'classes', 'lecturers', 'venues'));
     }

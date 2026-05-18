@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\SchemaFeatures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -47,7 +48,9 @@ class Lecturer extends Model
      */
     public function assignedClassIds(): Collection
     {
-        $fromPivot = $this->schoolClasses()->pluck('classes.id');
+        $fromPivot = SchemaFeatures::hasClassLecturerPivot()
+            ? $this->schoolClasses()->pluck('classes.id')
+            : collect();
         $fromCourses = $this->courses()->whereNotNull('class_id')->distinct()->pluck('class_id');
         if ($this->class_id) {
             $fromPivot->push((int) $this->class_id);
@@ -58,7 +61,7 @@ class Lecturer extends Model
 
     public function syncAssignedClasses(array $classIds): void
     {
-        if (! \Illuminate\Support\Facades\Schema::hasTable('class_lecturer')) {
+        if (! SchemaFeatures::hasClassLecturerPivot()) {
             return;
         }
         $ids = array_values(array_unique(array_filter(array_map('intval', $classIds))));
