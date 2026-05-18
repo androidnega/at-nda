@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
@@ -53,11 +54,42 @@ class Lecturer extends Model
             ? $this->schoolClasses()->pluck('classes.id')
             : collect();
         $fromCourses = $this->courses()->whereNotNull('class_id')->distinct()->pluck('class_id');
+        if (SchemaFeatures::hasCourseClassPivot()) {
+            $courseIds = $this->courses()->pluck('id');
+            if ($courseIds->isNotEmpty()) {
+                $fromPivot = $fromPivot->merge(
+                    DB::table('course_class')
+                        ->whereIn('course_id', $courseIds)
+                        ->distinct()
+                        ->pluck('class_id')
+                );
+            }
+        }
         if ($this->class_id) {
             $fromPivot->push((int) $this->class_id);
         }
 
         return $fromPivot->merge($fromCourses)->map(fn ($id) => (int) $id)->unique()->values();
+    }
+
+    public function hasStaffLogin(): bool
+    {
+        return ! empty($this->password);
+    }
+
+    public function staffLoginLabel(): string
+    {
+        if (! $this->hasStaffLogin()) {
+            return '';
+        }
+        if ($this->username) {
+            return (string) $this->username;
+        }
+        if ($this->email) {
+            return (string) $this->email;
+        }
+
+        return 'Password set';
     }
 
     public function syncAssignedClasses(array $classIds): void

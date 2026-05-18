@@ -17,7 +17,14 @@ class LecturerController extends Controller
         if (SchemaFeatures::hasClassLecturerPivot()) {
             $with[] = 'schoolClasses';
         }
-        $lecturers = Lecturer::with($with)->latest()->paginate(15);
+        $lecturers = Lecturer::query()
+            ->with($with)
+            ->with([
+                'courses' => fn ($q) => $q->with('schoolClasses')->orderBy('course_name'),
+            ])
+            ->withCount('courses')
+            ->latest()
+            ->paginate(15);
 
         return view('admin.lecturers', compact('lecturers'));
     }

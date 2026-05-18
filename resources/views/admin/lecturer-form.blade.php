@@ -8,7 +8,7 @@
         <i class="fas fa-arrow-left"></i> Lecturers
     </a>
     <h1 class="text-2xl font-bold">{{ $lecturer ? 'Edit lecturer' : 'Add lecturer' }}</h1>
-    <p class="text-gray-500 text-sm mt-1">Directory only — name and optional class. No login is created. Assign lecturers to courses (and venues) on each course.</p>
+    <p class="text-gray-500 text-sm mt-1">Name and assigned classes (dashboard access). Link courses on the Courses page; create staff login under User management.</p>
 </div>
 
 <form method="POST" action="{{ $lecturer ? route('dashboard.lecturers.update', $lecturer) : route('dashboard.lecturers.store') }}" class="bg-white rounded-xl border border-gray-100 overflow-hidden max-w-2xl">
