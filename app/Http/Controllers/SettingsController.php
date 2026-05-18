@@ -53,9 +53,6 @@ class SettingsController extends Controller
         if (SystemSetting::hasRequireProfileImageColumn()) {
             $payload['require_profile_image_on_onboarding'] = $request->boolean('require_profile_image_on_onboarding');
         }
-        if (SystemSetting::hasSmsCallLoggingColumn() && $request->session()->has('admin_id')) {
-            $payload['enable_sms_call_logging'] = $request->boolean('enable_sms_call_logging');
-        }
         if ($request->session()->has('admin_id')) {
             if (SystemSetting::hasEnforceStudentLogoutLockColumn()) {
                 $payload['enforce_student_logout_lock'] = $request->boolean('enforce_student_logout_lock');

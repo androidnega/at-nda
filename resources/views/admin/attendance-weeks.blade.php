@@ -1,13 +1,13 @@
 @extends('layouts.admin')
 
-@section('title', 'Attendance weeks')
+@section('title', 'Attendance reset')
 
 @section('content')
 <div class="w-full max-w-none space-y-8 pb-8">
     {{-- Page header --}}
     <div class="bg-white border border-gray-200 rounded-xl p-6 sm:p-8">
         <p class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Term &amp; numbering</p>
-        <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Attendance weeks</h1>
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Attendance reset</h1>
         <p class="mt-2 text-sm text-gray-600 max-w-2xl leading-relaxed">
             Seed week labels for new sessions, or wipe history when a term restarts. Session numbers and IDs realign after a reset.
         </p>

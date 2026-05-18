@@ -20,7 +20,6 @@ class SystemSetting extends Model
         'last_attendance_reset_at',
         // Optional JSON list for backend-driven small UI updates (Flutter renders only when present).
         'dynamic_ui',
-        'enable_sms_call_logging',
         'rep_dashboard_theme',
         'student_dashboard_theme',
         'mobile_app_theme_seed',
@@ -39,7 +38,6 @@ class SystemSetting extends Model
         'face_match_threshold' => 'float',
         'last_attendance_reset_at' => 'datetime',
         'dynamic_ui' => 'array',
-        'enable_sms_call_logging' => 'boolean',
     ];
 
     public const ATTENDANCE_MODE_INSTANT = 'instant';
@@ -48,11 +46,6 @@ class SystemSetting extends Model
     public const INSTANT_MODE_LOCATION = 'location';
     public const INSTANT_MODE_LOCATION_QR = 'location_qr';
     public const INSTANT_MODE_WIFI = 'wifi';
-
-    public static function hasSmsCallLoggingColumn(): bool
-    {
-        return Schema::hasColumn('system_settings', 'enable_sms_call_logging');
-    }
 
     public static function hasRequireProfileImageColumn(): bool
     {
@@ -120,9 +113,6 @@ class SystemSetting extends Model
             }
             if (static::hasDynamicUiColumn()) {
                 $payload['dynamic_ui'] = [];
-            }
-            if (static::hasSmsCallLoggingColumn()) {
-                $payload['enable_sms_call_logging'] = false;
             }
             if (static::hasRepDashboardThemeColumn()) {
                 $payload['rep_dashboard_theme'] = 'classic';

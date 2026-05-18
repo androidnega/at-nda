@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Course;
 use App\Models\Lecturer;
+use App\Models\SchoolClass;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -67,20 +69,51 @@ class StaffAccountController extends Controller
 
     public function create(): View
     {
-        $lecturers = Lecturer::orderBy('name')->get();
+        $lecturers = Lecturer::with('schoolClass')->orderBy('name')->get();
+        $classes = SchoolClass::orderBy('name')->get();
+        $courses = Course::with('schoolClass')->orderBy('course_name')->get();
 
-        return view('admin.staff-accounts.create', compact('lecturers'));
+        return view('admin.staff-accounts.create', compact('lecturers', 'classes', 'courses'));
     }
 
     public function store(Request $request): RedirectResponse
     {
         $accountType = (string) $request->input('account_type', 'admin');
         if ($accountType === 'lecturer') {
-            $validated = $request->validate([
-                'lecturer_id' => 'required|exists:lecturers,id',
-            ]);
+            $lecturerSource = (string) $request->input('lecturer_source', 'existing');
 
-            $lecturer = Lecturer::findOrFail($validated['lecturer_id']);
+            if ($lecturerSource === 'new') {
+                $validated = $request->validate([
+                    'lecturer_name' => 'required|string|max:255',
+                    'class_id' => 'nullable|exists:classes,id',
+                    'course_ids' => 'nullable|array',
+                    'course_ids.*' => 'integer|exists:courses,id',
+                ]);
+                $lecturer = Lecturer::create([
+                    'name' => $validated['lecturer_name'],
+                    'class_id' => $validated['class_id'] ?? null,
+                ]);
+                $courseIds = array_values(array_unique(array_map('intval', $validated['course_ids'] ?? [])));
+                if ($courseIds !== []) {
+                    Course::whereIn('id', $courseIds)->update(['lecturer_id' => $lecturer->id]);
+                }
+            } else {
+                $validated = $request->validate([
+                    'lecturer_id' => 'required|exists:lecturers,id',
+                    'course_ids' => 'nullable|array',
+                    'course_ids.*' => 'integer|exists:courses,id',
+                ]);
+                $lecturer = Lecturer::findOrFail($validated['lecturer_id']);
+                $courseIds = array_values(array_unique(array_map('intval', $validated['course_ids'] ?? [])));
+                if ($courseIds !== []) {
+                    Course::whereIn('id', $courseIds)->update(['lecturer_id' => $lecturer->id]);
+                }
+            }
+
+            if ($lecturer->password) {
+                return redirect()->route('dashboard.staff-accounts.index')
+                    ->with('error', 'This lecturer already has a login. Reset the password from User management instead.');
+            }
             $hasUsernameColumn = Schema::hasColumn('lecturers', 'username');
             $hasMustChangeColumn = Schema::hasColumn('lecturers', 'must_change_password');
             $username = ($hasUsernameColumn ? $lecturer->username : null) ?: $this->buildFancyLecturerUsername($lecturer->name, $lecturer->id);

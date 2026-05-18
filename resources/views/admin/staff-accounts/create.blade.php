@@ -8,7 +8,7 @@
         <i class="fas fa-arrow-left"></i> User management
     </a>
     <h1 class="text-2xl font-bold">Add staff account</h1>
-    <p class="text-gray-500 text-sm mt-1">Create either an administrator login or a lecturer login from existing lecturer names.</p>
+    <p class="text-gray-500 text-sm mt-1">Create an administrator login, or add a lecturer with login and optional course assignments.</p>
 </div>
 
 <form method="POST" action="{{ route('dashboard.staff-accounts.store') }}" class="bg-white rounded-xl border border-gray-100 overflow-hidden max-w-2xl">
@@ -22,19 +22,71 @@
             </select>
         </div>
 
-        <div id="lecturer-account-fields" class="{{ old('account_type') === 'lecturer' ? '' : 'hidden' }}">
-            <label for="lecturer_id" class="block text-sm font-medium text-gray-700 mb-2">Lecturer name</label>
-            <select id="lecturer_id" name="lecturer_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
-                <option value="">Select lecturer...</option>
-                @foreach($lecturers as $lecturer)
-                    <option value="{{ $lecturer->id }}" {{ (string) old('lecturer_id') === (string) $lecturer->id ? 'selected' : '' }}>
-                        {{ $lecturer->name }}
-                    </option>
-                @endforeach
-            </select>
-            @error('lecturer_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-            <p class="text-xs text-gray-500 mt-2">System generates temporary password automatically. Lecturer must change it on first login at <strong>/admin</strong>.</p>
-            <p class="text-xs text-indigo-600 mt-1">Username is auto-generated from lecturer name with a computer-style format (e.g. <span class="font-mono">kwame.byte</span>).</p>
+        <div id="lecturer-account-fields" class="{{ old('account_type') === 'lecturer' ? '' : 'hidden' }} space-y-5">
+            <div>
+                <span class="block text-sm font-medium text-gray-700 mb-2">Lecturer</span>
+                <div class="flex flex-wrap gap-4 text-sm">
+                    <label class="inline-flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="lecturer_source" value="existing" {{ old('lecturer_source', 'existing') !== 'new' ? 'checked' : '' }} class="text-primary focus:ring-primary">
+                        Existing name
+                    </label>
+                    <label class="inline-flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="lecturer_source" value="new" {{ old('lecturer_source') === 'new' ? 'checked' : '' }} class="text-primary focus:ring-primary">
+                        Create new lecturer
+                    </label>
+                </div>
+            </div>
+
+            <div id="lecturer-existing-fields" class="{{ old('lecturer_source') === 'new' ? 'hidden' : '' }}">
+                <label for="lecturer_id" class="block text-sm font-medium text-gray-700 mb-2">Select lecturer</label>
+                <select id="lecturer_id" name="lecturer_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
+                    <option value="">Select lecturer...</option>
+                    @foreach($lecturers as $lecturer)
+                        <option value="{{ $lecturer->id }}" {{ (string) old('lecturer_id') === (string) $lecturer->id ? 'selected' : '' }}>
+                            {{ $lecturer->name }}@if($lecturer->schoolClass) · {{ $lecturer->schoolClass->name }}@endif
+                        </option>
+                    @endforeach
+                </select>
+                @error('lecturer_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+            </div>
+
+            <div id="lecturer-new-fields" class="{{ old('lecturer_source') === 'new' ? '' : 'hidden' }} space-y-4">
+                <div>
+                    <label for="lecturer_name" class="block text-sm font-medium text-gray-700 mb-2">Full name</label>
+                    <input type="text" id="lecturer_name" name="lecturer_name" value="{{ old('lecturer_name') }}"
+                        class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
+                    @error('lecturer_name')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Home class <span class="text-gray-400 font-normal">(optional)</span></label>
+                    <select id="class_id" name="class_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary">
+                        <option value="">— None —</option>
+                        @foreach($classes as $class)
+                            <option value="{{ $class->id }}" {{ (string) old('class_id') === (string) $class->id ? 'selected' : '' }}>{{ $class->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('class_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+            </div>
+
+            @if($courses->isNotEmpty())
+            <div>
+                <label for="course_ids" class="block text-sm font-medium text-gray-700 mb-2">Assign to courses <span class="text-gray-400 font-normal">(optional)</span></label>
+                <select id="course_ids" name="course_ids[]" multiple size="6"
+                    class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                    @foreach($courses as $course)
+                        <option value="{{ $course->id }}" {{ collect(old('course_ids', []))->contains($course->id) ? 'selected' : '' }}>
+                            {{ $course->course_name }}@if($course->course_code) ({{ $course->course_code }})@endif
+                            @if($course->schoolClass) — {{ $course->schoolClass->name }}@endif
+                        </option>
+                    @endforeach
+                </select>
+                <p class="text-xs text-gray-500 mt-2">Hold Ctrl/Cmd to select multiple. You can also assign later on the Courses page.</p>
+                @error('course_ids')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+            </div>
+            @endif
+
+            <p class="text-xs text-gray-500">A temporary password is generated automatically. The lecturer must change it on first login at <strong>/admin</strong>.</p>
         </div>
 
         <div id="admin-account-fields" class="{{ old('account_type', 'admin') === 'admin' ? '' : 'hidden' }} space-y-5">
@@ -80,8 +132,25 @@
     var type = document.getElementById('account_type');
     var adminWrap = document.getElementById('admin-account-fields');
     var lecturerWrap = document.getElementById('lecturer-account-fields');
-    var adminInputs = adminWrap ? adminWrap.querySelectorAll('input') : [];
+    var adminInputs = adminWrap ? adminWrap.querySelectorAll('input[required]') : [];
     var lecturerSelect = document.getElementById('lecturer_id');
+    var lecturerName = document.getElementById('lecturer_name');
+    var existingWrap = document.getElementById('lecturer-existing-fields');
+    var newWrap = document.getElementById('lecturer-new-fields');
+    var sourceRadios = document.querySelectorAll('input[name="lecturer_source"]');
+
+    function lecturerSourceIsNew() {
+        var checked = document.querySelector('input[name="lecturer_source"]:checked');
+        return checked && checked.value === 'new';
+    }
+
+    function syncLecturerSource() {
+        var isNew = lecturerSourceIsNew();
+        if (existingWrap) existingWrap.classList.toggle('hidden', isNew);
+        if (newWrap) newWrap.classList.toggle('hidden', !isNew);
+        if (lecturerSelect) lecturerSelect.required = !isNew;
+        if (lecturerName) lecturerName.required = isNew;
+    }
 
     function sync() {
         var isLecturer = type && type.value === 'lecturer';
@@ -90,11 +159,16 @@
         adminInputs.forEach(function (el) {
             el.required = !isLecturer;
         });
-        if (lecturerSelect) {
-            lecturerSelect.required = isLecturer;
+        if (isLecturer) {
+            syncLecturerSource();
+        } else if (lecturerSelect) {
+            lecturerSelect.required = false;
+            if (lecturerName) lecturerName.required = false;
         }
     }
+
     if (type) type.addEventListener('change', sync);
+    sourceRadios.forEach(function (r) { r.addEventListener('change', sync); });
     sync();
 })();
 </script>

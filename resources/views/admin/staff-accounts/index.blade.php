@@ -11,7 +11,7 @@
         </div>
         <a href="{{ route('dashboard.staff-accounts.create') }}" class="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-primary/90 shrink-0">
             <i class="fas fa-user-plus"></i>
-            Add administrator
+            Add staff account
         </a>
     </div>
 </div>

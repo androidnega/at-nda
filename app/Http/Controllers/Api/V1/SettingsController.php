@@ -31,8 +31,6 @@ class SettingsController extends Controller
                 'face_match_threshold' => (float) ($settings->face_match_threshold ?? 0.5),
                 'attendance_data_version' => (int) ($settings->attendance_data_version ?? 0),
                 'last_attendance_reset_at' => $settings->last_attendance_reset_at?->toIso8601String(),
-                'enable_sms_call_logging' => SystemSetting::hasSmsCallLoggingColumn()
-                    && (bool) ($settings->enable_sms_call_logging ?? false),
                 'rep_dashboard_theme' => SystemSetting::hasRepDashboardThemeColumn()
                     ? (string) ($settings->rep_dashboard_theme ?: 'classic')
                     : 'classic',

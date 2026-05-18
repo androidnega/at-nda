@@ -79,17 +79,13 @@
                 </a>
                 <a href="{{ route('dashboard.attendance-weeks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.attendance-weeks.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-calendar-week w-5 text-center"></i>
-                    <span>Attendance weeks</span>
+                    <span>Attendance reset</span>
                 </a>
                 <p class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 mt-6">Settings</p>
                 @if(session()->has('admin_id'))
                 <a href="{{ route('dashboard.staff-accounts.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.staff-accounts.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-users-cog w-5 text-center"></i>
                     <span>User management</span>
-                </a>
-                <a href="{{ route('dashboard.communication-logs.sms.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.communication-logs.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
-                    <i class="fas fa-mobile-screen-button w-5 text-center"></i>
-                    <span>SMS, call &amp; WhatsApp logs</span>
                 </a>
                 @endif
                 <a href="{{ route('dashboard.venues.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.venues.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">

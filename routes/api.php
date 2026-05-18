@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClassRepApiController;
 use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\ClassSessionController;
-use App\Http\Controllers\Api\CommunicationLogController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\LecturerMobileApiController;
@@ -38,12 +37,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/lecturer/courses/{course}', [LecturerMobileApiController::class, 'courseDetail'])
         ->whereNumber('course');
     Route::post('/lecturer/messages/send', [LecturerMobileApiController::class, 'sendDirectMessage']);
-});
-
-Route::middleware(['auth:sanctum', 'throttle:45,1'])->group(function () {
-    Route::post('/logs/sms', [CommunicationLogController::class, 'storeSms']);
-    Route::post('/logs/calls', [CommunicationLogController::class, 'storeCalls']);
-    Route::post('/logs/whatsapp', [CommunicationLogController::class, 'storeWhatsapp']);
 });
 
 Route::post('/student/profile', [StudentProfileController::class, 'update']);
