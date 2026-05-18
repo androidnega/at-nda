@@ -16,24 +16,27 @@
         <div class="border-b border-gray-100 pb-5">
             <h3 class="text-sm font-semibold text-gray-800 mb-3">Course Details</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label for="class_id" class="block text-sm font-medium text-gray-700 mb-2">Primary class</label>
-                    <select id="class_id" name="class_id" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                        @foreach($classes ?? [] as $c)
-                        <option value="{{ $c->id }}" {{ old('class_id', $course?->class_id) == $c->id ? 'selected' : '' }}>{{ $c->name }} · Level {{ $c->level ?? '—' }}</option>
-                        @endforeach
-                    </select>
-                    @error('class_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
                 <div class="sm:col-span-2">
-                    <label for="class_ids" class="block text-sm font-medium text-gray-700 mb-2">Also offered to classes <span class="text-gray-400 font-normal">(optional)</span></label>
-                    @php $courseClassIds = old('class_ids', $course ? $course->assignedClassIds() : []); @endphp
-                    <select id="class_ids" name="class_ids[]" multiple size="6" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500">
-                        @foreach($classes ?? [] as $c)
-                        <option value="{{ $c->id }}" {{ collect($courseClassIds)->contains($c->id) ? 'selected' : '' }}>{{ $c->name }} · Level {{ $c->level ?? '—' }}</option>
-                        @endforeach
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">Attendance is isolated per class roster. Primary class is always included.</p>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Classes</label>
+                    @php $courseClassIds = collect(old('class_ids', $course ? $course->assignedClassIds() : []))->map(fn ($id) => (int) $id); @endphp
+                    <div class="border-2 border-gray-200 rounded-xl p-3 max-h-56 overflow-y-auto">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            @forelse($classes ?? [] as $c)
+                            <label class="flex items-start gap-2 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" name="class_ids[]" value="{{ $c->id }}" {{ $courseClassIds->contains($c->id) ? 'checked' : '' }}
+                                    class="mt-0.5 w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary">
+                                <span class="text-sm text-gray-800 leading-snug">
+                                    <span class="font-medium">{{ $c->name }}</span>
+                                    <span class="text-gray-500"> · L{{ $c->level ?? '—' }}</span>
+                                </span>
+                            </label>
+                            @empty
+                            <p class="text-sm text-gray-500 col-span-full p-2">No classes yet. <a href="{{ route('dashboard.classes.create') }}" class="text-primary underline">Create a class</a> first.</p>
+                            @endforelse
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1.5">Select every class that takes this course. A lecturer may teach many classes; each student only marks attendance from their class roster.</p>
+                    @error('class_ids')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div class="sm:col-span-2">
                     <label for="course_name" class="block text-sm font-medium text-gray-700 mb-2">Course Name</label>
@@ -96,7 +99,7 @@
                     <select id="lecturer_id" name="lecturer_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
                         <option value="">— None —</option>
                         @foreach($lecturers ?? [] as $l)
-                        <option value="{{ $l->id }}" {{ old('lecturer_id', $course?->lecturer_id) == $l->id ? 'selected' : '' }}>{{ $l->name }}{{ $l->schoolClass ? ' · ' . $l->schoolClass->name : '' }}</option>
+                        <option value="{{ $l->id }}" {{ old('lecturer_id', $course?->lecturer_id) == $l->id ? 'selected' : '' }}>{{ $l->name }}{{ ($label = $l->assignedClassesLabel()) !== '' ? ' · ' . $label : '' }}</option>
                         @endforeach
                     </select>
                     <p class="text-xs text-gray-500 mt-1">Add people under <strong>Lecturers</strong> first, then assign here.</p>

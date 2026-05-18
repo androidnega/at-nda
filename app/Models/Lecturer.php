@@ -69,4 +69,19 @@ class Lecturer extends Model
         $this->class_id = $ids[0] ?? null;
         $this->save();
     }
+
+    /** Comma-separated class names for dropdowns (multi-class aware). */
+    public function assignedClassesLabel(): string
+    {
+        if (SchemaFeatures::hasClassLecturerPivot()) {
+            if ($this->relationLoaded('schoolClasses') && $this->schoolClasses->isNotEmpty()) {
+                return $this->schoolClasses->pluck('name')->join(', ');
+            }
+            if ($this->schoolClasses()->exists()) {
+                return $this->schoolClasses()->orderBy('name')->pluck('name')->join(', ');
+            }
+        }
+
+        return $this->schoolClass?->name ?? '';
+    }
 }
