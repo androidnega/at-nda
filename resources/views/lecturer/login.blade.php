@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="app-viewport-lock">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="shortcut icon" href="{{ asset('favicon.svg') }}">
@@ -11,8 +11,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }, colors: { primary: '#e11d48' } } } }</script>
+    @include('partials.minimal-ui')
+    @include('partials.viewport-lock-styles')
 </head>
-<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 font-sans">
+<body class="bg-slate-50 h-[100dvh] max-h-[100dvh] overflow-hidden flex items-center justify-center p-4 font-sans">
     <div class="w-full max-w-md">
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <div class="text-center mb-8">

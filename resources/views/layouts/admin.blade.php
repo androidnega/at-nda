@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="app-viewport-lock">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -25,11 +25,12 @@
         }
     </script>
     @include('partials.minimal-ui')
+    @include('partials.viewport-lock-styles')
     <style>
         .sidebar-overlay { @apply fixed inset-0 bg-black/40 z-40 lg:hidden; }
     </style>
 </head>
-<body class="bg-[#f3f5f8] min-h-screen text-slate-900 antialiased font-sans">
+<body class="bg-[#f3f5f8] text-slate-900 antialiased font-sans">
     {{-- Mobile sidebar overlay --}}
     <div id="sidebar-overlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
 
@@ -118,7 +119,7 @@
     </aside>
 
     {{-- Main content wrapper --}}
-    <div class="lg:pl-64 min-h-screen flex flex-col w-full min-w-0">
+    <div class="app-dashboard-shell lg:pl-64 w-full min-w-0">
         {{-- Top bar --}}
         <header class="sticky top-0 z-30 w-full bg-white/95 border-b border-slate-200">
             <div class="flex items-center justify-between gap-3 w-full max-w-[100vw] px-4 sm:px-6 lg:px-8 py-3 min-h-[3.25rem]">
@@ -171,7 +172,7 @@
         </header>
 
         {{-- Page content --}}
-        <main class="flex-1 w-full min-w-0 max-w-[100vw] px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main class="app-dashboard-main w-full min-w-0 max-w-[100vw] px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             @yield('content')
         </main>
     </div>
@@ -181,8 +182,8 @@
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebar-overlay');
             const toggle = document.getElementById('sidebar-toggle');
-            function open() { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
-            function close() { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); document.body.style.overflow = ''; }
+            function open() { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
+            function close() { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
             toggle?.addEventListener('click', () => sidebar.classList.contains('-translate-x-full') ? open() : close());
             overlay?.addEventListener('click', close);
             window.matchMedia('(min-width: 1024px)').addEventListener('change', e => { if (e.matches) close(); });

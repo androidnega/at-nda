@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="app-viewport-lock">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#e11d48">
     <meta name="application-name" content="{{ config('app.name') }}">
@@ -18,9 +18,10 @@
         tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }, colors: { primary: '#e11d48' } } } }
     </script>
     @include('partials.minimal-ui')
+    @include('partials.viewport-lock-styles')
 </head>
-<body class="min-h-screen min-h-[100dvh] text-gray-900 antialiased font-sans bg-gray-50">
-    <div class="min-h-screen min-h-[100dvh]">
+<body class="text-gray-900 antialiased font-sans bg-gray-50">
+    <div class="h-[100dvh] max-h-[100dvh] overflow-hidden w-full">
         @yield('content')
     </div>
     @stack('scripts')
