@@ -100,7 +100,7 @@ class SettingsController extends Controller
                 if (! $result['ok']) {
                     return back()->with('error', $result['message'] ?? 'Could not save login image.');
                 }
-                $messages[] = 'Login hero image updated (compressed to max 320 KB).';
+                $messages[] = 'Login hero image updated (compressed to max 500 KB).';
             }
         }
 

@@ -14,7 +14,7 @@ final class AuthHeroImage
 
     public const CUSTOM_PUBLIC_PATH = 'images/auth/login-hero-custom.jpg';
 
-    private const MAX_BYTES = 320_000;
+    private const MAX_BYTES = 500_000;
 
     private const MAX_WIDTH = 1280;
 

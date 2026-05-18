@@ -44,7 +44,7 @@
                         <label for="auth_hero_image" class="block text-sm font-medium text-gray-700 mb-1">Upload new image</label>
                         <input type="file" id="auth_hero_image" name="auth_hero_image" accept="image/jpeg,image/png,image/webp"
                             class="w-full text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary">
-                        <p class="text-xs text-gray-500 mt-1">JPEG, PNG, or WebP. Max width 1280px, compressed to ≤320 KB.</p>
+                        <p class="text-xs text-gray-500 mt-1">JPEG, PNG, or WebP. Max width 1280px, compressed to ≤500 KB.</p>
                     </div>
                     @if($authHeroUsingCustom ?? false)
                     <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
