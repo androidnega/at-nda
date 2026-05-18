@@ -28,8 +28,8 @@
                 <div class="w-full sm:w-48 shrink-0 rounded-xl overflow-hidden border border-gray-900/40 shadow-lg shadow-black/20 ring-1 ring-white/10 bg-gray-950">
                     <div class="relative aspect-[4/3]">
                         <img src="{{ $authHeroPreviewUrl ?? \App\Support\AuthHeroImage::previewUrl() }}" alt="Login hero preview"
-                            class="absolute inset-0 w-full h-full object-cover brightness-[0.52] saturate-[0.88]">
-                        <div class="absolute inset-0 bg-gradient-to-br from-gray-950/90 via-gray-900/75 to-black/85"></div>
+                            class="absolute inset-0 w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-gradient-to-br from-black/55 via-black/30 to-black/50"></div>
                     </div>
                 </div>
                 <div class="flex-1 space-y-3 min-w-0">

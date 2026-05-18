@@ -10,7 +10,7 @@
         <img
             src="{{ $heroSrc }}"
             alt="Lecturer using a laptop for school attendance management"
-            class="absolute inset-0 w-full h-full object-cover brightness-[0.52] saturate-[0.88] contrast-[1.05]"
+            class="absolute inset-0 w-full h-full object-cover"
             loading="{{ $heroLoading ?? 'lazy' }}"
             decoding="async"
             referrerpolicy="no-referrer-when-downgrade"
