@@ -18,7 +18,7 @@ return [
     /*
     | Shared hero photo for the split sign-in layout (index, password, set-password).
     */
-    'auth_hero_image' => env('AUTH_HERO_IMAGE', 'https://www.shutterstock.com/image-photo/children-using-laptops-school-africa-600nw-2547522299.jpg'),
+    'auth_hero_image' => env('AUTH_HERO_IMAGE', 'images/auth/lecturer-laptop-attendance-system-login.jpg'),
 
     /*
     | Key used by the one-click migration endpoint /run-migrations?key=...

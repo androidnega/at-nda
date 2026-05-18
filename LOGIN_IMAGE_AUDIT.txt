@@ -1,0 +1,208 @@
+AT-NDA LOGIN IMAGE AUDIT
+Generated: 2026-05-18
+Purpose: Hand off to AI or designers for replacing/updating login visuals.
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+This project uses TWO different "login image" concepts:
+
+1. WEB (Laravel) — Large hero photo on the right side of student sign-in flows
+   - NOT stored in the repo; loaded from a URL (env AUTH_HERO_IMAGE)
+   - Default file size ~44 KB; pixels 600×327 (see below)
+
+2. MOBILE (Flutter) — App icon in the teal header band on LoginPage
+   - Stored in repo: at-end_frontend_app/branding/app_icon.png
+   - Source pixels 1024×1024; displayed at 96×96 logical px on screen
+
+Admin and lecturer web login pages do NOT use a photo — only a Font Awesome icon.
+
+
+================================================================================
+1. WEB HERO IMAGE (main "login image" on website)
+================================================================================
+
+CONFIG
+------
+File:     config/app.php
+Key:      auth_hero_image
+Env:      AUTH_HERO_IMAGE (optional override in .env)
+Default:  images/auth/lecturer-laptop-attendance-system-login.jpg (public/, ~178 KB, 1280×853)
+
+Documented in: .env.example (comment only, line ~29)
+
+
+SOURCE FILE METRICS (default URL, fetched 2026-05-18)
+----------------------------------------------------
+Format:        JPEG
+Pixel size:    600 × 327 px  (width × height, aspect ~1.83:1)
+File size:     ~44 KB (43,754 bytes on disk)
+Note:          Shutterstock URL segment "600nw" matches delivered width 600px.
+
+
+PAGES THAT USE IT
+-----------------
+All extend layouts/home.blade.php and include partials/auth-hero-panel.blade.php:
+
+  Route / view                          | Hero loading
+  --------------------------------------|------------------
+  /  (home)                             | resources/views/home.blade.php — eager
+  student password step                 | resources/views/student/login-password.blade.php — lazy (default)
+  first-time set password               | resources/views/student/set-password.blade.php — lazy (default)
+
+NOT used on:
+  - /admin (resources/views/admin/login.blade.php)
+  - /lecturer/login (resources/views/lecturer/login.blade.php)
+
+
+HOW IT IS RENDERED (partials/auth-hero-panel.blade.php)
+-------------------------------------------------------
+Markup:
+  <img src="{{ $heroImage }}" alt="" class="absolute inset-0 w-full h-full object-cover" ...>
+
+CSS / layout (Tailwind):
+  - Panel max width on large screens: min(100%, 32rem) ≈ 512px column
+  - Min heights:
+      mobile:  min-h 200px (sm: 240px)
+      desktop: min-h min(85vh, 28rem)  → up to ~448px tall
+  - Image: position absolute, inset-0, w-full h-full, object-cover (crops to fill)
+  - Overlay: bg-black/58 (58% black) full bleed on top of image
+  - Brand overlay: partials/atenda-hero-brand.blade.php (text "a-tenda", not an image)
+
+Parent layout (home.blade.php / login-password / set-password):
+  - Split card: login form ~22rem wide on left; hero on right on lg+ breakpoints
+  - Card overlaps hero slightly: lg:-mr-8 xl:-mr-12, z-index card 20
+  - Container max-w-5xl centered
+
+Performance attributes:
+  - loading="eager" only on home (first paint); else lazy
+  - decoding="async"
+  - referrerpolicy="no-referrer-when-downgrade"
+
+
+RECOMMENDATIONS FOR REPLACEMENT (web hero)
+------------------------------------------
+  - Target aspect ratio: ~16:9 to ~2:1 (current 600×327 ≈ 1.83:1 works)
+  - Minimum width for retina: 1024–1200px wide source (display scales down/crops)
+  - Safe area: keep faces/subjects centered; edges will crop with object-cover
+  - Host on your own CDN or public/storage; set AUTH_HERO_IMAGE=https://...
+  - Avoid hotlinking Shutterstock in production (licensing)
+
+
+================================================================================
+2. FLUTTER MOBILE LOGIN IMAGE (app_icon.png)
+================================================================================
+
+FILE LOCATION
+-------------
+  at-end_frontend_app/branding/app_icon.png
+
+REGISTERED IN
+-------------
+  at-end_frontend_app/pubspec.yaml
+    flutter.assets:
+      - branding/app_icon.png
+    flutter_launcher_icons:
+      image_path: branding/app_icon.png  (also used for Android/iOS launcher icons)
+
+
+SOURCE FILE METRICS
+-------------------
+Format:        PNG, 8-bit RGBA
+Pixel size:    1024 × 1024 px (square)
+File size:     ~43 KB (43,754 bytes)
+
+
+CODE USAGE (at-end_frontend_app/lib/pages/login_page.dart)
+----------------------------------------------------------
+Widget: _loginHeader()
+  - Parent: top section of login screen, flex 28 of Column (≈28% of viewport height)
+  - Background: solid teal _primaryTeal (#0D9488)
+  - Image.asset('branding/app_icon.png')
+      width:  96
+      height: 96
+      fit:    BoxFit.cover
+      borderRadius on ClipRRect: 24
+  - Fallback if asset missing: 88×88 circle with Icons.event_available_rounded
+
+Screen structure:
+  - Column: top 28% = header (icon), bottom 72% = white rounded form (radius 40 top)
+  - Same header reused on loading state
+
+This is NOT the Shutterstock hero; mobile login does not load AUTH_HERO_IMAGE.
+
+
+RECOMMENDATIONS FOR REPLACEMENT (Flutter)
+-----------------------------------------
+  - Provide square PNG, ideally 1024×1024 (or 512×512 minimum)
+  - Important content inside center ~70% (corners clipped slightly by 24px radius)
+  - Re-run: dart run flutter_launcher_icons  after replacing (updates app icons)
+  - No separate @2x/@3x variants in pubspec; Flutter scales single asset
+
+
+================================================================================
+3. WEB LOGINS WITHOUT HERO PHOTO
+================================================================================
+
+Admin login (/admin)
+  File: resources/views/admin/login.blade.php
+  Visual: 56×56px styled box (w-14 h-14), Font Awesome fa-user-shield, rose tint
+  No <img> for login branding.
+
+Lecturer login (/lecturer/login)
+  File: resources/views/lecturer/login.blade.php
+  Visual: Same pattern as admin (fa-chalkboard-teacher icon implied or similar)
+  No hero panel.
+
+
+================================================================================
+4. RELATED BRANDING (NOT login hero, for context)
+================================================================================
+
+Web student login card brand (no image file):
+  partials/atenda-brand.blade.php — CSS gradient letter "a" + text wordmark
+
+Web hero overlay brand (on top of photo):
+  partials/atenda-hero-brand.blade.php — white text + small "a" badge (not image)
+
+Favicon (all pages):
+  public/favicon.svg — SVG, not used on login layout specifically
+
+University/school logos: separate feature (admin universities), not login hero.
+
+
+================================================================================
+5. ENV / DEPLOY CHECKLIST
+================================================================================
+
+To change web login image:
+  1. Upload image to accessible HTTPS URL (or same-origin path).
+  2. Set in production .env: AUTH_HERO_IMAGE=https://your-domain/path/image.jpg
+  3. php artisan config:clear (if config cached)
+
+To change mobile login header icon:
+  1. Replace at-end_frontend_app/branding/app_icon.png (keep 1024×1024 recommended).
+  2. flutter pub get && dart run flutter_launcher_icons
+  3. Rebuild app.
+
+
+================================================================================
+6. QUICK REFERENCE TABLE
+================================================================================
+
+| Surface              | Asset / URL                    | Source px    | Shown as              |
+|----------------------|--------------------------------|--------------|------------------------|
+| Web student login    | AUTH_HERO_IMAGE (env)          | 600×327*     | Cover, up to ~512×448  |
+| Web password step    | same                           | same         | same                   |
+| Web set-password     | same                           | same         | same                   |
+| Flutter LoginPage    | branding/app_icon.png          | 1024×1024    | 96×96, radius 24       |
+| Admin/Lecturer web   | (none)                         | —            | Icon only              |
+
+* Default URL dimensions; override URL may differ — always verify with file metadata.
+
+
+================================================================================
+END OF AUDIT
+================================================================================
