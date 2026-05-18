@@ -63,10 +63,14 @@ class UniversityController extends Controller
 
     public function edit(University $university): View
     {
+        UniversityLogoStorage::purgeMissingFile($university);
+        $university->refresh();
+
         $faculties = Faculty::query()->orderBy('name')->get();
         $assignedFacultyIds = $university->faculties()->pluck('id')->all();
+        $logoPreviewSrc = UniversityLogoStorage::previewDataUri($university);
 
-        return view('admin.universities.form', compact('university', 'faculties', 'assignedFacultyIds'));
+        return view('admin.universities.form', compact('university', 'faculties', 'assignedFacultyIds', 'logoPreviewSrc'));
     }
 
     public function update(Request $request, University $university): RedirectResponse

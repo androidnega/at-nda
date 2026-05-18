@@ -4,7 +4,7 @@
 
 @section('content')
 @php
-    $existingLogoUrl = $university?->logoUrl();
+    $logoPreviewSrc = $logoPreviewSrc ?? null;
 @endphp
 <div class="mb-6">
     <a href="{{ route('dashboard.universities.index') }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
@@ -53,11 +53,11 @@
                 <div class="relative h-24 w-24 shrink-0 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
                     <img
                         id="school-logo-preview-img"
-                        src="{{ $existingLogoUrl ?? '' }}"
+                        @if($logoPreviewSrc) src="{{ $logoPreviewSrc }}" @endif
                         alt="School logo preview"
-                        class="absolute inset-0 h-full w-full object-contain bg-white p-1 {{ $existingLogoUrl ? 'block' : 'hidden' }}"
+                        class="absolute inset-0 h-full w-full object-contain bg-white p-1 {{ $logoPreviewSrc ? 'block' : 'hidden' }}"
                     >
-                    <div id="school-logo-preview-empty" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 {{ $existingLogoUrl ? 'hidden' : 'flex' }}">
+                    <div id="school-logo-preview-empty" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 {{ $logoPreviewSrc ? 'hidden' : 'flex' }}">
                         <i class="fas fa-image text-2xl mb-1"></i>
                         <span class="text-[10px] uppercase tracking-wide">Preview</span>
                     </div>
@@ -107,7 +107,7 @@
     var img = document.getElementById('school-logo-preview-img');
     var empty = document.getElementById('school-logo-preview-empty');
     var remove = document.getElementById('remove_school_logo');
-    var savedUrl = @json($existingLogoUrl);
+    var savedSrc = @json($logoPreviewSrc);
 
     function showImage(src) {
         if (!img || !empty) return;
@@ -156,10 +156,16 @@
                 showEmpty();
                 if (fileInput) fileInput.value = '';
                 if (fileName) fileName.textContent = 'Logo will be removed when you save.';
-            } else if (savedUrl) {
-                showImage(savedUrl);
+            } else if (savedSrc) {
+                showImage(savedSrc);
                 if (fileName) fileName.textContent = 'Saved logo restored in preview.';
             }
+        });
+    }
+
+    if (img) {
+        img.addEventListener('error', function () {
+            showEmpty();
         });
     }
 })();
