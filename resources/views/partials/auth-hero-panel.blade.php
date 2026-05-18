@@ -5,8 +5,8 @@
         $heroSrc = asset(ltrim($heroSrc, '/'));
     }
 @endphp
-<section class="order-1 lg:order-2 w-full flex-1 min-h-0 max-h-[38vh] sm:max-h-[42vh] lg:max-h-none lg:flex-none lg:w-[min(100%,32rem)] lg:h-[min(26rem,82vh)] mx-auto lg:mx-0 rounded-2xl border border-gray-950/60 overflow-hidden shadow-2xl shadow-black/40 ring-1 ring-white/5">
-    <div class="relative h-full min-h-[10rem] bg-gray-950">
+<section class="order-1 lg:order-2 w-full flex-none min-h-0 max-h-[22vh] sm:max-h-[26vh] lg:max-h-none lg:flex-none lg:w-[min(100%,32rem)] lg:h-[min(26rem,82vh)] mx-auto lg:mx-0 rounded-2xl border border-gray-950/60 overflow-hidden shadow-2xl shadow-black/40 ring-1 ring-white/5">
+    <div class="relative h-full min-h-[4.5rem] bg-gray-950">
         <img
             src="{{ $heroSrc }}"
             alt="Lecturer using a laptop for school attendance management"
