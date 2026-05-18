@@ -10,8 +10,8 @@ SUMMARY
 This project uses TWO different "login image" concepts:
 
 1. WEB (Laravel) — Large hero photo on the right side of student sign-in flows
-   - NOT stored in the repo; loaded from a URL (env AUTH_HERO_IMAGE)
-   - Default file size ~44 KB; pixels 600×327 (see below)
+   - Default: public/images/auth/lecturer-laptop-attendance-system-login.jpg
+   - ~212 KB JPEG, 1024×682 px (3:2); optional override via AUTH_HERO_IMAGE or admin upload
 
 2. MOBILE (Flutter) — App icon in the teal header band on LoginPage
    - Stored in repo: at-end_frontend_app/branding/app_icon.png
@@ -29,17 +29,17 @@ CONFIG
 File:     config/app.php
 Key:      auth_hero_image
 Env:      AUTH_HERO_IMAGE (optional override in .env)
-Default:  images/auth/lecturer-laptop-attendance-system-login.jpg (public/, ~178 KB, 1280×853)
+Default:  images/auth/lecturer-laptop-attendance-system-login.jpg (public/, ~212 KB, 1024×682)
 
 Documented in: .env.example (comment only, line ~29)
 
 
-SOURCE FILE METRICS (default URL, fetched 2026-05-18)
-----------------------------------------------------
-Format:        JPEG
-Pixel size:    600 × 327 px  (width × height, aspect ~1.83:1)
-File size:     ~44 KB (43,754 bytes on disk)
-Note:          Shutterstock URL segment "600nw" matches delivered width 600px.
+SOURCE FILE METRICS (default asset in repo, updated 2026-05-18)
+----------------------------------------------------------------
+Format:        JPEG (quality 92, max width 1280 when uploaded via admin)
+Pixel size:    1024 × 682 px  (3:2)
+File size:     ~212 KB (under 320 KB cap in AuthHeroImage)
+Subject:       Lecturer at desk with laptop; bright office illustration/photo style
 
 
 PAGES THAT USE IT
