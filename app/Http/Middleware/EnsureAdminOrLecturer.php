@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\LecturerAccess;
 use App\Support\RoleAccess;
 use Closure;
 use Illuminate\Http\Request;
@@ -23,14 +24,8 @@ class EnsureAdminOrLecturer
             return $r;
         }
         if ($request->session()->has('lecturer_id') && ! $request->session()->has('admin_id')) {
-            $allowedForLecturer = [
-                'dashboard.dashboard',
-                'dashboard.students.index',
-                'dashboard.students.show',
-                'dashboard.students.reset-password',
-                'dashboard.pdf.export',
-            ];
-            if (! in_array((string) $request->route()?->getName(), $allowedForLecturer, true)) {
+            $routeName = (string) $request->route()?->getName();
+            if (! LecturerAccess::routeAllowedForLecturer($routeName)) {
                 return redirect()->route('dashboard.dashboard')->with('error', 'Access denied for lecturer account.');
             }
         }

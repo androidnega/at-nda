@@ -5,8 +5,9 @@
 @section('content')
 <div class="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
     <div>
-        <a href="{{ route('dashboard.classes.index') }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
-            <i class="fas fa-arrow-left"></i> Classes
+        @php $lecturerRoster = session()->has('lecturer_id') && !session()->has('admin_id'); @endphp
+        <a href="{{ $lecturerRoster ? route('dashboard.my-classes.index') : route('dashboard.classes.index') }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
+            <i class="fas fa-arrow-left"></i> {{ $lecturerRoster ? 'My classes' : 'Classes' }}
         </a>
         <h1 class="text-2xl sm:text-3xl font-bold text-primary">{{ $schoolClass->name }}</h1>
         <p class="text-gray-500 text-sm mt-1">{{ $schoolClass->faculty?->name ?? '—' }} · {{ $schoolClass->department?->name ?? '—' }} · Level {{ $schoolClass->level ?? '—' }}</p>

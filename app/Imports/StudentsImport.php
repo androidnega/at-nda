@@ -11,6 +11,13 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 class StudentsImport implements ToCollection, WithHeadingRow
 {
+    /**
+     * @param  list<int>|null  $allowedClassIds  When set, rows targeting other classes are skipped.
+     */
+    public function __construct(
+        private readonly ?array $allowedClassIds = null,
+    ) {}
+
     public int $created = 0;
 
     public int $updated = 0;
@@ -32,6 +39,11 @@ class StudentsImport implements ToCollection, WithHeadingRow
             }
 
             $classId = $this->resolveClassId($array);
+            if ($classId && $this->allowedClassIds !== null && ! in_array($classId, $this->allowedClassIds, true)) {
+                $this->skipped++;
+
+                continue;
+            }
             $departmentId = null;
             if ($classId) {
                 $class = SchoolClass::query()->find($classId);

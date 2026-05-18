@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ResolvesLecturerScope;
 use App\Imports\ClassStudentsImport;
+use App\Support\LecturerAccess;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\SchoolClass;
@@ -15,6 +17,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class ClassController extends Controller
 {
+    use ResolvesLecturerScope;
+
     public function index(): View
     {
         $classes = SchoolClass::with(['university', 'faculty', 'department', 'semester'])
@@ -29,6 +33,7 @@ class ClassController extends Controller
 
     public function show(Request $request, SchoolClass $schoolClass): View
     {
+        $this->authorizeLecturerForClass($request, $schoolClass);
         $schoolClass->load(['university', 'faculty', 'department']);
         $query = $schoolClass->students()
             ->with(['classReps' => fn ($q) => $q->where('class_id', $schoolClass->id)])
@@ -53,6 +58,7 @@ class ClassController extends Controller
 
     public function importStudents(Request $request, SchoolClass $schoolClass): RedirectResponse
     {
+        $this->authorizeLecturerForClass($request, $schoolClass);
         $request->validate([
             'file' => 'required|file|mimes:xlsx,xls,csv,txt|max:10240',
         ]);
@@ -66,6 +72,7 @@ class ClassController extends Controller
 
     public function storeStudent(Request $request, SchoolClass $schoolClass): RedirectResponse
     {
+        $this->authorizeLecturerForClass($request, $schoolClass);
         $validated = $request->validate([
             'index_number' => 'required|string|max:64',
             'first_name' => 'nullable|string|max:255',
@@ -185,5 +192,16 @@ class ClassController extends Controller
         }
 
         return null;
+    }
+
+    private function authorizeLecturerForClass(Request $request, SchoolClass $schoolClass): void
+    {
+        $lecturer = LecturerAccess::lecturerFromSession($request);
+        if (! $lecturer) {
+            return;
+        }
+        if (! LecturerAccess::canAccessClass($lecturer, $schoolClass)) {
+            abort(403, 'You can only manage students in your assigned classes.');
+        }
     }
 }

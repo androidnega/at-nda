@@ -89,11 +89,18 @@
                         </p>
                     </div>
                 </div>
-                <a href="{{ route('dashboard.students.index', ['class_id' => $schoolClass->id]) }}"
-                    class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-white shrink-0">
-                    <i class="fas fa-user-graduate text-sky-600"></i>
-                    View students
-                </a>
+                <div class="flex flex-wrap gap-2 shrink-0">
+                    <a href="{{ route('dashboard.classes.show', $schoolClass) }}"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-white">
+                        <i class="fas fa-upload text-sky-600"></i>
+                        Upload roster
+                    </a>
+                    <a href="{{ route('dashboard.students.index', ['class_id' => $schoolClass->id]) }}"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-white">
+                        <i class="fas fa-user-graduate text-sky-600"></i>
+                        Students
+                    </a>
+                </div>
             </div>
 
             @if($classCourses->isEmpty())

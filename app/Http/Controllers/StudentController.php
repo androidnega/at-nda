@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ResolvesLecturerScope;
 use App\Imports\StudentsImport;
-use App\Models\Lecturer;
+use App\Models\Course;
 use App\Models\Student;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,6 +14,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class StudentController extends Controller
 {
+    use ResolvesLecturerScope;
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -22,6 +25,11 @@ class StudentController extends Controller
             'middle_name' => 'nullable|string|max:255',
             'last_name' => 'nullable|string|max:255',
         ]);
+
+        $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
+        if ($lecturerClassIds !== null && ! $lecturerClassIds->contains((int) $validated['class_id'])) {
+            abort(403, 'You can only add students to your assigned classes.');
+        }
 
         Student::create([
             'index_number' => strtoupper(trim($validated['index_number'])),
@@ -153,9 +161,13 @@ class StudentController extends Controller
             'classReps.schoolClass',
             'deviceToken',
         ]);
-        $coursesCount = $student->schoolClass ? $student->schoolClass->courses()->count() : 0;
+        $coursesCount = $student->class_id
+            ? Course::query()->forManagedClasses([(int) $student->class_id])->count()
+            : 0;
         $presentCount = $student->attendances()->count();
-        $courseIds = $student->schoolClass ? $student->schoolClass->courses()->pluck('id')->toArray() : [];
+        $courseIds = $student->class_id
+            ? Course::query()->forManagedClasses([(int) $student->class_id])->pluck('id')->all()
+            : [];
         $totalWeeks = $courseIds ? \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count() : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
         $repAssignableClasses = collect();
@@ -216,25 +228,12 @@ class StudentController extends Controller
             'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
         ]);
 
-        $import = new StudentsImport;
+        $lecturerClassIds = $this->lecturerClassIdsFromSession($request);
+        $import = new StudentsImport($lecturerClassIds?->all());
         Excel::import($import, $request->file('file'));
 
         return redirect()->route('dashboard.students.index')->with('success',
             "Import complete: {$import->created} added, {$import->updated} updated, {$import->skipped} skipped.");
     }
 
-    private function lecturerClassIdsFromSession(Request $request): ?\Illuminate\Support\Collection
-    {
-        $lecturerId = $request->session()->get('lecturer_id');
-        if (! $lecturerId) {
-            return null;
-        }
-
-        $lecturer = Lecturer::find($lecturerId);
-        if (! $lecturer) {
-            return collect();
-        }
-
-        return $lecturer->assignedClassIds();
-    }
 }

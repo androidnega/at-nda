@@ -16,7 +16,7 @@
             @else
                 {{ number_format($totalStudents ?? $students->total()) }} {{ $isLecturerStudents ? 'in your classes' : 'in the system' }}
             @endif
-            · search and filter by class@if(!$isLecturerStudents) · add or import@endif
+            · search and filter · add or import roster
         </p>
         @if($isLecturerStudents)
         <a href="{{ route('dashboard.dashboard') }}" class="inline-flex items-center gap-1.5 mt-2 text-sm text-primary hover:underline"><i class="fas fa-arrow-left"></i> Back to dashboard</a>
@@ -24,7 +24,7 @@
     </div>
 </div>
 
-@if(!session()->has('lecturer_id') || session()->has('admin_id'))
+@php $isLecturerStudents = session()->has('lecturer_id') && !session()->has('admin_id'); @endphp
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
     <form action="{{ route('dashboard.students.store') }}" method="POST" class="bg-white rounded-xl border border-gray-100 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
         @csrf
@@ -65,7 +65,12 @@
         @csrf
         <div>
             <p class="text-sm font-semibold text-gray-800">Bulk Import Students</p>
-            <p class="text-xs text-gray-500">Upload Excel/CSV with student rows.</p>
+            <p class="text-xs text-gray-500">
+                Upload Excel/CSV with index numbers.
+                @if($isLecturerStudents)
+                Include a <strong>class</strong> column for your assigned classes, or use <a href="{{ route('dashboard.my-classes.index') }}" class="text-primary hover:underline">per-class roster upload</a>.
+                @endif
+            </p>
         </div>
         <input type="file" name="file" accept=".xlsx,.xls,.csv" required
             class="text-sm file:mr-2 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700">
@@ -74,7 +79,6 @@
         </div>
     </form>
 </div>
-@endif
 
 @if (session('success'))
     <div class="mb-4 p-3 bg-emerald-50 text-emerald-800 rounded-lg text-sm">{{ session('success') }}</div>

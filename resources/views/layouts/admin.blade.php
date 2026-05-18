@@ -55,9 +55,17 @@
                     <span>Dashboard</span>
                 </a>
                 @if($isLecturerView)
+                <a href="{{ route('dashboard.my-classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.my-classes.*') || request()->routeIs('dashboard.classes.show') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fas fa-layer-group w-5 text-center"></i>
+                    <span>Class rosters</span>
+                </a>
                 <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.students.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-user-graduate w-5 text-center"></i>
                     <span>Students</span>
+                </a>
+                <a href="{{ route('dashboard.teaching.attendance.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.teaching.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fas fa-clipboard-check w-5 text-center"></i>
+                    <span>Attendance</span>
                 </a>
                 @endif
                 @if(!$isLecturerView)

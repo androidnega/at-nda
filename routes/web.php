@@ -250,8 +250,16 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::post('/students/{student}/assign-rep', [StudentController::class, 'assignRep'])->name('students.assign-rep')->scopeBindings();
         Route::post('/students/{student}/remove-rep', [StudentController::class, 'removeRep'])->name('students.remove-rep')->scopeBindings();
         Route::middleware('admin.only')->delete('/students/{student}', [StudentController::class, 'destroy'])->name('students.destroy')->scopeBindings();
-        Route::middleware('admin.only')->post('/students', [StudentController::class, 'store'])->name('students.store');
+        Route::post('/students', [StudentController::class, 'store'])->name('students.store');
         Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
+        Route::get('/my-classes', [\App\Http\Controllers\LecturerClassController::class, 'index'])->name('my-classes.index');
+        Route::prefix('teaching')->name('teaching.')->group(function () {
+            Route::get('/attendance', [\App\Http\Controllers\LecturerAttendanceController::class, 'index'])->name('attendance.index');
+            Route::get('/attendance/course/{course}', [\App\Http\Controllers\LecturerAttendanceController::class, 'forCourse'])->name('attendance.course')->scopeBindings();
+            Route::get('/attendance/course/{course}/pdf', [AttendancePdfController::class, 'export'])->name('attendance.course.pdf')->scopeBindings();
+            Route::get('/attendance/course/{course}/export.json', [\App\Http\Controllers\LecturerAttendanceController::class, 'exportJson'])->name('attendance.course.export-json')->scopeBindings();
+            Route::post('/attendance/course/{course}/import.json', [\App\Http\Controllers\LecturerAttendanceController::class, 'importJson'])->name('attendance.course.import-json')->scopeBindings();
+        });
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
         Route::middleware('admin.only')->prefix('api/mobile-app')->name('api.mobile-app.')->group(function () {

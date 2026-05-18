@@ -19,11 +19,19 @@
         </div>
         <div class="flex flex-wrap gap-2 shrink-0">
             @if($schoolClass)
+            <a href="{{ route('dashboard.classes.show', $schoolClass) }}"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                <i class="fas fa-upload text-sky-600"></i> Class roster
+            </a>
             <a href="{{ route('dashboard.students.index', ['class_id' => $schoolClass->id]) }}"
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50">
                 <i class="fas fa-users text-sky-600"></i> Students
             </a>
             @endif
+            <a href="{{ route('dashboard.teaching.attendance.course', $course) }}"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                <i class="fas fa-list-check text-indigo-600"></i> Attendance
+            </a>
             <a href="{{ route('dashboard.pdf.export', $course) }}" target="_blank"
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50">
                 <i class="fas fa-file-pdf text-red-600"></i> Attendance PDF
