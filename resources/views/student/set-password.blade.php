@@ -3,7 +3,7 @@
 @section('title', 'Create password — '.config('app.name'))
 
 @php
-    $heroImage = config('app.auth_hero_image');
+    $heroImage = \App\Support\AuthHeroImage::pathForViews();
 @endphp
 
 @section('content')

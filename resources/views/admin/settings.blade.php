@@ -16,8 +16,47 @@
 @endif
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    <form action="{{ route('dashboard.settings.update') }}" method="POST" class="p-6 space-y-6">
+    <form action="{{ route('dashboard.settings.update') }}" method="POST" enctype="multipart/form-data" class="p-6 space-y-6">
         @csrf
+
+        @if(session()->has('admin_id'))
+        <div class="space-y-4 pb-6 border-b border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-800">Sign-in page hero image</h2>
+            <p class="text-sm text-gray-500">Shown on student login, password, and first-time setup (dark overlay applied on the site).</p>
+
+            <div class="flex flex-col sm:flex-row gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50/80">
+                <div class="w-full sm:w-48 shrink-0 rounded-xl overflow-hidden border border-gray-900/40 shadow-lg shadow-black/20 ring-1 ring-white/10 bg-gray-950">
+                    <div class="relative aspect-[4/3]">
+                        <img src="{{ $authHeroPreviewUrl ?? \App\Support\AuthHeroImage::previewUrl() }}" alt="Login hero preview"
+                            class="absolute inset-0 w-full h-full object-cover brightness-[0.52] saturate-[0.88]">
+                        <div class="absolute inset-0 bg-gradient-to-br from-gray-950/90 via-gray-900/75 to-black/85"></div>
+                    </div>
+                </div>
+                <div class="flex-1 space-y-3 min-w-0">
+                    <p class="text-sm text-gray-700">
+                        @if($authHeroUsingCustom ?? false)
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-xs font-medium">Custom upload active</span>
+                        @else
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-gray-200 text-gray-700 text-xs font-medium">Default image</span>
+                        @endif
+                    </p>
+                    <div>
+                        <label for="auth_hero_image" class="block text-sm font-medium text-gray-700 mb-1">Upload new image</label>
+                        <input type="file" id="auth_hero_image" name="auth_hero_image" accept="image/jpeg,image/png,image/webp"
+                            class="w-full text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary">
+                        <p class="text-xs text-gray-500 mt-1">JPEG, PNG, or WebP. Max width 1280px, compressed to ≤320 KB.</p>
+                    </div>
+                    @if($authHeroUsingCustom ?? false)
+                    <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input type="hidden" name="remove_auth_hero_image" value="0">
+                        <input type="checkbox" name="remove_auth_hero_image" value="1" class="rounded border-gray-300 text-primary focus:ring-primary">
+                        Remove custom image (restore bundled default)
+                    </label>
+                    @endif
+                </div>
+            </div>
+        </div>
+        @endif
 
         <div class="space-y-4">
             <h2 class="text-lg font-semibold text-gray-800">Face & Device Security</h2>

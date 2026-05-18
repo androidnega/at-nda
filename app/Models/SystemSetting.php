@@ -25,6 +25,7 @@ class SystemSetting extends Model
         'mobile_app_theme_seed',
         'attendance_mode',
         'instant_mode_type',
+        'auth_hero_image_path',
     ];
 
     protected $casts = [
@@ -81,6 +82,11 @@ class SystemSetting extends Model
     public static function hasEnforceStudentLogoutLockColumn(): bool
     {
         return Schema::hasColumn('system_settings', 'enforce_student_logout_lock');
+    }
+
+    public static function hasAuthHeroImagePathColumn(): bool
+    {
+        return Schema::hasColumn('system_settings', 'auth_hero_image_path');
     }
 
     public function requiresProfileImageOnOnboarding(): bool

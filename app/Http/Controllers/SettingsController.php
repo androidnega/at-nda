@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SystemSetting;
+use App\Support\AuthHeroImage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -13,8 +14,11 @@ class SettingsController extends Controller
     public function index(): View
     {
         $settings = SystemSetting::get();
+        AuthHeroImage::ensureColumn();
+        $authHeroPreviewUrl = AuthHeroImage::previewUrl();
+        $authHeroUsingCustom = AuthHeroImage::isUsingCustomUpload();
 
-        return view('admin.settings', compact('settings'));
+        return view('admin.settings', compact('settings', 'authHeroPreviewUrl', 'authHeroUsingCustom'));
     }
 
     public function update(Request $request): RedirectResponse
@@ -35,6 +39,8 @@ class SettingsController extends Controller
             $rules['student_dashboard_theme'] = 'nullable|in:classic,pastel_profile,noir_task,team_reach,violet_calendar,midnight_control';
             $rules['mobile_app_theme_seed'] = 'nullable|in:teal,blue,indigo,emerald,rose,amber';
             $rules['enforce_student_logout_lock'] = 'nullable|boolean';
+            $rules['auth_hero_image'] = 'nullable|image|mimes:jpeg,jpg,png,webp|max:8192';
+            $rules['remove_auth_hero_image'] = 'nullable|boolean';
         }
         $validated = $request->validate($rules);
         if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
@@ -83,6 +89,21 @@ class SettingsController extends Controller
         $settings->update($payload);
         Cache::forget('api_v1_settings');
 
-        return back()->with('success', 'Settings updated');
+        $messages = ['Settings updated'];
+
+        if ($request->session()->has('admin_id')) {
+            if ($request->boolean('remove_auth_hero_image')) {
+                AuthHeroImage::removeCustom();
+                $messages[] = 'Login hero image reset to default.';
+            } elseif ($request->hasFile('auth_hero_image')) {
+                $result = AuthHeroImage::storeUpload($request->file('auth_hero_image'));
+                if (! $result['ok']) {
+                    return back()->with('error', $result['message'] ?? 'Could not save login image.');
+                }
+                $messages[] = 'Login hero image updated (compressed to max 320 KB).';
+            }
+        }
+
+        return back()->with('success', implode(' ', $messages));
     }
 }
