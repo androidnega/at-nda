@@ -98,7 +98,7 @@
         <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
             <div class="p-5 sm:p-6">
                 <div class="flex items-start gap-4">
-                    @if($class->logo_path)
+                    @if($class->logoUrl())
                         <img src="{{ $class->logoUrl() }}" alt="{{ $class->name }} logo" class="w-12 h-12 rounded-xl border border-gray-200 object-cover bg-white flex-shrink-0">
                     @else
                         <span class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">

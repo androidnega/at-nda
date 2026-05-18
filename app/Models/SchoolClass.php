@@ -63,15 +63,19 @@ class SchoolClass extends Model
     public function logoUrl(): ?string
     {
         $university = $this->resolveUniversity();
-        if ($university?->logo_path) {
-            return $university->logoUrl();
+        if ($university) {
+            $schoolLogo = $university->logoUrl();
+            if ($schoolLogo) {
+                return $schoolLogo;
+            }
         }
 
-        if (! $this->logo_path) {
+        $path = trim((string) ($this->logo_path ?? ''));
+        if ($path === '' || ! \Illuminate\Support\Facades\Storage::disk('public')->exists($path)) {
             return null;
         }
 
-        return route('media.classes.logo', ['schoolClass' => $this->id]) . '?v=' . $this->updated_at?->timestamp;
+        return route('media.classes.logo', ['schoolClass' => $this->id]) . '?v=' . ($this->updated_at?->timestamp ?? time());
     }
 
     public function resolveUniversity(): ?University

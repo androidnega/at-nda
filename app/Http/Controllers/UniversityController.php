@@ -121,6 +121,11 @@ class UniversityController extends Controller
             return;
         }
 
+        if ($university->logo_path && ! Storage::disk('public')->exists($university->logo_path)) {
+            $university->logo_path = null;
+            $university->save();
+        }
+
         if ($validated && $request->boolean('remove_school_logo') && $university->logo_path) {
             Storage::disk('public')->delete($university->logo_path);
             $university->logo_path = null;

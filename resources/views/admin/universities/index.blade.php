@@ -29,9 +29,10 @@
 
 <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
     <div class="overflow-x-auto">
-        <table class="w-full min-w-[420px]">
+        <table class="w-full min-w-[520px]">
             <thead class="bg-gray-50">
                 <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700 w-16">Logo</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">School</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Location</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Faculties</th>
@@ -41,10 +42,15 @@
             <tbody class="divide-y divide-gray-100">
                 @forelse($universities as $u)
                 <tr class="hover:bg-gray-50/50">
-                    <td class="px-4 py-3 font-medium text-gray-900">{{ $u->name }}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600">{{ $u->location ?: '—' }}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600">{{ $u->faculties_count ?? 0 }}</td>
-                    <td class="px-4 py-3 text-right">
+                    <td class="px-4 py-3 align-middle">
+                        <x-school-logo-thumb :url="$u->logoUrl()" :name="$u->name" size="sm" />
+                    </td>
+                    <td class="px-4 py-3 align-middle">
+                        <span class="font-medium text-gray-900">{{ $u->name }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600 align-middle">{{ $u->location ?: '—' }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600 align-middle">{{ $u->faculties_count ?? 0 }}</td>
+                    <td class="px-4 py-3 text-right align-middle">
                         <a href="{{ route('dashboard.universities.edit', $u) }}" class="text-primary hover:underline text-sm font-medium">Edit</a>
                         <form action="{{ route('dashboard.universities.destroy', $u) }}" method="POST" class="inline ml-2" onsubmit="return confirm('Delete this school?')">
                             @csrf @method('DELETE')
@@ -54,7 +60,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="4" class="px-4 py-12 text-center text-gray-500">No schools yet. <a href="{{ route('dashboard.universities.create') }}" class="text-primary hover:underline">Create one</a></td>
+                    <td colspan="5" class="px-4 py-12 text-center text-gray-500">No schools yet. <a href="{{ route('dashboard.universities.create') }}" class="text-primary hover:underline">Create one</a></td>
                 </tr>
                 @endforelse
             </tbody>
@@ -64,4 +70,17 @@
         {{ $universities->links() }}
     </div>
 </div>
+
+<script>
+document.querySelectorAll('.school-logo-thumb-img').forEach(function (el) {
+    el.addEventListener('error', function () {
+        el.style.display = 'none';
+        var fb = el.parentElement && el.parentElement.querySelector('.school-logo-thumb-fallback');
+        if (fb) {
+            fb.classList.remove('hidden');
+            fb.classList.add('flex');
+        }
+    });
+});
+</script>
 @endsection
