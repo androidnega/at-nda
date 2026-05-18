@@ -5,8 +5,8 @@
 @section('content')
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
     <div>
-        <h1 class="text-2xl font-bold">Students</h1>
-        <p class="text-gray-600 text-sm">Add individually · Import · Assign reps</p>
+        <h1 class="text-2xl font-bold text-primary">All students</h1>
+        <p class="text-gray-600 text-sm mt-1">{{ number_format($totalStudents ?? $students->total()) }} in the system · search, filter by class, add or import</p>
     </div>
 </div>
 
@@ -103,6 +103,7 @@
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-14"><span class="sr-only">Photo</span></th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Index</th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hidden sm:table-cell">Class</th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hidden md:table-cell">Program</th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Rep</th>
                     <th scope="col" class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide w-16"><span class="sr-only">Open</span></th>
@@ -114,10 +115,11 @@
                     'student' => $s,
                     'serial' => $students->firstItem() + $loop->index,
                     'detailUrl' => route('dashboard.students.show', $s),
+                    'showClassColumn' => true,
                 ])
                 @empty
                 <tr id="students-empty-initial">
-                    <td colspan="7" class="px-4 py-12 text-center text-gray-500 text-sm">No students. Import an Excel file.</td>
+                    <td colspan="8" class="px-4 py-12 text-center text-gray-500 text-sm">No students yet. Add one above or import an Excel file.</td>
                 </tr>
                 @endforelse
             </tbody>
@@ -125,6 +127,11 @@
         <div id="students-loading" class="hidden p-4 text-center text-gray-500 text-sm border-t border-gray-100">Loading...</div>
         <div id="students-empty" class="hidden p-8 text-center text-gray-500 text-sm border-t border-gray-100">No students found.</div>
     </div>
+    @if($students->hasPages())
+    <div class="p-4 border-t border-gray-100">
+        {{ $students->links() }}
+    </div>
+    @endif
 </div>
 @endsection
 
@@ -171,6 +178,7 @@
             '<td class="px-4 py-3 align-top w-12">' + photoCell + '</td>' +
             '<td class="px-4 py-3 font-mono text-sm text-gray-800 whitespace-nowrap align-top">' + esc(s.index_number) + '</td>' +
             '<td class="px-4 py-3 min-w-0 align-top"><span class="font-medium text-gray-900">' + esc(s.display_name || '—') + '</span></td>' +
+            '<td class="px-4 py-3 hidden sm:table-cell align-top text-sm text-gray-600">' + esc(s.class_name || '—') + '</td>' +
             '<td class="px-4 py-3 hidden md:table-cell align-top"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium ' + getProgramClass(s.program_key) + '">' + prog + '</span></td>' +
             '<td class="px-4 py-3 align-top">' + repCell + '</td>' +
             '<td class="px-4 py-3 text-right align-top w-16">' +

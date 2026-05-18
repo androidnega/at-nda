@@ -66,7 +66,10 @@ class StudentController extends Controller
             $query->where('index_number', 'like', strtoupper($program) . '%');
         }
 
-        $students = $query->with(['classReps.schoolClass'])->latest()->paginate(30)->withQueryString();
+        $students = $query->with(['classReps.schoolClass'])->orderBy('index_number')->paginate(50)->withQueryString();
+        $totalStudents = Student::query()
+            ->when($lecturerClassIds !== null, fn ($q) => $q->whereIn('class_id', $lecturerClassIds))
+            ->count();
         $classesQuery = \App\Models\SchoolClass::orderBy('name');
         if ($lecturerClassIds !== null) {
             $classesQuery->whereIn('id', $lecturerClassIds);
@@ -97,7 +100,7 @@ class StudentController extends Controller
             ]);
         }
 
-        return view('admin.students', compact('students', 'classes'));
+        return view('admin.students', compact('students', 'classes', 'totalStudents'));
     }
 
     public function assignRep(Request $request, Student $student): RedirectResponse

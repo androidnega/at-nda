@@ -98,13 +98,9 @@
         <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
             <div class="p-5 sm:p-6">
                 <div class="flex items-start gap-4">
-                    @if($class->logoUrl())
-                        <img src="{{ $class->logoUrl() }}" alt="{{ $class->name }} logo" class="w-12 h-12 rounded-xl border border-gray-200 object-cover bg-white flex-shrink-0">
-                    @else
-                        <span class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
-                            <i class="fas fa-chalkboard-teacher text-xl"></i>
-                        </span>
-                    @endif
+                    <span class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                        <i class="fas fa-chalkboard-teacher text-xl"></i>
+                    </span>
                     <div class="flex-1 min-w-0">
                         <h3 class="font-semibold text-gray-800 text-lg">{{ $class->name }}</h3>
                         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">

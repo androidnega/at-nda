@@ -29,4 +29,10 @@ class University extends Model
     {
         return UniversityLogoStorage::publicUrl($this);
     }
+
+    /** Inline image for admin lists (no /storage URL). */
+    public function logoPreviewSrc(): ?string
+    {
+        return UniversityLogoStorage::previewDataUri($this);
+    }
 }

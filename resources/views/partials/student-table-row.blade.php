@@ -2,6 +2,7 @@
     $idx = strtoupper($student->index_number ?? '');
     $programClass = str_contains($idx, 'ITN') ? 'bg-blue-100 text-blue-700' : (str_contains($idx, 'ITS') ? 'bg-emerald-100 text-emerald-700' : (str_contains($idx, 'ITD') ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-600'));
     $showRepColumn = $showRepColumn ?? true;
+    $showClassColumn = $showClassColumn ?? false;
     $compact = $compact ?? false;
     $tc = $compact ? 'px-2 py-1.5 text-xs' : 'px-4 py-3 text-sm';
     $tcName = $compact ? 'px-2 py-1.5 text-xs' : 'px-4 py-3 text-sm';
@@ -26,6 +27,11 @@
             <span class="font-medium">{{ $student->getDisplayName() }}</span>
         @endif
     </td>
+    @if($showClassColumn)
+    <td class="{{ $tc }} hidden sm:table-cell align-top text-gray-600">
+        {{ $student->schoolClass?->name ?? '—' }}
+    </td>
+    @endif
     <td class="{{ $tc }} hidden md:table-cell align-top">
         <span class="inline-block {{ $progPad }} rounded font-medium {{ $programClass }}">{{ $student->getProgramLabel() }}</span>
     </td>

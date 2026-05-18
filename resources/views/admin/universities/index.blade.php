@@ -43,7 +43,7 @@
                 @forelse($universities as $u)
                 <tr class="hover:bg-gray-50/50">
                     <td class="px-4 py-3 align-middle">
-                        <x-school-logo-thumb :url="$u->logoUrl()" :name="$u->name" size="sm" />
+                        <x-school-logo-thumb :data-uri="$u->logoPreviewSrc()" :name="$u->name" size="sm" />
                     </td>
                     <td class="px-4 py-3 align-middle">
                         <span class="font-medium text-gray-900">{{ $u->name }}</span>
