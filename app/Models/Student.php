@@ -498,7 +498,7 @@ class Student extends Model implements AuthenticatableContract
         }
 
         $courses = Course::query()
-            ->whereIn('class_id', $classIds)
+            ->forManagedClasses($classIds)
             ->whereNotNull('day_of_week')
             ->whereNotNull('start_time')
             ->whereNotNull('end_time')

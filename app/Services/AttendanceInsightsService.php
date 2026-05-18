@@ -162,7 +162,7 @@ class AttendanceInsightsService
             ->get(['id', 'index_number', 'first_name', 'last_name', 'class_id']);
 
         $courses = Course::query()
-            ->whereIn('class_id', $ids)
+            ->forManagedClasses($ids)
             ->get(['id', 'class_id', 'course_name']);
 
         $flagged = [];
@@ -170,7 +170,7 @@ class AttendanceInsightsService
             $best = 0;
             $bestCourse = null;
             foreach ($courses as $course) {
-                if ((int) $course->class_id !== (int) $student->class_id) {
+                if (! $course->isAssignedToClass((int) $student->class_id)) {
                     continue;
                 }
                 $streak = $this->consecutiveMissStreakStudentCourse((int) $student->id, (int) $course->id);

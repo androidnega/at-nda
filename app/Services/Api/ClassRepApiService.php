@@ -15,6 +15,7 @@ use App\Services\ActiveSessionListBuilder;
 use App\Services\AttendanceInsightsService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Support\RepCourseAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -119,12 +120,8 @@ class ClassRepApiService
     public function isMainRepForCourse(Student $student, int $courseId): bool
     {
         $course = Course::find($courseId);
-        if (! $course?->class_id) {
-            return false;
-        }
-        $cr = $student->classReps()->where('class_id', $course->class_id)->first();
 
-        return $cr?->isMainRep() ?? false;
+        return $course && RepCourseAccess::isMainRepForCourse($student, $course);
     }
 
     /**
@@ -146,17 +143,18 @@ class ClassRepApiService
         $courses = Course::query()
             ->with([
                 'schoolClass',
+                'schoolClasses',
                 'attendanceSessions' => fn ($q) => $q->where('is_active', true)->orderByDesc('id'),
             ])
-            ->whereIn('class_id', $classIds)
+            ->forManagedClasses($classIds)
             ->orderBy('course_name')
             ->get();
 
         $items = [];
         foreach ($courses as $course) {
-            $cr = $student->classReps()->where('class_id', $course->class_id)->first();
+            $cr = RepCourseAccess::classRepForCourse($student, $course);
             $role = $cr?->role ?? 'rep';
-            $canOpen = $cr ? $cr->isMainRep() : false;
+            $canOpen = $cr?->isMainRep() ?? false;
 
             $activeSession = null;
             foreach ($course->attendanceSessions as $s) {
@@ -212,7 +210,7 @@ class ClassRepApiService
         $insights = ['delta_pct' => 0.0, 'direction' => 'flat', 'weekly_trend_label' => '—'];
         $flagged = [];
         if (! $managed->isEmpty()) {
-            $courseIds = Course::query()->whereIn('class_id', $managed)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $courseIds = Course::query()->forManagedClasses($managed)->pluck('id')->map(fn ($id) => (int) $id)->all();
             $svc = app(AttendanceInsightsService::class);
             $trend = $svc->weeklyAttendanceTrend($courseIds, 8);
             $insights = array_merge(
@@ -318,9 +316,7 @@ class ClassRepApiService
             return response()->json(['message' => 'Set day and time for this course first (timetable).'], 422);
         }
 
-        ClassSessionScopeService::deactivateActiveSessionsForClass(
-            $course->class_id ? (int) $course->class_id : null
-        );
+        RepCourseAccess::deactivateSessionsForCourse($course);
 
         $week = null;
         $weekNumber = $validated['week_number'] ?? null;
@@ -555,7 +551,7 @@ class ClassRepApiService
 
         $classId = $target->class_id ? (int) $target->class_id : null;
         $courseIds = $classId
-            ? Course::query()->where('class_id', $classId)->pluck('id')->all()
+            ? Course::query()->forManagedClasses([$classId])->pluck('id')->all()
             : [];
 
         $present = 0;

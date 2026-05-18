@@ -14,6 +14,7 @@ use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Support\RepCourseAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,13 +49,13 @@ class ClassRepController extends Controller
     private function requireMainRep(Student $student, int $courseId): bool
     {
         $course = Course::find($courseId);
-        if (!$course?->class_id) return false;
-        $cr = $student->classReps()->where('class_id', $course->class_id)->first();
-        if ($cr) {
-            return $cr->isMainRep();
-        }
-        // Only class reps can open sessions.
-        return false;
+
+        return $course && RepCourseAccess::isMainRepForCourse($student, $course);
+    }
+
+    private function repCanAccessCourse(Student $rep, Course $course): bool
+    {
+        return RepCourseAccess::canAccessCourse($rep, $course);
     }
 
     private function getRepClassIds(Student $rep): \Illuminate\Support\Collection
@@ -77,7 +78,7 @@ class ClassRepController extends Controller
 
         $classIds = $this->getRepClassIds($student);
         $studentsCount = Student::whereIn('class_id', $classIds)->count();
-        $courseQuery = Course::whereIn('class_id', $classIds);
+        $courseQuery = Course::query()->forManagedClasses($classIds);
         $coursesCount = (clone $courseQuery)->count();
         $courseIds = (clone $courseQuery)->pluck('id');
 
@@ -96,8 +97,8 @@ class ClassRepController extends Controller
                 ->count();
 
         $todayName = strtolower(now()->format('l'));
-        $todayCourses = Course::with(['schoolClass', 'lecturer'])
-            ->whereIn('class_id', $classIds)
+        $todayCourses = Course::with(['schoolClass', 'schoolClasses', 'lecturer'])
+            ->forManagedClasses($classIds)
             ->whereNotNull('day_of_week')
             ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
             ->orderBy('start_time')
@@ -124,15 +125,15 @@ class ClassRepController extends Controller
         $classIds = $this->getRepClassIds($student);
         $courses = Course::with([
             'schoolClass.faculty.university',
-            'attendanceSessions' => fn($q) => $q->where('is_active', true),
+            'schoolClasses',
+            'attendanceSessions' => fn ($q) => $q->where('is_active', true),
         ])
-            ->whereIn('class_id', $classIds)
+            ->forManagedClasses($classIds)
             ->orderBy('course_name')
             ->get()
-            ->map(fn($c) => (object) [
+            ->map(fn ($c) => (object) [
                 'course' => $c,
-                'role' => $student->classReps()->where('class_id', $c->class_id)->first()?->role
-                    ?? 'rep',
+                'role' => RepCourseAccess::classRepForCourse($student, $c)?->role ?? 'rep',
                 'canOpenSession' => $this->requireMainRep($student, $c->id),
             ]);
 
@@ -189,8 +190,7 @@ class ClassRepController extends Controller
         $validated['mode'] = $forcedMode;
 
         $course = Course::findOrFail($validated['course_id']);
-        $classIds = $this->getRepClassIds($student);
-        if (!$course->class_id || !$classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only open sessions for courses in your class.');
         }
         if (!$this->requireMainRep($student, $course->id)) {
@@ -201,9 +201,7 @@ class ClassRepController extends Controller
             return back()->with('error', 'Set day and time for this course first (timetable).');
         }
 
-        ClassSessionScopeService::deactivateActiveSessionsForClass(
-            $course->class_id ? (int) $course->class_id : null
-        );
+        RepCourseAccess::deactivateSessionsForCourse($course);
 
         $week = $course->createOrGetAttendanceWeekForToday();
 
@@ -275,7 +273,7 @@ class ClassRepController extends Controller
 
         $course = $session->course;
         $classIds = $this->getRepClassIds($student);
-        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only manage sessions for courses in your class.');
         }
         if (! $this->requireMainRep($student, $session->course_id)) {
@@ -294,7 +292,7 @@ class ClassRepController extends Controller
 
         $course = $session->course;
         $classIds = $this->getRepClassIds($student);
-        if (!$course->class_id || !$classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only manage sessions for courses in your class.');
         }
         if (!$this->requireMainRep($student, $session->course_id)) {
@@ -327,8 +325,7 @@ class ClassRepController extends Controller
         if ($student instanceof RedirectResponse) return $student;
 
         $course = $session->course;
-        $classIds = $this->getRepClassIds($student);
-        if (!$course->class_id || !$classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only view QR for courses in your class.');
         }
         if (!$session->isValid()) {
@@ -357,8 +354,7 @@ class ClassRepController extends Controller
         }
 
         $course = $session->course;
-        $classIds = $this->getRepClassIds($student);
-        if (! $course->class_id || ! $classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only download QR codes for courses in your class.');
         }
         if (! $session->isValid()) {
@@ -389,8 +385,7 @@ class ClassRepController extends Controller
         }
 
         $course = $session->course;
-        $classIds = $this->getRepClassIds($student);
-        if (!$course->class_id || !$classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only view stats for courses in your class.');
         }
 
@@ -412,8 +407,7 @@ class ClassRepController extends Controller
         }
 
         $course = $session->course;
-        $classIds = $this->getRepClassIds($student);
-        if (!$course->class_id || !$classIds->contains($course->class_id)) {
+        if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only view QR for courses in your class.');
         }
         if (!$session->isValid()) {
@@ -471,9 +465,9 @@ class ClassRepController extends Controller
             'classReps.schoolClass',
         ]);
 
-        $coursesInClass = $student->schoolClass
+        $coursesInClass = $student->class_id
             ? Course::query()
-                ->where('class_id', $student->class_id)
+                ->forManagedClasses([(int) $student->class_id])
                 ->orderBy('course_name')
                 ->get()
             : collect();
@@ -563,8 +557,8 @@ class ClassRepController extends Controller
 
         $classIds = $this->getRepClassIds($rep);
         $courses = Course::query()
-            ->whereIn('class_id', $classIds)
-            ->with(['schoolClass'])
+            ->forManagedClasses($classIds)
+            ->with(['schoolClass', 'schoolClasses'])
             ->with(['attendanceSessions' => fn ($q) => $q->latest('id')->limit(1)])
             ->withCount('attendances')
             ->orderBy('course_name')
@@ -587,7 +581,7 @@ class ClassRepController extends Controller
         }
 
         $classIds = $this->getRepClassIds($rep);
-        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+        if (! $this->repCanAccessCourse($rep, $course)) {
             abort(403, 'You can only view attendance for courses in your class.');
         }
 
@@ -637,8 +631,7 @@ class ClassRepController extends Controller
             return $rep;
         }
 
-        $classIds = $this->getRepClassIds($rep);
-        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+        if (! $this->repCanAccessCourse($rep, $course)) {
             abort(403);
         }
         if ((int) $attendanceWeek->course_id !== (int) $course->id) {
@@ -670,8 +663,7 @@ class ClassRepController extends Controller
             return $rep;
         }
 
-        $classIds = $this->getRepClassIds($rep);
-        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+        if (! $this->repCanAccessCourse($rep, $course)) {
             abort(403);
         }
         if ((int) $attendanceWeek->course_id !== (int) $course->id) {
@@ -697,8 +689,7 @@ class ClassRepController extends Controller
             return $rep;
         }
 
-        $classIds = $this->getRepClassIds($rep);
-        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+        if (! $this->repCanAccessCourse($rep, $course)) {
             abort(403, 'You can only export attendance for your class courses.');
         }
 
@@ -757,8 +748,7 @@ class ClassRepController extends Controller
             return $rep;
         }
 
-        $classIds = $this->getRepClassIds($rep);
-        if (! $course->class_id || ! $classIds->contains((int) $course->class_id)) {
+        if (! $this->repCanAccessCourse($rep, $course)) {
             abort(403, 'You can only import attendance for your class courses.');
         }
 
@@ -818,7 +808,7 @@ class ClassRepController extends Controller
                 }
 
                 $student = Student::query()->find($studentId);
-                if (! $student || (int) $student->class_id !== (int) $course->class_id) {
+                if (! $student || ! $course->isAssignedToClass((int) $student->class_id)) {
                     $skipped++;
 
                     continue;

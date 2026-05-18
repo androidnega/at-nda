@@ -153,7 +153,7 @@ class AttendanceRecordsController extends Controller
         $student = $this->classRepApi->authenticateFlexible($request);
         if (! $student instanceof JsonResponse) {
             $managed = $student->repManagedClassIds();
-            if ($course->class_id && $managed->contains((int) $course->class_id)) {
+            if ($course->overlapsClassIds($managed)) {
                 return ['course' => $course];
             }
         }

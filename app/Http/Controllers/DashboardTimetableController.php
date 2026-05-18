@@ -28,8 +28,8 @@ class DashboardTimetableController extends Controller
         $classIds = $student->timetableVisibleClassIds();
         $courses = $classIds->isEmpty()
             ? collect()
-            : Course::with(['schoolClass', 'lecturer', 'venueRelation'])
-                ->whereIn('class_id', $classIds)
+            : Course::with(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation'])
+                ->forManagedClasses($classIds)
                 ->whereNotNull('day_of_week')
                 ->whereNotNull('start_time')
                 ->orderByRaw("CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 WHEN 'Sunday' THEN 7 ELSE 99 END")

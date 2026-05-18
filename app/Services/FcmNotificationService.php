@@ -21,12 +21,13 @@ class FcmNotificationService
             return;
         }
 
-        if (!$course->class_id) {
+        $classIds = $course->assignedClassIds();
+        if ($classIds === []) {
             return;
         }
 
         $tokens = StudentDeviceToken::query()
-            ->whereHas('student', fn ($q) => $q->where('class_id', $course->class_id))
+            ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
             ->pluck('firebase_token')
             ->filter()
             ->unique()

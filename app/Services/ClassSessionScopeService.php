@@ -24,7 +24,7 @@ class ClassSessionScopeService
 
         AttendanceSession::query()
             ->where('is_active', true)
-            ->whereHas('course', fn ($q) => $q->where('class_id', (int) $classId))
+            ->whereHas('course', fn ($q) => $q->forClass((int) $classId))
             ->update(['is_active' => false]);
     }
 
@@ -33,12 +33,13 @@ class ClassSessionScopeService
      */
     public static function autoMarkClassRepsForSession(AttendanceSession $session, Course $course): void
     {
-        if (! $course->class_id) {
+        $classIds = $course->assignedClassIds();
+        if ($classIds === []) {
             return;
         }
 
         $repIds = ClassRep::query()
-            ->where('class_id', (int) $course->class_id)
+            ->whereIn('class_id', $classIds)
             ->pluck('student_id')
             ->unique()
             ->values();

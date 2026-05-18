@@ -112,10 +112,32 @@ class Course extends Model
      */
     public function scopeForClass(Builder $query, int $classId): Builder
     {
-        return $query->where(function (Builder $q) use ($classId): void {
-            $q->where('class_id', $classId);
+        return $query->forManagedClasses([$classId]);
+    }
+
+    /**
+     * Courses linked to any of the given classes (legacy class_id or course_class pivot).
+     *
+     * @param  Builder<Course>  $query
+     * @param  iterable<int, int|string>  $classIds
+     */
+    public function scopeForManagedClasses(Builder $query, iterable $classIds): Builder
+    {
+        $ids = collect($classIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $q) use ($ids): void {
+            $q->whereIn('courses.class_id', $ids);
             if (SchemaFeatures::hasCourseClassPivot()) {
-                $q->orWhereHas('schoolClasses', fn (Builder $sq) => $sq->where('classes.id', $classId));
+                $q->orWhereHas('schoolClasses', fn (Builder $sq) => $sq->whereIn('classes.id', $ids));
             }
         });
     }
