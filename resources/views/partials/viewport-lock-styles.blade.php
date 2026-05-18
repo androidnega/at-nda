@@ -1,4 +1,4 @@
-{{-- Lock document to viewport: no page scroll, no pinch-zoom (with viewport meta). --}}
+{{-- Lock document to viewport: no page scroll; no zoom (mobile meta + desktop JS). --}}
 <style id="viewport-lock-styles">
 html.app-viewport-lock {
     height: 100%;
@@ -9,6 +9,8 @@ html.app-viewport-lock {
     position: fixed;
     inset: 0;
     touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 html.app-viewport-lock body {
     height: 100%;
@@ -17,6 +19,7 @@ html.app-viewport-lock body {
     overflow: hidden;
     width: 100%;
     overscroll-behavior: none;
+    touch-action: manipulation;
 }
 .app-dashboard-shell {
     height: 100dvh;
@@ -72,3 +75,32 @@ html.app-viewport-lock body {
     }
 }
 </style>
+<script>
+(function () {
+    var root = document.documentElement;
+    if (!root.classList.contains('app-viewport-lock')) return;
+
+    var zoomKeys = { '+': 1, '-': 1, '=': 1, '_': 1, '0': 1, Add: 1, Subtract: 1, Equal: 1, NumpadAdd: 1, NumpadSubtract: 1 };
+
+    function preventZoom(e) {
+        if (e.ctrlKey || e.metaKey) e.preventDefault();
+    }
+
+    function preventZoomKey(e) {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        if (zoomKeys[e.key]) e.preventDefault();
+    }
+
+    function preventGesture(e) {
+        e.preventDefault();
+    }
+
+    var opts = { passive: false, capture: true };
+    window.addEventListener('wheel', preventZoom, opts);
+    document.addEventListener('wheel', preventZoom, opts);
+    document.addEventListener('keydown', preventZoomKey, opts);
+    document.addEventListener('gesturestart', preventGesture, opts);
+    document.addEventListener('gesturechange', preventGesture, opts);
+    document.addEventListener('gestureend', preventGesture, opts);
+})();
+</script>
