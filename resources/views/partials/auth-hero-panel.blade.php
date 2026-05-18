@@ -15,8 +15,7 @@
             decoding="async"
             referrerpolicy="no-referrer-when-downgrade"
         >
-        <div class="absolute inset-0 bg-gradient-to-br from-gray-950/90 via-gray-900/75 to-black/85 pointer-events-none" aria-hidden="true"></div>
-        <div class="absolute inset-0 bg-black/25 pointer-events-none" aria-hidden="true"></div>
+        <div class="absolute inset-0 bg-gradient-to-br from-black/55 via-black/30 to-black/50 pointer-events-none" aria-hidden="true"></div>
         @include('partials.atenda-hero-brand')
     </div>
 </section>
