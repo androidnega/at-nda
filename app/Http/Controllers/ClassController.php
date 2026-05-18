@@ -61,7 +61,34 @@ class ClassController extends Controller
         Excel::import($import, $request->file('file'));
 
         return redirect()->route('dashboard.classes.show', $schoolClass)->with('success',
-            "Import complete: {$import->created} added, {$import->updated} updated, {$import->skipped} skipped.");
+            "Import complete: {$import->created} added, {$import->updated} overwritten, {$import->skipped} skipped.");
+    }
+
+    public function storeStudent(Request $request, SchoolClass $schoolClass): RedirectResponse
+    {
+        $validated = $request->validate([
+            'index_number' => 'required|string|max:64',
+            'first_name' => 'nullable|string|max:255',
+            'middle_name' => 'nullable|string|max:255',
+            'last_name' => 'nullable|string|max:255',
+        ]);
+
+        $schoolClass->loadMissing('department');
+        $payload = [
+            'first_name' => $validated['first_name'] ?? null,
+            'middle_name' => $validated['middle_name'] ?? null,
+            'last_name' => $validated['last_name'] ?? null,
+            'class_id' => $schoolClass->id,
+        ];
+        if ($schoolClass->department_id) {
+            $payload['department_id'] = $schoolClass->department_id;
+        }
+
+        $student = \App\Models\Student::upsertFromRoster($validated['index_number'], $payload);
+        $verb = $student->wasRecentlyCreated ? 'added' : 'updated';
+
+        return redirect()->route('dashboard.classes.show', $schoolClass)
+            ->with('success', 'Student '.$student->index_number.' '.$verb.' for this class.');
     }
 
     public function create(): View

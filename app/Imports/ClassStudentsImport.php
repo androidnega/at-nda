@@ -37,7 +37,6 @@ class ClassStudentsImport implements ToCollection, WithHeadingRow
                 continue;
             }
 
-            $existing = Student::query()->where('index_number', $parsed['index'])->first();
             $payload = [
                 'first_name' => $parsed['first_name'],
                 'middle_name' => $parsed['middle_name'],
@@ -48,15 +47,11 @@ class ClassStudentsImport implements ToCollection, WithHeadingRow
                 $payload['department_id'] = $departmentId;
             }
 
-            if ($existing) {
-                $existing->update($payload);
-                $this->updated++;
-            } else {
-                Student::create(array_merge($payload, [
-                    'index_number' => $parsed['index'],
-                    'password' => null,
-                ]));
+            $student = Student::upsertFromRoster($parsed['index'], $payload);
+            if ($student->wasRecentlyCreated) {
                 $this->created++;
+            } else {
+                $this->updated++;
             }
         }
     }

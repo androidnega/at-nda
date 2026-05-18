@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -99,6 +97,16 @@ class AttendanceApp extends StatelessWidget {
               theme: AppTheme.lightForSeed(seed),
               darkTheme: AppTheme.darkForSeed(seed),
               themeMode: mode,
+              builder: (context, child) {
+                final mq = MediaQuery.of(context);
+                return MediaQuery(
+                  data: mq.copyWith(
+                    textScaler: TextScaler.noScaling,
+                    boldText: false,
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
               initialRoute: '/',
               routes: {
                 '/': (_) => appSelectableScope(const LaunchGatePage()),
@@ -131,10 +139,6 @@ class AttendanceApp extends StatelessWidget {
                 '/timetable': (_) => appSelectableScope(const TimetablePage()),
               },
             );
-            if (kIsWeb) return app;
-            final isMobile = defaultTargetPlatform == TargetPlatform.android ||
-                defaultTargetPlatform == TargetPlatform.iOS;
-            if (!isMobile) return app;
             return SelectionContainer.disabled(child: app);
           },
         );

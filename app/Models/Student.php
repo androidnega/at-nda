@@ -83,7 +83,14 @@ class Student extends Model implements AuthenticatableContract
     protected static function booted(): void
     {
         static::creating(function (Student $student) {
-            // Treat newly added students as fresh onboarding candidates.
+            // Index-only self-registration: clear profile until onboarding.
+            // Imports and admin roster entry pass names — keep them.
+            $hasProvidedName = filled($student->first_name)
+                || filled($student->middle_name)
+                || filled($student->last_name);
+            if ($hasProvidedName) {
+                return;
+            }
             $student->first_name = null;
             $student->middle_name = null;
             $student->last_name = null;
@@ -108,6 +115,19 @@ class Student extends Model implements AuthenticatableContract
                 $student->tokens()->delete();
             }
         });
+    }
+
+    /**
+     * Create or overwrite a roster row by index (class list import / admin add).
+     */
+    public static function upsertFromRoster(string $indexNumber, array $attributes): self
+    {
+        $index = strtoupper(trim($indexNumber));
+
+        return static::updateOrCreate(
+            ['index_number' => $index],
+            array_merge($attributes, ['index_number' => $index])
+        );
     }
 
     public static function findByIndex(string $indexNumber): ?self

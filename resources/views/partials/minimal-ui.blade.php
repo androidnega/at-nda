@@ -26,4 +26,12 @@
 .active\:scale-95:active {
     transform: none !important;
 }
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+body {
+    touch-action: manipulation;
+    overscroll-behavior: none;
+}
 </style>

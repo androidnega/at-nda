@@ -275,6 +275,7 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::get('/classes/create', [ClassController::class, 'create'])->name('classes.create');
         Route::post('/classes', [ClassController::class, 'store'])->name('classes.store');
         Route::get('/classes/{schoolClass}', [ClassController::class, 'show'])->name('classes.show');
+        Route::post('/classes/{schoolClass}/students', [ClassController::class, 'storeStudent'])->name('classes.students.store');
         Route::post('/classes/{schoolClass}/students/import', [ClassController::class, 'importStudents'])->name('classes.students.import');
         Route::get('/classes/{schoolClass}/edit', [ClassController::class, 'edit'])->name('classes.edit');
         Route::put('/classes/{schoolClass}', [ClassController::class, 'update'])->name('classes.update');
