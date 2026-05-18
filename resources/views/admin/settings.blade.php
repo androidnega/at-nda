@@ -22,14 +22,13 @@
         @if(session()->has('admin_id'))
         <div class="space-y-4 pb-6 border-b border-gray-100">
             <h2 class="text-lg font-semibold text-gray-800">Sign-in page hero image</h2>
-            <p class="text-sm text-gray-500">Shown on student login, password, and first-time setup (dark overlay applied on the site).</p>
+            <p class="text-sm text-gray-500">Shown on student web sign-in and the mobile app login screen.</p>
 
             <div class="flex flex-col sm:flex-row gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50/80">
-                <div class="w-full sm:w-48 shrink-0 rounded-xl overflow-hidden border border-gray-900/40 shadow-lg shadow-black/20 ring-1 ring-white/10 bg-gray-950">
-                    <div class="relative aspect-[4/3]">
+                <div class="w-full sm:w-48 shrink-0 rounded-xl overflow-hidden shadow-sm shadow-gray-200/80 bg-gray-100">
+                    <div class="relative aspect-[3/2]">
                         <img src="{{ $authHeroPreviewUrl ?? \App\Support\AuthHeroImage::previewUrl() }}" alt="Login hero preview"
-                            class="absolute inset-0 w-full h-full object-cover">
-                        <div class="absolute inset-0 bg-gradient-to-br from-black/55 via-black/30 to-black/50"></div>
+                            class="absolute inset-0 w-full h-full object-cover object-center">
                     </div>
                 </div>
                 <div class="flex-1 space-y-3 min-w-0">

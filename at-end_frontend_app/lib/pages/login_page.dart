@@ -44,6 +44,9 @@ class _LoginPageState extends State<LoginPage> {
   static const Color _primaryTeal = Color(0xFF0D9488);
   static const Color _tealButton = Color(0xFF0F766E);
   static const Color _fieldBorder = Color(0xFFE2E8F0);
+  static const Color _pageBg = Color(0xFFF9FAFB);
+
+  static const String _loginHeroAsset = 'assets/images/auth/login-hero.jpg';
 
   static const double _pillRadius = 999;
 
@@ -80,7 +83,13 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     PermissionService.requestAll();
+    _prefetchLoginHero();
     _checkStoredStudent();
+  }
+
+  Future<void> _prefetchLoginHero() async {
+    await ApiService.loadAppSettings(forceRemote: true);
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkStoredStudent() async {
@@ -337,31 +346,38 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.of(context).pushReplacementNamed(route);
   }
 
-  Widget _loginHeader() {
-    return Container(
-      width: double.infinity,
-      color: _primaryTeal,
-      alignment: Alignment.center,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Image.asset(
-          'branding/app_icon.png',
-          width: 96,
-          height: 96,
+  Widget _loginHeroImage() {
+    final url = ApiService.loginHeroImageUrl?.trim();
+    if (url != null && url.isNotEmpty) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, __, ___) => Image.asset(
+          _loginHeroAsset,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            width: 88,
-            height: 88,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.event_available_rounded,
-              color: Colors.white,
-              size: 44,
-            ),
-          ),
+          width: double.infinity,
+          height: double.infinity,
+        ),
+      );
+    }
+    return Image.asset(
+      _loginHeroAsset,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+    );
+  }
+
+  Widget _loginHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: AspectRatio(
+          aspectRatio: 3 / 2,
+          child: _loginHeroImage(),
         ),
       ),
     );
@@ -371,16 +387,13 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     if (_checkingStored) {
       return Scaffold(
-        backgroundColor: _primaryTeal,
+        backgroundColor: _pageBg,
         body: ColoredBox(
-          color: _primaryTeal,
+          color: _pageBg,
           child: Column(
             children: [
+              SafeArea(bottom: false, child: _loginHeader()),
               Expanded(
-                  flex: 28,
-                  child: SafeArea(bottom: false, child: _loginHeader())),
-              Expanded(
-                flex: 72,
                 child: Container(
                   width: double.infinity,
                   decoration: const BoxDecoration(
@@ -432,17 +445,13 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     return Scaffold(
-      backgroundColor: _primaryTeal,
+      backgroundColor: _pageBg,
       body: ColoredBox(
-        color: _primaryTeal,
+        color: _pageBg,
         child: Column(
           children: [
+            SafeArea(bottom: false, child: _loginHeader()),
             Expanded(
-              flex: 28,
-              child: SafeArea(bottom: false, child: _loginHeader()),
-            ),
-            Expanded(
-              flex: 72,
               child: ClipRRect(
                 borderRadius:
                     const BorderRadius.vertical(top: Radius.circular(40)),

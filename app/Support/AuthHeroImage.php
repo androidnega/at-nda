@@ -70,7 +70,15 @@ final class AuthHeroImage
 
     public static function previewUrl(): string
     {
-        $path = self::pathForViews();
+        return self::publicUrl(self::pathForViews());
+    }
+
+    /**
+     * Absolute URL for login hero (web + mobile), with cache buster for local files.
+     */
+    public static function publicUrl(?string $path = null): string
+    {
+        $path = $path ?? self::pathForViews();
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
             return $path;
         }

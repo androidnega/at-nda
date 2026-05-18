@@ -99,6 +99,8 @@ class ApiService {
   static const String _prefsStudentDashboardTheme = 'student_dashboard_theme';
   static const String _prefsStudentLogoutLockEnabled =
       'student_logout_lock_enabled';
+  static const String _prefsLoginHeroImageUrl = 'login_hero_image_url';
+  static String? loginHeroImageUrl;
   static bool _dashboardThemesHydrated = false;
   static DateTime? _lastSettingsFetchedAt;
   static const Duration _settingsRefreshGap = Duration(minutes: 3);
@@ -132,6 +134,10 @@ class ApiService {
       if (logoutLock != null) {
         studentLogoutLockEnabled = logoutLock;
       }
+      final hero = prefs.getString(_prefsLoginHeroImageUrl)?.trim();
+      if (hero != null && hero.isNotEmpty) {
+        loginHeroImageUrl = hero;
+      }
     } catch (_) {}
   }
 
@@ -144,6 +150,10 @@ class ApiService {
         _prefsStudentLogoutLockEnabled,
         studentLogoutLockEnabled,
       );
+      final hero = loginHeroImageUrl?.trim();
+      if (hero != null && hero.isNotEmpty) {
+        await prefs.setString(_prefsLoginHeroImageUrl, hero);
+      }
     } catch (_) {}
   }
 
@@ -236,6 +246,10 @@ class ApiService {
 
       final seed = m['mobile_app_theme_seed']?.toString().trim();
       await InstitutionThemeService.applyFromApi(seed);
+      final heroUrl = m['login_hero_image_url']?.toString().trim();
+      if (heroUrl != null && heroUrl.isNotEmpty) {
+        loginHeroImageUrl = heroUrl;
+      }
       final modeRaw =
           m['attendance_mode']?.toString().trim() ?? attendanceModeInstant;
       attendanceMode =

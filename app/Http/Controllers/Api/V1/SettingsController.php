@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\SystemSetting;
 use App\Support\ApiEnvelope;
+use App\Support\AuthHeroImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 
@@ -46,6 +47,7 @@ class SettingsController extends Controller
                 'instant_mode_type' => SystemSetting::hasAttendanceModeColumns()
                     ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
                     : SystemSetting::INSTANT_MODE_LOCATION_QR,
+                'login_hero_image_url' => AuthHeroImage::publicUrl(),
                 'cached_seconds' => 60,
             ];
         });

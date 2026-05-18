@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SystemSetting;
+use App\Support\AuthHeroImage;
 use Illuminate\Http\JsonResponse;
 
 class SettingsController extends Controller
@@ -47,6 +48,7 @@ class SettingsController extends Controller
             'instant_mode_type' => SystemSetting::hasAttendanceModeColumns()
                 ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
                 : SystemSetting::INSTANT_MODE_LOCATION_QR,
+            'login_hero_image_url' => AuthHeroImage::publicUrl(),
         ]);
     }
 }
