@@ -116,6 +116,15 @@ class AttendancePdfController extends Controller
             return;
         }
 
+        $lecturerId = $request->session()->get('lecturer_id');
+        if ($lecturerId) {
+            $lecturer = \App\Models\Lecturer::find($lecturerId);
+            if ($lecturer && $lecturer->managesCourse($course)) {
+                return;
+            }
+            abort(403, 'This course is not assigned to you.');
+        }
+
         $studentId = $request->session()->get('student_id');
         if ($studentId) {
             $student = Student::find($studentId);

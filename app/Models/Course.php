@@ -85,6 +85,15 @@ class Course extends Model
         return $student->class_id && $this->isAssignedToClass((int) $student->class_id);
     }
 
+    public function assignedClassesLabel(): string
+    {
+        if ($this->relationLoaded('schoolClasses') && $this->schoolClasses->isNotEmpty()) {
+            return $this->schoolClasses->pluck('name')->unique()->join(', ');
+        }
+
+        return $this->schoolClass?->name ?? '';
+    }
+
     public function syncAssignedClasses(array $classIds): void
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $classIds))));

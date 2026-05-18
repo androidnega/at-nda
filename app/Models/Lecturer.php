@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\SchemaFeatures;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -68,6 +69,45 @@ class Lecturer extends Model
         $this->schoolClasses()->sync($ids);
         $this->class_id = $ids[0] ?? null;
         $this->save();
+    }
+
+    /**
+     * @return EloquentCollection<int, SchoolClass>
+     */
+    public function assignedSchoolClasses(): EloquentCollection
+    {
+        $ids = $this->assignedClassIds();
+        if ($ids->isEmpty()) {
+            return new EloquentCollection;
+        }
+
+        return SchoolClass::query()
+            ->withCount('students')
+            ->with(['faculty', 'department'])
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * @return EloquentCollection<int, Course>
+     */
+    public function teachingCourses(): EloquentCollection
+    {
+        return $this->courses()
+            ->with([
+                'schoolClasses',
+                'schoolClass',
+                'venueRelation',
+                'attendanceWeeks' => fn ($q) => $q->orderBy('week_number'),
+            ])
+            ->orderBy('course_name')
+            ->get();
+    }
+
+    public function managesCourse(Course $course): bool
+    {
+        return (int) $this->id === (int) $course->lecturer_id;
     }
 
     /** Comma-separated class names for dropdowns (multi-class aware). */

@@ -5,11 +5,26 @@
 @section('content')
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
     <div>
-        <h1 class="text-2xl font-bold text-primary">All students</h1>
-        <p class="text-gray-600 text-sm mt-1">{{ number_format($totalStudents ?? $students->total()) }} in the system · search, filter by class, add or import</p>
+        @php
+            $isLecturerStudents = session()->has('lecturer_id') && !session()->has('admin_id');
+            $filterClass = collect($classes ?? [])->firstWhere('id', (int) request('class_id'));
+        @endphp
+        <h1 class="text-2xl font-bold text-primary">{{ $isLecturerStudents ? 'My students' : 'All students' }}</h1>
+        <p class="text-gray-600 text-sm mt-1">
+            @if($filterClass)
+                {{ $filterClass->name }} · {{ number_format($students->total()) }} students
+            @else
+                {{ number_format($totalStudents ?? $students->total()) }} {{ $isLecturerStudents ? 'in your classes' : 'in the system' }}
+            @endif
+            · search and filter by class@if(!$isLecturerStudents) · add or import@endif
+        </p>
+        @if($isLecturerStudents)
+        <a href="{{ route('dashboard.dashboard') }}" class="inline-flex items-center gap-1.5 mt-2 text-sm text-primary hover:underline"><i class="fas fa-arrow-left"></i> Back to dashboard</a>
+        @endif
     </div>
 </div>
 
+@if(!session()->has('lecturer_id') || session()->has('admin_id'))
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
     <form action="{{ route('dashboard.students.store') }}" method="POST" class="bg-white rounded-xl border border-gray-100 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
         @csrf
@@ -59,6 +74,7 @@
         </div>
     </form>
 </div>
+@endif
 
 @if (session('success'))
     <div class="mb-4 p-3 bg-emerald-50 text-emerald-800 rounded-lg text-sm">{{ session('success') }}</div>
