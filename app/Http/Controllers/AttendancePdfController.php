@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\University;
+use App\Support\RepCourseAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -24,7 +25,19 @@ class AttendancePdfController extends Controller
 
         $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
 
-        $students = $course->studentsQuery()
+        $studentsQuery = $course->studentsQuery();
+        $studentId = $request->session()->get('student_id');
+        if ($studentId && ! $request->session()->has('admin_id')) {
+            $rep = Student::find($studentId);
+            if ($rep) {
+                $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+                if ($scopedClassIds !== []) {
+                    $studentsQuery = Student::query()
+                        ->whereIn('class_id', $scopedClassIds);
+                }
+            }
+        }
+        $students = $studentsQuery
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->get();

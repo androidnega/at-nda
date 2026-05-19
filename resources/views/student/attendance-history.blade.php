@@ -113,7 +113,11 @@
                     <p class="font-medium text-slate-900 text-sm">{{ $a->course?->course_name ?? '—' }}</p>
                     <p class="text-xs text-slate-500 mt-0.5">Week {{ $a->attendanceWeek?->week_number ?? '—' }} · {{ $a->attendance_time?->format('M d, Y H:i') ?? '—' }}</p>
                 </div>
+                @if(\App\Models\Attendance::countsAsPresent($a->status))
                 <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
+                @else
+                <span class="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">Absent</span>
+                @endif
             </div>
             @empty
             <div class="p-10 text-center text-slate-500 text-sm">No attendance records yet</div>

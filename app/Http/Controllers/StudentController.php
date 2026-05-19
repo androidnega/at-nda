@@ -54,14 +54,8 @@ class StudentController extends Controller
         }
 
         $search = $request->get('search');
-        if ($search) {
-            $term = '%' . $search . '%';
-            $query->where(function ($q) use ($term) {
-                $q->where('index_number', 'like', $term)
-                    ->orWhere('first_name', 'like', $term)
-                    ->orWhere('middle_name', 'like', $term)
-                    ->orWhere('last_name', 'like', $term);
-            });
+        if (is_string($search) && trim($search) !== '') {
+            $query->searchTerm($search);
         }
 
         $classId = $request->get('class_id');
@@ -84,7 +78,7 @@ class StudentController extends Controller
         }
         $classes = $classesQuery->get();
 
-        if ($request->wantsJson()) {
+        if ($request->ajax() || $request->wantsJson()) {
             $items = collect($students->items())->map(function ($s) {
                 $idx = strtoupper($s->index_number ?? '');
                 $programKey = str_contains($idx, 'ITN') ? 'ITN' : (str_contains($idx, 'ITS') ? 'ITS' : (str_contains($idx, 'ITD') ? 'ITD' : null));

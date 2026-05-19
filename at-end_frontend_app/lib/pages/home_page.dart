@@ -255,11 +255,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return _markedSessionIdsToday.contains(id);
   }
 
-  bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
-    return (session['attendance_mode']?.toString() ?? '') ==
-            'checkin_checkout' ||
-        ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
-  }
+bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
+  return (session['attendance_mode']?.toString() ?? '') == 'checkin_checkout';
+}
 
   bool _hasCheckedIn(Map<String, dynamic> session) {
     final t = session['check_in_time']?.toString() ?? '';

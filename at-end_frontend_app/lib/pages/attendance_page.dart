@@ -68,8 +68,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
   AttendanceFlowMode get _mode => resolveAttendanceFlowMode(_session);
   bool get _isCheckInCheckoutMode =>
-      (_session?['attendance_mode']?.toString() ?? '') == 'checkin_checkout' ||
-      ApiService.attendanceMode == ApiService.attendanceModeCheckInCheckout;
+      (_session?['attendance_mode']?.toString() ?? '') == 'checkin_checkout';
   bool get _isCheckedIn => (_session?['check_in_time']?.toString().isNotEmpty ?? false);
   bool get _isCheckedOut => (_session?['check_out_time']?.toString().isNotEmpty ?? false);
   bool get _canCheckOut =>

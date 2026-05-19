@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -128,6 +129,38 @@ class Student extends Model implements AuthenticatableContract
             ['index_number' => $index],
             array_merge($attributes, ['index_number' => $index])
         );
+    }
+
+    /**
+     * @param  Builder<Student>  $query
+     * @return Builder<Student>
+     */
+    public function scopeSearchTerm(Builder $query, ?string $search): Builder
+    {
+        $raw = trim((string) $search);
+        if ($raw === '') {
+            return $query;
+        }
+
+        $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $raw).'%';
+        $normalized = preg_replace('/[\s\/\-]/', '', strtoupper($raw));
+
+        return $query->where(function (Builder $q) use ($term, $normalized, $raw): void {
+            $q->where('index_number', 'like', $term)
+                ->orWhere('first_name', 'like', $term)
+                ->orWhere('middle_name', 'like', $term)
+                ->orWhere('last_name', 'like', $term)
+                ->orWhereRaw(
+                    "LOWER(CONCAT(COALESCE(first_name,''), ' ', COALESCE(middle_name,''), ' ', COALESCE(last_name,''))) LIKE ?",
+                    ['%'.strtolower($raw).'%']
+                );
+            if (strlen($normalized) >= 3) {
+                $q->orWhereRaw(
+                    "UPPER(REPLACE(REPLACE(REPLACE(TRIM(index_number), ' ', ''), '/', ''), '-', '')) LIKE ?",
+                    ['%'.$normalized.'%']
+                );
+            }
+        });
     }
 
     public static function findByIndex(string $indexNumber): ?self

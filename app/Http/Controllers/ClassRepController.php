@@ -84,15 +84,24 @@ class ClassRepController extends Controller
 
         $totalAttendanceMarks = $courseIds->isEmpty()
             ? 0
-            : Attendance::whereIn('course_id', $courseIds)->count();
+            : Attendance::query()
+                ->whereIn('course_id', $courseIds)
+                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
+                ->count();
 
         $todayAttendanceMarks = $courseIds->isEmpty()
             ? 0
-            : Attendance::whereIn('course_id', $courseIds)->whereDate('attendance_time', today())->count();
+            : Attendance::query()
+                ->whereIn('course_id', $courseIds)
+                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
+                ->whereDate('attendance_time', today())
+                ->count();
 
         $weekAttendanceMarks = $courseIds->isEmpty()
             ? 0
-            : Attendance::whereIn('course_id', $courseIds)
+            : Attendance::query()
+                ->whereIn('course_id', $courseIds)
+                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
                 ->where('attendance_time', '>=', now()->subDays(7)->startOfDay())
                 ->count();
 
@@ -201,7 +210,7 @@ class ClassRepController extends Controller
             return back()->with('error', 'Set day and time for this course first (timetable).');
         }
 
-        RepCourseAccess::deactivateSessionsForCourse($course);
+        RepCourseAccess::deactivateSessionsForCourse($student, $course);
 
         $week = $course->createOrGetAttendanceWeekForToday();
 
@@ -334,7 +343,11 @@ class ClassRepController extends Controller
         $session->load(['course', 'attendanceWeek']);
         $payload = json_encode($session->getQrPayload());
         $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload);
-        $scannedCount = $session->attendances()->where('status', 'present')->count();
+        $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($student, $course);
+        $scannedCount = $session->attendances()
+            ->whereHas('student', fn ($q) => $q->whereIn('class_id', $scopedClassIds))
+            ->whereIn('status', ['present', 'late'])
+            ->count();
 
         return view('classrep.qr-display', [
             'session' => $session,
@@ -389,7 +402,11 @@ class ClassRepController extends Controller
             abort(403, 'You can only view stats for courses in your class.');
         }
 
-        $scannedCount = $session->attendances()->where('status', 'present')->count();
+        $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($student, $course);
+        $scannedCount = $session->attendances()
+            ->whereHas('student', fn ($q) => $q->whereIn('class_id', $scopedClassIds))
+            ->whereIn('status', ['present', 'late'])
+            ->count();
 
         return response()->json([
             'scanned_count' => $scannedCount,
@@ -428,14 +445,8 @@ class ClassRepController extends Controller
         $query = Student::with('schoolClass')->whereIn('class_id', $classIds)->orderBy('last_name')->orderBy('first_name');
 
         $search = $request->get('search');
-        if ($search) {
-            $term = '%' . $search . '%';
-            $query->where(function ($q) use ($term) {
-                $q->where('index_number', 'like', $term)
-                    ->orWhere('first_name', 'like', $term)
-                    ->orWhere('middle_name', 'like', $term)
-                    ->orWhere('last_name', 'like', $term);
-            });
+        if (is_string($search) && trim($search) !== '') {
+            $query->searchTerm($search);
         }
 
         $classId = $request->get('class_id');
@@ -592,10 +603,11 @@ class ClassRepController extends Controller
             ->limit(20)
             ->get(['id', 'attendance_week_id', 'lecturer_status', 'start_time', 'created_at']);
 
-        $query = Attendance::query()
-            ->with(['student'])
-            ->where('course_id', $course->id)
-            ->latest('attendance_time');
+        $query = RepCourseAccess::scopeAttendanceForRep(
+            Attendance::query()->with(['student']),
+            $rep,
+            $course
+        )->latest('attendance_time');
 
         if ($request->filled('date_from')) {
             $query->whereDate('attendance_time', '>=', $request->query('date_from'));
@@ -605,7 +617,12 @@ class ClassRepController extends Controller
         }
         if ($request->filled('search')) {
             $term = '%' . str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->query('search'))) . '%';
-            $query->whereHas('student', fn ($q) => $q->where('index_number', 'like', $term));
+            $query->whereHas('student', function ($q) use ($term) {
+                $q->where('index_number', 'like', $term)
+                    ->orWhere('first_name', 'like', $term)
+                    ->orWhere('middle_name', 'like', $term)
+                    ->orWhere('last_name', 'like', $term);
+            });
         }
 
         $attendances = $query->paginate(30)->withQueryString();
@@ -693,9 +710,11 @@ class ClassRepController extends Controller
             abort(403, 'You can only export attendance for your class courses.');
         }
 
-        $records = Attendance::query()
-            ->where('course_id', $course->id)
-            ->with([
+        $records = RepCourseAccess::scopeAttendanceForRep(
+            Attendance::query(),
+            $rep,
+            $course
+        )->with([
                 'student:id,index_number',
                 'attendanceSession:id,session_index,course_id',
                 'attendanceWeek:id,week_number',
@@ -779,7 +798,7 @@ class ClassRepController extends Controller
         $imported = 0;
         $skipped = 0;
 
-        DB::transaction(function () use ($course, $rows, &$imported, &$skipped) {
+        DB::transaction(function () use ($rep, $course, $rows, &$imported, &$skipped) {
             foreach ($rows as $row) {
                 if (! is_array($row)) {
                     $skipped++;
@@ -808,7 +827,8 @@ class ClassRepController extends Controller
                 }
 
                 $student = Student::query()->find($studentId);
-                if (! $student || ! $course->isAssignedToClass((int) $student->class_id)) {
+                $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+                if (! $student || ! in_array((int) $student->class_id, $scopedClassIds, true)) {
                     $skipped++;
 
                     continue;

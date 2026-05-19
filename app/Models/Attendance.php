@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -64,4 +65,19 @@ class Attendance extends Model
     {
         return $this->belongsTo(AttendanceSession::class);
     }
+
+    public static function countsAsPresent(?string $status): bool
+    {
+        return in_array($status, ['present', 'late'], true);
+    }
+
+    /**
+     * @param  Builder<Attendance>  $query
+     * @return Builder<Attendance>
+     */
+    public function scopeCountedAsPresent(Builder $query): Builder
+    {
+        return $query->whereIn('status', ['present', 'late']);
+    }
 }
+

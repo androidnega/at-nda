@@ -39,6 +39,7 @@
             <thead class="bg-gray-50">
                 <tr>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Name</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Username</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Assigned classes</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Courses teaching</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Staff login</th>
@@ -60,6 +61,13 @@
                 @endphp
                 <tr class="hover:bg-gray-50/50 align-top">
                     <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{{ $l->name }}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-gray-700 whitespace-nowrap">
+                        @if(!empty($l->username))
+                            {{ $l->username }}
+                        @else
+                            <span class="text-gray-400">—</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-3 text-sm text-gray-600 max-w-[200px]">
                         @if($classesLabel !== '')
                         <span class="inline-flex items-start gap-1.5">

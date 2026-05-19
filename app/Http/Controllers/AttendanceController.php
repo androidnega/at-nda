@@ -380,7 +380,7 @@ class AttendanceController extends Controller
             $checkOutAt = $now;
             $checkInAt = $existing->check_in_time ? Carbon::parse($existing->check_in_time) : null;
             $timeSpent = $checkInAt ? max(0, $checkOutAt->diffInSeconds($checkInAt)) : null;
-            $finalStatus = $outsideRange ? 'absent' : ($existing->status ?: 'present');
+            $finalStatus = $outsideRange ? 'late' : ($existing->status ?: 'present');
 
             $existing->update([
                 'check_out_time' => $checkOutAt,

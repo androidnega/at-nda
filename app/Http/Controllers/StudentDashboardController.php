@@ -138,7 +138,10 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.profile');
         }
 
-        $totalPresent = Attendance::where('student_id', $student->id)->count();
+        $totalPresent = Attendance::query()
+            ->where('student_id', $student->id)
+            ->countedAsPresent()
+            ->count();
         $totalWeeks = (int) DB::table('attendances')->where('student_id', $student->id)->distinct()->count('attendance_week_id');
 
         $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student)
@@ -152,7 +155,7 @@ class StudentDashboardController extends Controller
         $cancelledWeeks = collect();
         if ($student->class_id) {
             $cancelledWeeks = AttendanceWeek::query()
-                ->whereIn('course_id', Course::query()->where('class_id', $student->class_id)->select('id'))
+                ->whereIn('course_id', Course::query()->forManagedClasses([$student->class_id])->select('id'))
                 ->whereNotNull('cancelled_at')
                 ->with(['course:id,course_name,course_code'])
                 ->orderByDesc('week_date')
@@ -201,7 +204,7 @@ class StudentDashboardController extends Controller
         if ($student->class_id) {
             $attendedSessionIds = $attendanceRows->pluck('attendance_session_id')->filter()->unique()->values();
             $sessions = AttendanceSession::query()
-                ->whereHas('course', fn ($q) => $q->where('class_id', $student->class_id))
+                ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
                 ->where(function ($q) use ($attendedSessionIds) {
                     $q->ended()
                         ->orWhere('is_active', false)
@@ -224,7 +227,7 @@ class StudentDashboardController extends Controller
                     'session' => null,
                     'course' => $attendance->course,
                     'week' => $attendance->attendanceWeek?->week_number,
-                    'is_present' => true,
+                    'is_present' => Attendance::countsAsPresent($attendance->status),
                     'attendance' => $attendance,
                     'time' => $attendance->attendance_time,
                 ];
@@ -232,7 +235,7 @@ class StudentDashboardController extends Controller
         } else {
             $history = $sessions->map(function (AttendanceSession $session) use ($attendanceBySession) {
             $attendance = $attendanceBySession->get($session->id);
-            $isPresent = $attendance !== null;
+            $isPresent = $attendance !== null && Attendance::countsAsPresent($attendance->status);
 
             return [
                 'session' => $session,
@@ -511,7 +514,7 @@ class StudentDashboardController extends Controller
         }
 
         return AttendanceSession::query()
-            ->whereHas('course', fn ($q) => $q->where('class_id', $student->class_id))
+            ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
             ->where('is_active', true)
             ->where(function ($q) {
                 $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
@@ -527,9 +530,10 @@ class StudentDashboardController extends Controller
                 $attendance = Attendance::where('student_id', $student->id)
                     ->where('attendance_session_id', $session->id)
                     ->first();
-                $alreadyMarked = $attendance !== null;
+                $alreadyMarked = $attendance !== null && Attendance::countsAsPresent($attendance->status);
                 if ($session->isCheckInCheckoutMode()) {
                     $alreadyMarked = $attendance !== null
+                        && Attendance::countsAsPresent($attendance->status)
                         && ! empty($attendance->check_out_time);
                 }
 

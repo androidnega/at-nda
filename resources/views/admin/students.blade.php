@@ -264,6 +264,10 @@
             fetchStudents(false);
         }
     });
+
+    if (searchInput?.value?.trim() || classSelect?.value || programSelect?.value) {
+        fetchStudents(true);
+    }
 })();
 </script>
 @endpush

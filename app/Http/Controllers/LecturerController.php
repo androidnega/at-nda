@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Lecturer;
 use App\Models\SchoolClass;
+use App\Support\LecturerUsername;
 use App\Support\SchemaFeatures;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -17,6 +19,12 @@ class LecturerController extends Controller
         if (SchemaFeatures::hasClassLecturerPivot()) {
             $with[] = 'schoolClasses';
         }
+        if (Schema::hasColumn('lecturers', 'username')) {
+            Lecturer::query()->where(function ($q) {
+                $q->whereNull('username')->orWhere('username', '');
+            })->orderBy('id')->each(fn (Lecturer $l) => LecturerUsername::assignIfMissing($l));
+        }
+
         $lecturers = Lecturer::query()
             ->with($with)
             ->with([
@@ -54,6 +62,7 @@ class LecturerController extends Controller
             'class_id' => $classIds[0] ?? null,
         ]);
         $lecturer->syncAssignedClasses($classIds);
+        LecturerUsername::assignIfMissing($lecturer);
 
         return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer added.');
     }

@@ -41,14 +41,8 @@ class ClassController extends Controller
             ->orderBy('first_name');
 
         $search = $request->get('search');
-        if ($search) {
-            $term = '%' . $search . '%';
-            $query->where(function ($q) use ($term) {
-                $q->where('index_number', 'like', $term)
-                    ->orWhere('first_name', 'like', $term)
-                    ->orWhere('middle_name', 'like', $term)
-                    ->orWhere('last_name', 'like', $term);
-            });
+        if (is_string($search) && trim($search) !== '') {
+            $query->searchTerm($search);
         }
 
         $students = $query->paginate(24)->withQueryString();

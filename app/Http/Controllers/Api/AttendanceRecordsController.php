@@ -8,6 +8,8 @@ use App\Models\AttendanceSession;
 use App\Models\Lecturer;
 use App\Services\Api\ClassRepApiService;
 use App\Support\ApiEnvelope;
+use App\Support\RepCourseAccess;
+use App\Models\Student;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,7 +36,7 @@ class AttendanceRecordsController extends Controller
         }
         $course = $auth['course'];
 
-        $rows = $this->attendanceRowsForSession($session->id);
+        $rows = $this->attendanceRowsForSession($session, $auth['rep'] ?? null);
 
         return ApiEnvelope::success([
             'session_id' => $session->id,
@@ -57,7 +59,7 @@ class AttendanceRecordsController extends Controller
         }
 
         $course = $auth['course'];
-        $rows = $this->attendanceRowsForSession($session->id);
+        $rows = $this->attendanceRowsForSession($session, $auth['rep'] ?? null);
 
         $filename = 'attendance-records-session-'.$session->id.'.csv';
 
@@ -104,7 +106,7 @@ class AttendanceRecordsController extends Controller
         }
 
         $course = $auth['course'];
-        $rows = $this->attendanceRowsForSession($session->id)->values()->all();
+        $rows = $this->attendanceRowsForSession($session, $auth['rep'] ?? null)->values()->all();
 
         $pdf = Pdf::loadView('pdf.attendance-records', [
             'session' => $session,
@@ -119,11 +121,20 @@ class AttendanceRecordsController extends Controller
     /**
      * @return \Illuminate\Support\Collection<int, array{name:string,index_number:string,marked_at:?string}>
      */
-    private function attendanceRowsForSession(int $sessionId): Collection
+    private function attendanceRowsForSession(AttendanceSession $session, ?Student $rep = null): Collection
     {
-        return Attendance::query()
+        $query = Attendance::query()
             ->with('student')
-            ->where('attendance_session_id', $sessionId)
+            ->where('attendance_session_id', $session->id);
+
+        if ($rep !== null) {
+            $course = $session->course ?? $session->load('course')->course;
+            if ($course) {
+                $query = RepCourseAccess::scopeAttendanceForRep($query, $rep, $course);
+            }
+        }
+
+        return $query
             ->orderBy('attendance_time')
             ->get()
             ->map(function (Attendance $a) {
@@ -154,7 +165,7 @@ class AttendanceRecordsController extends Controller
         if (! $student instanceof JsonResponse) {
             $managed = $student->repManagedClassIds();
             if ($course->overlapsClassIds($managed)) {
-                return ['course' => $course];
+                return ['course' => $course, 'rep' => $student];
             }
         }
 

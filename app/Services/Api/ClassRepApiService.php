@@ -316,7 +316,7 @@ class ClassRepApiService
             return response()->json(['message' => 'Set day and time for this course first (timetable).'], 422);
         }
 
-        RepCourseAccess::deactivateSessionsForCourse($course);
+        RepCourseAccess::deactivateSessionsForCourse($rep, $course);
 
         $week = null;
         $weekNumber = $validated['week_number'] ?? null;

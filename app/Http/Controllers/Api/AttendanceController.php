@@ -366,7 +366,7 @@ class AttendanceController extends Controller
             ], 200);
         }
 
-        $finalStatus = $outsideRadius ? 'absent' : ($row->status ?: 'present');
+        $finalStatus = $outsideRadius ? 'late' : ($row->status ?: 'present');
         $timeSpent = null;
         if ($row->check_in_time !== null) {
             $checkInAt = Carbon::parse($row->check_in_time);
