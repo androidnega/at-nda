@@ -206,17 +206,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td class="week-col" style="font-weight:bold;">1</td>
-                        <td>—</td>
-                        <td>{{ $lecturerDisplay }}</td>
-                        @foreach($weeks as $w)
-                        <td class="week-col">@if($w->isCancelled())<span class="week-cancelled">Cancelled</span>@else<span style="color:#a8a29e;">—</span>@endif</td>
-                        @endforeach
-                    </tr>
                     @foreach($attendanceByStudent as $idx => $row)
                     <tr>
-                        <td class="week-col" style="font-weight:bold;">{{ $idx + 2 }}</td>
+                        <td class="week-col" style="font-weight:bold;">{{ $idx + 1 }}</td>
                         <td>{{ $row['student']->index_number }}</td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)

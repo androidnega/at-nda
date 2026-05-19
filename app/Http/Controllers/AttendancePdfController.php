@@ -42,15 +42,12 @@ class AttendancePdfController extends Controller
             ->orderBy('first_name')
             ->get();
 
-        $lecturerDisplay = trim((string) ($course->lecturer_name ?? ''));
-        if ($lecturerDisplay === '' && $course->lecturer) {
-            $lecturerDisplay = trim((string) ($course->lecturer->name ?? ''));
-        }
-        if ($lecturerDisplay === '') {
-            $lecturerDisplay = 'Not assigned';
-        }
+        $lecturerDisplay = $course->resolvedLecturerDisplay();
 
-        $className = trim((string) ($course->schoolClass?->name ?? ''));
+        $className = trim((string) $course->assignedClassesLabel());
+        if ($className === '') {
+            $className = trim((string) ($course->schoolClass?->name ?? ''));
+        }
         if ($className === '') {
             $className = '—';
         }

@@ -36,10 +36,13 @@ class FlutterSessionFormatter
             ?? (is_string(optional($course)->venue) ? $course->venue : null)
             ?? 'N/A';
 
-        $lecturerName = optional($session->lecturer)->name
-            ?? optional(optional($course)->lecturer)->name
-            ?? optional($course)->lecturer_name
-            ?? 'N/A';
+        $lecturerName = trim((string) (optional($session->lecturer)->name ?? ''));
+        if ($lecturerName === '' && $course) {
+            $lecturerName = $course->resolvedLecturerName();
+        }
+        if ($lecturerName === '') {
+            $lecturerName = 'N/A';
+        }
 
         $courseName = optional($course)->course_name ?? 'N/A';
         $courseCode = optional($course)->course_code ?? 'N/A';

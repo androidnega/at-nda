@@ -36,6 +36,77 @@ class Course extends Model
         'credit_hours' => 'integer',
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (Course $course): void {
+            if ($course->lecturer_id) {
+                $lecturer = Lecturer::query()->find($course->lecturer_id);
+                if ($lecturer) {
+                    $name = trim((string) $lecturer->name);
+                    if ($name !== '') {
+                        $course->lecturer_name = $name;
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Lecturer name for PDFs, exports, and timetables (course link, then class assignment).
+     */
+    public function resolvedLecturerName(): string
+    {
+        $fromColumn = trim((string) ($this->lecturer_name ?? ''));
+        if ($fromColumn !== '') {
+            return $fromColumn;
+        }
+
+        $lecturer = $this->relationLoaded('lecturer') ? $this->lecturer : null;
+        if (! $lecturer && $this->lecturer_id) {
+            $lecturer = $this->lecturer()->first();
+        }
+        if ($lecturer) {
+            $name = trim((string) $lecturer->name);
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        $byCourseLink = Lecturer::query()
+            ->whereHas('courses', fn (Builder $q) => $q->where('courses.id', $this->id))
+            ->orderBy('name')
+            ->first();
+        if ($byCourseLink) {
+            $name = trim((string) $byCourseLink->name);
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        $classIds = $this->assignedClassIds();
+        if ($classIds !== [] && SchemaFeatures::hasClassLecturerPivot()) {
+            $byClass = Lecturer::query()
+                ->whereHas('schoolClasses', fn (Builder $q) => $q->whereIn('classes.id', $classIds))
+                ->orderBy('name')
+                ->first();
+            if ($byClass) {
+                $name = trim((string) $byClass->name);
+                if ($name !== '') {
+                    return $name;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    public function resolvedLecturerDisplay(): string
+    {
+        $name = $this->resolvedLecturerName();
+
+        return $name !== '' ? $name : 'Not assigned';
+    }
+
     public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(SchoolClass::class, 'class_id');
