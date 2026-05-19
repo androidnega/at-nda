@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Student;
+use App\Support\StudentCourseAccess;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,17 +25,15 @@ class StudentTimetableController extends Controller
             ], 401);
         }
 
-        $classIds = $user->timetableVisibleClassIds();
-        $courses = $classIds->isEmpty()
-            ? collect()
-            : Course::query()
+        $courses = $user->class_id
+            ? StudentCourseAccess::coursesQueryForStudent($user)
                 ->with(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation'])
-                ->forManagedClasses($classIds)
                 ->whereNotNull('day_of_week')
                 ->whereNotNull('start_time')
                 ->orderByRaw("CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 WHEN 'Sunday' THEN 7 ELSE 99 END")
                 ->orderBy('start_time')
-                ->get();
+                ->get()
+            : collect();
 
         $dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         $byDay = [];

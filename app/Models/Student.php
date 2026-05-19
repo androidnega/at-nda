@@ -498,17 +498,13 @@ class Student extends Model implements AuthenticatableContract
     }
 
     /**
-     * Class IDs whose courses / timetable this account may see (own class, or rep-managed classes).
+     * Enrolled class only — students never see other classes' timetables via rep assignments.
      *
      * @return Collection<int, int>
      */
     public function timetableVisibleClassIds(): Collection
     {
-        if ($this->isRep()) {
-            return $this->repManagedClassIds();
-        }
-
-        return $this->class_id ? collect([$this->class_id]) : collect();
+        return $this->class_id ? collect([(int) $this->class_id]) : collect();
     }
 
     /**
@@ -518,8 +514,7 @@ class Student extends Model implements AuthenticatableContract
      */
     public function weeklyTimetableSummary(?Carbon $at = null): array
     {
-        $classIds = $this->timetableVisibleClassIds();
-        if ($classIds->isEmpty()) {
+        if (! $this->class_id) {
             return [
                 'lectures_total' => 0,
                 'lectures_taken' => 0,
@@ -530,8 +525,7 @@ class Student extends Model implements AuthenticatableContract
             ];
         }
 
-        $courses = Course::query()
-            ->forManagedClasses($classIds)
+        $courses = \App\Support\StudentCourseAccess::coursesQueryForStudent($this)
             ->whereNotNull('day_of_week')
             ->whereNotNull('start_time')
             ->whereNotNull('end_time')
