@@ -19,8 +19,9 @@
                     @endif
                 </p>
                 <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-                    @if($course->schoolClass)
-                        <span><i class="fas fa-layer-group text-gray-400 mr-0.5"></i>{{ $course->schoolClass->name }}</span>
+                    @php $repClassLabel = \App\Support\RepCourseAccess::repClassLabelForCourse($rep, $course); @endphp
+                    @if($repClassLabel !== '—')
+                        <span><i class="fas fa-layer-group text-gray-400 mr-0.5"></i>{{ $repClassLabel }}</span>
                     @endif
                     @if($course->hasSchedule())
                         <span>{{ $course->getScheduleLabel() }}</span>

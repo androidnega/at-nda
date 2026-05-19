@@ -140,13 +140,12 @@ class ClassRepApiService
             ];
         }
 
-        $courses = Course::query()
+        $courses = RepCourseAccess::coursesQueryForRep($student)
             ->with([
                 'schoolClass',
                 'schoolClasses',
                 'attendanceSessions' => fn ($q) => $q->where('is_active', true)->orderByDesc('id'),
             ])
-            ->forManagedClasses($classIds)
             ->orderBy('course_name')
             ->get();
 
@@ -210,7 +209,7 @@ class ClassRepApiService
         $insights = ['delta_pct' => 0.0, 'direction' => 'flat', 'weekly_trend_label' => '—'];
         $flagged = [];
         if (! $managed->isEmpty()) {
-            $courseIds = Course::query()->forManagedClasses($managed)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $courseIds = RepCourseAccess::coursesQueryForRep($student)->pluck('id')->map(fn ($id) => (int) $id)->all();
             $svc = app(AttendanceInsightsService::class);
             $trend = $svc->weeklyAttendanceTrend($courseIds, 8);
             $insights = array_merge(

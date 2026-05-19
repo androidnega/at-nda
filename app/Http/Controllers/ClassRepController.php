@@ -78,7 +78,7 @@ class ClassRepController extends Controller
 
         $classIds = $this->getRepClassIds($student);
         $studentsCount = Student::whereIn('class_id', $classIds)->count();
-        $courseQuery = Course::query()->forManagedClasses($classIds);
+        $courseQuery = RepCourseAccess::coursesQueryForRep($student);
         $coursesCount = (clone $courseQuery)->count();
         $courseIds = (clone $courseQuery)->pluck('id');
 
@@ -106,8 +106,8 @@ class ClassRepController extends Controller
                 ->count();
 
         $todayName = strtolower(now()->format('l'));
-        $todayCourses = Course::with(['schoolClass', 'schoolClasses', 'lecturer'])
-            ->forManagedClasses($classIds)
+        $todayCourses = RepCourseAccess::coursesQueryForRep($student)
+            ->with(['schoolClass', 'schoolClasses', 'lecturer'])
             ->whereNotNull('day_of_week')
             ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
             ->orderBy('start_time')
@@ -132,12 +132,12 @@ class ClassRepController extends Controller
         if ($student instanceof RedirectResponse) return $student;
 
         $classIds = $this->getRepClassIds($student);
-        $courses = Course::with([
-            'schoolClass.faculty.university',
-            'schoolClasses',
-            'attendanceSessions' => fn ($q) => $q->where('is_active', true),
-        ])
-            ->forManagedClasses($classIds)
+        $courses = RepCourseAccess::coursesQueryForRep($student)
+            ->with([
+                'schoolClass.faculty.university',
+                'schoolClasses',
+                'attendanceSessions' => fn ($q) => $q->where('is_active', true),
+            ])
             ->orderBy('course_name')
             ->get()
             ->map(fn ($c) => (object) [
@@ -566,17 +566,22 @@ class ClassRepController extends Controller
             return $rep;
         }
 
-        $classIds = $this->getRepClassIds($rep);
-        $courses = Course::query()
-            ->forManagedClasses($classIds)
+        $courses = RepCourseAccess::coursesQueryForRep($rep)
             ->with(['schoolClass', 'schoolClasses'])
             ->with(['attendanceSessions' => fn ($q) => $q->latest('id')->limit(1)])
-            ->withCount('attendances')
             ->orderBy('course_name')
             ->get();
 
+        foreach ($courses as $course) {
+            $course->setAttribute(
+                'attendances_count',
+                RepCourseAccess::scopeAttendanceForRep(Attendance::query(), $rep, $course)->count()
+            );
+        }
+
         return view('classrep.attendance-index', [
             'courses' => $courses,
+            'rep' => $rep,
             'dashboardRole' => 'classrep',
         ]);
     }
