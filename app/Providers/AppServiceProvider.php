@@ -40,17 +40,28 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->ip());
         });
 
-        View::composer('layouts.classrep', function ($view) {
+        View::composer(['layouts.classrep', 'layouts.student'], function ($view) {
             $sid = session('student_id');
-            $view->with('repStudent', $sid ? Student::query()->with(['schoolClass', 'department'])->find($sid) : null);
-        });
+            $student = $sid ? Student::query()->with(['department.faculty', 'schoolClass'])->find($sid) : null;
 
-        View::composer('layouts.student', function ($view) {
-            if ($view->offsetExists('student')) {
-                return;
+            if ($view->name() === 'layouts.classrep') {
+                $view->with('repStudent', $student);
+            } elseif (! $view->offsetExists('student')) {
+                $view->with('student', $student);
             }
-            $sid = session('student_id');
-            $view->with('student', $sid ? Student::query()->with(['department.faculty'])->find($sid) : null);
+
+            $signOutBlocked = false;
+            $signOutBlockMessage = null;
+            if ($student) {
+                $signOutBlocked = \App\Support\StudentSignOutLock::isSignOutBlocked($student);
+                $signOutBlockMessage = $signOutBlocked
+                    ? \App\Support\StudentSignOutLock::blockMessage($student)
+                    : null;
+            }
+            $view->with([
+                'studentSignOutBlocked' => $signOutBlocked,
+                'studentSignOutBlockMessage' => $signOutBlockMessage,
+            ]);
         });
 
         View::composer('layouts.admin', function ($view) {

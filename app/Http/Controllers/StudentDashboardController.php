@@ -107,6 +107,18 @@ class StudentDashboardController extends Controller
 
     public function logout(Request $request)
     {
+        $studentId = $request->session()->get('student_id');
+        if ($studentId) {
+            $student = Student::find($studentId);
+            if ($student && \App\Support\StudentSignOutLock::isSignOutBlocked($student)) {
+                return back()->with(
+                    'error',
+                    \App\Support\StudentSignOutLock::blockMessage($student)
+                        ?? 'Sign out is unavailable while a class is in session.'
+                );
+            }
+        }
+
         $request->session()->forget([
             'student_id',
             'student_index',
@@ -194,64 +206,14 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.profile');
         }
 
-        $sessions = collect();
-        $attendanceBySession = collect();
-        $attendanceRows = Attendance::query()
-            ->where('student_id', $student->id)
-            ->with(['course', 'attendanceWeek'])
-            ->latest('attendance_time')
-            ->get();
-        if ($student->class_id) {
-            $attendedSessionIds = $attendanceRows->pluck('attendance_session_id')->filter()->unique()->values();
-            $sessions = AttendanceSession::query()
-                ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
-                ->where(function ($q) use ($attendedSessionIds) {
-                    $q->ended()
-                        ->orWhere('is_active', false)
-                        ->orWhereIn('id', $attendedSessionIds);
-                })
-                ->with(['course', 'attendanceWeek'])
-                ->orderByRaw('COALESCE(end_time, expires_at, created_at) DESC')
-                ->limit(400)
-                ->get();
-
-            $sessionIds = $sessions->pluck('id')->all();
-            $attendanceBySession = $attendanceRows
-                ->filter(fn ($row) => $row->attendance_session_id && in_array($row->attendance_session_id, $sessionIds, true))
-                ->keyBy('attendance_session_id');
-        }
-
-        if ($sessions->isEmpty() && $attendanceRows->isNotEmpty()) {
-            $history = $attendanceRows->map(function (Attendance $attendance) {
-                return [
-                    'session' => null,
-                    'course' => $attendance->course,
-                    'week' => $attendance->attendanceWeek?->week_number,
-                    'is_present' => Attendance::countsAsPresent($attendance->status),
-                    'attendance' => $attendance,
-                    'time' => $attendance->attendance_time,
-                ];
-            });
-        } else {
-            $history = $sessions->map(function (AttendanceSession $session) use ($attendanceBySession) {
-            $attendance = $attendanceBySession->get($session->id);
-            $isPresent = $attendance !== null && Attendance::countsAsPresent($attendance->status);
-
-            return [
-                'session' => $session,
-                'course' => $session->course,
-                'week' => $session->attendanceWeek?->week_number,
-                'is_present' => $isPresent,
-                'attendance' => $attendance,
-                'time' => $attendance?->attendance_time ?? $session->end_time ?? $session->expires_at ?? $session->created_at,
-            ];
-            });
-        }
-
-        $presentCount = $history->where('is_present', true)->count();
-        $absentCount = $history->where('is_present', false)->count();
-        $totalSessions = $history->count();
-        $attendanceRate = $totalSessions > 0 ? round(($presentCount / $totalSessions) * 100, 1) : 0.0;
+        $built = app(\App\Services\StudentAttendanceHistoryBuilder::class)->build($student);
+        $history = $built['history'];
+        $presentCount = $built['presentCount'];
+        $absentCount = $built['absentCount'];
+        $totalSessions = $built['totalSessions'];
+        $attendanceRate = $built['attendanceRate'];
+        $courseStats = $built['courseStats'];
+        $trend = $built['trend'];
 
         $attendances = Attendance::where('student_id', $student->id)
             ->with(['course', 'attendanceWeek'])
@@ -260,58 +222,19 @@ class StudentDashboardController extends Controller
             ->get();
 
         $byCourse = Attendance::where('student_id', $student->id)
+            ->countedAsPresent()
             ->join('courses', 'attendances.course_id', '=', 'courses.id')
             ->select('courses.course_name', 'courses.course_code', DB::raw('COUNT(*) as count'))
             ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
             ->get();
 
         $byWeek = Attendance::where('student_id', $student->id)
+            ->countedAsPresent()
             ->join('attendance_weeks', 'attendances.attendance_week_id', '=', 'attendance_weeks.id')
             ->select('attendance_weeks.week_number', DB::raw('COUNT(*) as count'))
             ->groupBy('attendance_weeks.week_number')
             ->orderBy('attendance_weeks.week_number')
             ->get();
-
-        $courseStats = $history
-            ->groupBy(fn (array $row) => $row['course']?->id ?? 0)
-            ->map(function (Collection $rows) {
-                $first = $rows->first();
-                $present = $rows->where('is_present', true)->count();
-                $total = $rows->count();
-
-                return [
-                    'course_name' => $first['course']?->course_name ?? 'Unknown course',
-                    'course_code' => $first['course']?->course_code,
-                    'present' => $present,
-                    'absent' => $total - $present,
-                    'total' => $total,
-                    'rate' => $total > 0 ? round(($present / $total) * 100) : 0,
-                ];
-            })
-            ->sortByDesc('total')
-            ->values();
-
-        $trend = $history
-            ->filter(fn (array $row) => !empty($row['week']))
-            ->groupBy('week')
-            ->map(function (Collection $rows, $week) {
-                $present = $rows->where('is_present', true)->count();
-                $total = $rows->count();
-                $weekNumber = (int) $week;
-
-                return [
-                    'week' => $weekNumber,
-                    'label' => 'Week ' . $weekNumber,
-                    'present' => $present,
-                    'absent' => $total - $present,
-                    'total' => $total,
-                    'rate' => $total > 0 ? round(($present / $total) * 100) : 0,
-                ];
-            })
-            ->sortBy('week')
-            ->values()
-            ->take(-8)
-            ->values();
 
         return view('student.attendance-history', compact(
             'student',

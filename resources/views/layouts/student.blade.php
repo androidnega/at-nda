@@ -113,9 +113,14 @@
                         </a>
                         <form method="POST" action="{{ route('student.logout') }}" class="border-t border-slate-100 mt-1 pt-1">
                             @csrf
-                            <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left">
+                            <button type="submit"
+                                @if($studentSignOutBlocked ?? false) disabled title="{{ $studentSignOutBlockMessage }}" @endif
+                                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left {{ ($studentSignOutBlocked ?? false) ? 'text-slate-400 cursor-not-allowed' : 'text-red-600 hover:bg-red-50' }}">
                                 <i class="fas fa-right-from-bracket w-4"></i> Log out
                             </button>
+                            @if($studentSignOutBlocked ?? false)
+                                <p class="px-3 pb-2 text-[11px] leading-snug text-slate-500">{{ $studentSignOutBlockMessage }}</p>
+                            @endif
                         </form>
                     </div>
                 </div>
