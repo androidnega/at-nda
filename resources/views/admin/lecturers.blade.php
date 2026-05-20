@@ -7,9 +7,11 @@
     <div>
         <h1 class="text-2xl font-bold text-primary">Lecturers</h1>
         <p class="text-gray-500 text-sm mt-1 max-w-2xl">
-            Teaching staff directory. Assign <strong>classes</strong> here (who they can view in the dashboard).
-            Link <strong>courses</strong> on the <a href="{{ route('dashboard.courses.index') }}" class="text-primary hover:underline">Courses</a> page.
-            Create <strong>login accounts</strong> under <a href="{{ route('dashboard.staff-accounts.index') }}" class="text-primary hover:underline">User management</a>.
+            Teaching staff directory. Assign <strong>classes</strong> here (who they can view in the dashboard) and
+            link <strong>courses</strong> on the <a href="{{ route('dashboard.courses.index') }}" class="text-primary hover:underline">Courses</a> page.
+            Every lecturer added here automatically gets a login under
+            <a href="{{ route('dashboard.staff-accounts.index') }}" class="text-primary hover:underline">User management</a>;
+            the temporary password is shown once on the confirmation banner above.
         </p>
     </div>
     @if(session()->has('admin_id'))
@@ -117,6 +119,13 @@
                     </td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                         <a href="{{ route('dashboard.lecturers.edit', $l) }}" class="text-primary hover:underline text-sm font-medium">Edit</a>
+                        @if(session()->has('admin_id') && ! $l->hasStaffLogin())
+                        <form action="{{ route('dashboard.staff-accounts.lecturers.reset-password', $l) }}" method="POST" class="inline ml-2"
+                              onsubmit="return confirm('Issue a login for {{ addslashes($l->name) }}? The temporary password will be shown once on the next screen.')">
+                            @csrf
+                            <button type="submit" class="text-emerald-700 hover:underline text-sm font-medium">Issue login</button>
+                        </form>
+                        @endif
                         @if(session()->has('admin_id'))
                         <form action="{{ route('dashboard.lecturers.destroy', $l) }}" method="POST" class="inline ml-2" onsubmit="return confirm('Remove this lecturer? They will be unassigned from courses.')">
                             @csrf @method('DELETE')

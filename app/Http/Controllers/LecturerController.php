@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lecturer;
 use App\Models\SchoolClass;
+use App\Support\LecturerAccountProvisioner;
 use App\Support\LecturerUsername;
 use App\Support\SchemaFeatures;
 use Illuminate\Support\Facades\Schema;
@@ -64,7 +65,18 @@ class LecturerController extends Controller
         $lecturer->syncAssignedClasses($classIds);
         LecturerUsername::assignIfMissing($lecturer);
 
-        return redirect()->route('dashboard.lecturers.index')->with('success', 'Lecturer added.');
+        $credentials = LecturerAccountProvisioner::ensureLogin($lecturer);
+
+        $message = 'Lecturer added.';
+        if ($credentials !== null) {
+            $message .= ' Login is ready under User management.';
+            if (! empty($credentials['username'])) {
+                $message .= ' Username: '.$credentials['username'].' |';
+            }
+            $message .= ' Temporary password: '.$credentials['password'];
+        }
+
+        return redirect()->route('dashboard.lecturers.index')->with('success', $message);
     }
 
     public function edit(Lecturer $lecturer): View
