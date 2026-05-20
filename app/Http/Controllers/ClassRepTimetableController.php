@@ -166,6 +166,7 @@ class ClassRepTimetableController extends Controller
         $venues = Venue::query()->orderBy('name')->get();
 
         $created = 0;
+        $updated = 0;
         $skipped = [];
 
         foreach ($parsed['slots'] as $slot) {
@@ -179,34 +180,37 @@ class ClassRepTimetableController extends Controller
             $start = $slot['start_time'];
             $end = $slot['end_time'];
 
-            $exists = ClassTimetable::query()
-                ->where('class_id', $class->id)
-                ->where('course_id', $course->id)
-                ->where('day_of_week', $slot['day'])
-                ->where(function ($q) use ($start) {
-                    $q->where('start_time', $start)->orWhere('start_time', $start.':00');
-                })
-                ->exists();
-            if ($exists) {
-                $skipped[] = $slot['day'].' '.$start.' — '.($course->course_code ?: $course->course_name).' already on the timetable';
-                continue;
-            }
-
             $lecturer = $this->matchLecturer($lecturers, $slot['lecturer'] ?? null);
             $venue = $this->matchVenue($venues, $slot['venue'] ?? null);
 
-            ClassTimetable::create([
-                'class_id' => $class->id,
-                'course_id' => $course->id,
+            $payload = [
                 'day_of_week' => $slot['day'],
                 'start_time' => $start.':00',
                 'end_time' => $end.':00',
                 'lecturer_id' => $lecturer?->id,
                 'venue_id' => $venue?->id,
                 'venue' => $venue ? null : ($slot['venue'] ?? null),
-                'created_by_student_id' => $student->id,
-            ]);
-            $created++;
+            ];
+
+            // One course can only have ONE slot per class — re-importing
+            // overwrites the time / lecturer / venue for that course, but
+            // never touches attendance, sessions or other class data.
+            $existing = ClassTimetable::query()
+                ->where('class_id', $class->id)
+                ->where('course_id', $course->id)
+                ->first();
+
+            if ($existing) {
+                $existing->update($payload);
+                $updated++;
+            } else {
+                ClassTimetable::create($payload + [
+                    'class_id' => $class->id,
+                    'course_id' => $course->id,
+                    'created_by_student_id' => $student->id,
+                ]);
+                $created++;
+            }
         }
 
         $messages = $parsed['warnings'];
@@ -215,12 +219,19 @@ class ClassRepTimetableController extends Controller
         }
 
         $redirect = redirect()->route('dashboard.timetable.manage', ['class_id' => $class->id]);
-        if ($created === 0) {
-            return $redirect->with('error', 'No slots were added. '.($messages[0] ?? 'Check that the courses exist for this class.'))
+        if ($created === 0 && $updated === 0) {
+            return $redirect->with('error', 'No slots were added or updated. '.($messages[0] ?? 'Check that the courses exist for this class.'))
                 ->with('import_messages', $messages);
         }
 
-        $summary = "Imported {$created} slot".($created === 1 ? '' : 's').'.';
+        $parts = [];
+        if ($created > 0) {
+            $parts[] = 'added '.$created.' new slot'.($created === 1 ? '' : 's');
+        }
+        if ($updated > 0) {
+            $parts[] = 'updated '.$updated.' existing slot'.($updated === 1 ? '' : 's');
+        }
+        $summary = 'Timetable import: '.implode(' and ', $parts).'.';
         if ($skipped !== []) {
             $summary .= ' Skipped '.count($skipped).' row'.(count($skipped) === 1 ? '' : 's').' — see details below.';
         }

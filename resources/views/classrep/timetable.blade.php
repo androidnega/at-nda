@@ -88,7 +88,7 @@
 
                     <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
                         <p class="text-[11px] text-gray-500">
-                            Only courses already linked to <strong>{{ $selectedClass->name }}</strong> can be imported. Lecturers and venues are matched by name (honorifics like MR. / DR. are ignored).
+                            Only courses already linked to <strong>{{ $selectedClass->name }}</strong> can be imported. If a course is already on this class's timetable, its day, time, lecturer and venue are <strong>overwritten</strong> with the new entry — attendance and other class data are not touched. Lecturers and venues are matched by name (honorifics like MR. / DR. are ignored).
                         </p>
                         <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-primary text-white px-4 py-2 text-xs font-semibold hover:bg-primary/90">
                             <i class="fas fa-bolt text-[11px]"></i> Generate timetable

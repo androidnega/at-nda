@@ -54,31 +54,9 @@
         </div>
 
         <div class="border-b border-gray-100 pb-5">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Weekly Schedule <span class="text-xs font-normal text-gray-500">(optional — class reps own this per class)</span></h3>
-            <p class="text-xs text-gray-500 mb-3">Day, time, lecturer, and venue are now managed by each class&rsquo;s rep so two classes that share this course can run different timetables. Anything you set here is just a default suggestion.</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                    <label for="day_of_week" class="block text-sm font-medium text-gray-700 mb-2">Day</label>
-                    <select id="day_of_week" name="day_of_week" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                        <option value="">— Let reps choose —</option>
-                        @foreach(['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] as $d)
-                        <option value="{{ $d }}" {{ old('day_of_week', $course?->day_of_week) == $d ? 'selected' : '' }}>{{ $d }}</option>
-                        @endforeach
-                    </select>
-                    @error('day_of_week')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label for="start_time" class="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                    <input type="time" id="start_time" name="start_time" value="{{ old('start_time', $course?->start_time ? \Carbon\Carbon::parse($course->start_time)->format('H:i') : '') }}"
-                        class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                    @error('start_time')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label for="end_time" class="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                    <input type="time" id="end_time" name="end_time" value="{{ old('end_time', $course?->end_time ? \Carbon\Carbon::parse($course->end_time)->format('H:i') : '') }}"
-                        class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                    @error('end_time')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Course defaults</h3>
+            <p class="text-xs text-gray-500 mb-3">The weekly day &amp; time are picked by each class rep on their per-class timetable, so two classes that share this course can run on different days. Set credit hours and an optional default lecturer / venue here.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                     <label for="credit_hours" class="block text-sm font-medium text-gray-700 mb-2">Credit Hours</label>
                     <input type="number" id="credit_hours" name="credit_hours" value="{{ old('credit_hours', $course?->credit_hours ?? 2) }}" min="1" max="12" required
@@ -86,7 +64,7 @@
                     @error('credit_hours')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label for="venue_id" class="block text-sm font-medium text-gray-700 mb-2">Venue</label>
+                    <label for="venue_id" class="block text-sm font-medium text-gray-700 mb-2">Default venue <span class="text-xs font-normal text-gray-500">(optional)</span></label>
                     <select id="venue_id" name="venue_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
                         <option value="">— None —</option>
                         @foreach($venues ?? [] as $v)
@@ -96,7 +74,7 @@
                     @error('venue_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label for="lecturer_id" class="block text-sm font-medium text-gray-700 mb-2">Assigned lecturer</label>
+                    <label for="lecturer_id" class="block text-sm font-medium text-gray-700 mb-2">Default lecturer <span class="text-xs font-normal text-gray-500">(optional)</span></label>
                     <select id="lecturer_id" name="lecturer_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
                         <option value="">— None —</option>
                         @foreach($lecturers ?? [] as $l)
@@ -161,30 +139,4 @@
         <a href="{{ route('dashboard.courses.index') }}" class="bg-gray-200 text-gray-800 px-5 py-2.5 rounded-xl font-medium hover:bg-gray-300">Cancel</a>
     </div>
 </form>
-
-<script>
-    (function () {
-        const start = document.getElementById('start_time');
-        const end = document.getElementById('end_time');
-        if (!start || !end) return;
-
-        const syncMin = () => {
-            if (start.value) {
-                end.min = start.value;
-                if (end.value && end.value <= start.value) {
-                    end.setCustomValidity('End time must be after start time.');
-                } else {
-                    end.setCustomValidity('');
-                }
-            } else {
-                end.removeAttribute('min');
-                end.setCustomValidity('');
-            }
-        };
-
-        start.addEventListener('change', syncMin);
-        end.addEventListener('input', syncMin);
-        syncMin();
-    })();
-</script>
 @endsection
