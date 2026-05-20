@@ -235,4 +235,34 @@
         </section>
     </div>
 </div>
+
+<script>
+    (function () {
+        const syncForm = (form) => {
+            const start = form.querySelector('input[name="start_time"]');
+            const end = form.querySelector('input[name="end_time"]');
+            if (!start || !end) return;
+            if (start.value) {
+                end.min = start.value;
+                if (end.value && end.value <= start.value) {
+                    end.setCustomValidity('End time must be after start time.');
+                } else {
+                    end.setCustomValidity('');
+                }
+            } else {
+                end.removeAttribute('min');
+                end.setCustomValidity('');
+            }
+        };
+
+        document.querySelectorAll('form').forEach((form) => {
+            const start = form.querySelector('input[name="start_time"]');
+            const end = form.querySelector('input[name="end_time"]');
+            if (!start || !end) return;
+            start.addEventListener('change', () => syncForm(form));
+            end.addEventListener('input', () => syncForm(form));
+            syncForm(form);
+        });
+    })();
+</script>
 @endsection

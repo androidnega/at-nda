@@ -161,4 +161,30 @@
         <a href="{{ route('dashboard.courses.index') }}" class="bg-gray-200 text-gray-800 px-5 py-2.5 rounded-xl font-medium hover:bg-gray-300">Cancel</a>
     </div>
 </form>
+
+<script>
+    (function () {
+        const start = document.getElementById('start_time');
+        const end = document.getElementById('end_time');
+        if (!start || !end) return;
+
+        const syncMin = () => {
+            if (start.value) {
+                end.min = start.value;
+                if (end.value && end.value <= start.value) {
+                    end.setCustomValidity('End time must be after start time.');
+                } else {
+                    end.setCustomValidity('');
+                }
+            } else {
+                end.removeAttribute('min');
+                end.setCustomValidity('');
+            }
+        };
+
+        start.addEventListener('change', syncMin);
+        end.addEventListener('input', syncMin);
+        syncMin();
+    })();
+</script>
 @endsection
