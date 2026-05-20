@@ -1017,6 +1017,193 @@ class ClassRepController extends Controller
         return back()->with('success', "Import finished: {$imported} record(s) saved.".($skipped > 0 ? " {$skipped} row(s) skipped." : ''));
     }
 
+    /**
+     * Download attendance for a single teaching week as JSON.
+     */
+    public function exportAttendanceJsonWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): JsonResponse|RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only export attendance for your class courses.');
+        }
+
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $records = RepCourseAccess::scopeAttendanceForRep(
+            Attendance::query(),
+            $rep,
+            $course
+        )->where('attendance_week_id', $attendanceWeek->id)
+            ->with([
+                'student:id,index_number',
+                'attendanceSession:id,session_index,course_id',
+            ])
+            ->orderBy('id')
+            ->get()
+            ->map(function (Attendance $a) {
+                return [
+                    'id' => $a->id,
+                    'student_id' => $a->student_id,
+                    'index_number' => $a->student?->index_number,
+                    'course_id' => $a->course_id,
+                    'attendance_session_id' => $a->attendance_session_id,
+                    'attendance_week_id' => $a->attendance_week_id,
+                    'session_index' => $a->attendanceSession?->session_index,
+                    'week_number' => $a->attendanceWeek?->week_number,
+                    'attendance_time' => $a->attendance_time?->toIso8601String(),
+                    'status' => $a->status,
+                    'synced' => (bool) $a->synced,
+                    'lat' => $a->lat !== null ? (float) $a->lat : null,
+                    'lng' => $a->lng !== null ? (float) $a->lng : null,
+                ];
+            });
+
+        $payload = [
+            'format' => 'at-nda-attendance-backup',
+            'version' => 1,
+            'scope' => 'week',
+            'exported_at' => now()->toIso8601String(),
+            'course_id' => $course->id,
+            'course_code' => $course->course_code,
+            'course_name' => $course->course_name,
+            'attendance_week_id' => $attendanceWeek->id,
+            'week_number' => $attendanceWeek->week_number,
+            'week_date' => $attendanceWeek->week_date?->toDateString(),
+            'records' => $records,
+        ];
+
+        $filename = 'attendance-course-'.$course->id.'-week-'.$attendanceWeek->week_number.'-'.now()->format('Y-m-d_His').'.json';
+
+        return response()->json($payload, 200, [
+            'Content-Type' => 'application/json; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Restore attendance for a single teaching week from a JSON backup.
+     * Accepts both per-week exports and full-course exports (filters to this week).
+     */
+    public function importAttendanceJsonWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only import attendance for your class courses.');
+        }
+
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $request->validate([
+            'backup' => 'required|file|max:51200',
+        ]);
+
+        $path = $request->file('backup')->getRealPath();
+        if ($path === false) {
+            return back()->with('error', 'Could not read the uploaded file.');
+        }
+
+        $raw = file_get_contents($path);
+        $data = json_decode((string) $raw, true);
+        if (! is_array($data) || ($data['format'] ?? '') !== 'at-nda-attendance-backup') {
+            return back()->with('error', 'Invalid backup file (expected at-nda-attendance-backup JSON).');
+        }
+
+        if ((int) ($data['course_id'] ?? 0) !== (int) $course->id) {
+            return back()->with('error', 'This backup is for a different course.');
+        }
+
+        $rows = $data['records'] ?? null;
+        if (! is_array($rows) || $rows === []) {
+            return back()->with('error', 'No records in file.');
+        }
+
+        $imported = 0;
+        $skipped = 0;
+        $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+
+        DB::transaction(function () use ($course, $attendanceWeek, $rows, $scopedClassIds, &$imported, &$skipped) {
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $studentId = isset($row['student_id']) ? (int) $row['student_id'] : 0;
+                if ($studentId <= 0 && ! empty($row['index_number'])) {
+                    $byIndex = Student::findByIndex((string) $row['index_number']);
+                    $studentId = $byIndex?->id ?? 0;
+                }
+
+                $sessionId = isset($row['attendance_session_id']) ? (int) $row['attendance_session_id'] : 0;
+                if ($studentId <= 0 || $sessionId <= 0) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $session = AttendanceSession::query()->find($sessionId);
+                if (! $session || (int) $session->course_id !== (int) $course->id) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $rowWeekId = isset($row['attendance_week_id']) ? (int) $row['attendance_week_id'] : (int) $session->attendance_week_id;
+                if ($rowWeekId !== (int) $attendanceWeek->id) {
+                    // Backup is allowed to be a full-course export; rows outside this week are ignored.
+                    $skipped++;
+
+                    continue;
+                }
+
+                $student = Student::query()->find($studentId);
+                if (! $student || ! in_array((int) $student->class_id, $scopedClassIds, true)) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                Attendance::updateOrCreate(
+                    [
+                        'student_id' => $student->id,
+                        'attendance_session_id' => $session->id,
+                    ],
+                    [
+                        'course_id' => $course->id,
+                        'attendance_week_id' => $attendanceWeek->id,
+                        'attendance_time' => isset($row['attendance_time'])
+                            ? Carbon::parse((string) $row['attendance_time'])
+                            : now(),
+                        'status' => isset($row['status']) ? (string) $row['status'] : 'present',
+                        'synced' => array_key_exists('synced', $row) ? (bool) $row['synced'] : true,
+                        'lat' => isset($row['lat']) ? $row['lat'] : null,
+                        'lng' => isset($row['lng']) ? $row['lng'] : null,
+                    ]
+                );
+                $imported++;
+            }
+        });
+
+        return back()->with(
+            'success',
+            "Week {$attendanceWeek->week_number} import finished: {$imported} record(s) saved."
+            .($skipped > 0 ? " {$skipped} row(s) skipped." : '')
+        );
+    }
+
     public function resetPassword(Request $request, Student $student): RedirectResponse
     {
         $rep = $this->requireClassRep($request);

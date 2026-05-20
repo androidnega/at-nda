@@ -147,7 +147,11 @@ class AttendanceOfflineSyncService
             $presentCount = Attendance::where('attendance_session_id', $fresh->id)
                 ->where('status', 'present')
                 ->count();
-            event(new SessionLiveEvent($fresh, 'attendance_marked', ['present_count' => $presentCount]));
+            try {
+                event(new SessionLiveEvent($fresh, 'attendance_marked', ['present_count' => $presentCount]));
+            } catch (\Throwable $e) {
+                \Log::warning('SessionLiveEvent dispatch failed (offline sync): '.$e->getMessage(), ['session_id' => $fresh->id]);
+            }
         }
 
         return ['synced' => $synced, 'failed' => $failed];

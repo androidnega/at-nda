@@ -197,6 +197,8 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::get('/class-attendance/course/{course}/weeks/{attendanceWeek}/pdf', [AttendancePdfController::class, 'exportWeek'])->name('class-attendance.course.week.pdf');
         Route::get('/class-attendance/course/{course}/export.json', [ClassRepController::class, 'exportAttendanceJson'])->name('class-attendance.course.export-json');
         Route::post('/class-attendance/course/{course}/import.json', [ClassRepController::class, 'importAttendanceJson'])->name('class-attendance.course.import-json');
+        Route::get('/class-attendance/course/{course}/weeks/{attendanceWeek}/export.json', [ClassRepController::class, 'exportAttendanceJsonWeek'])->name('class-attendance.course.week.export-json');
+        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/import.json', [ClassRepController::class, 'importAttendanceJsonWeek'])->name('class-attendance.course.week.import-json');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
         Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');

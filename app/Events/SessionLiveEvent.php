@@ -5,14 +5,18 @@ namespace App\Events;
 use App\Models\AttendanceSession;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
  * Live updates for attendance sessions (QR stats, dashboards) over WebSockets (Reverb).
+ *
+ * Implements ShouldBroadcast (queued) instead of ShouldBroadcastNow so a Reverb
+ * outage never blocks or fails an attendance mark — the broadcast just queues
+ * up and replays once the worker reaches it.
  */
-class SessionLiveEvent implements ShouldBroadcastNow
+class SessionLiveEvent implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

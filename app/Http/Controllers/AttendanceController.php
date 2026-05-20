@@ -418,7 +418,12 @@ class AttendanceController extends Controller
         $presentCount = Attendance::where('attendance_session_id', $session->id)
             ->where('status', 'present')
             ->count();
-        event(new SessionLiveEvent($session->fresh(['course']), 'attendance_marked', ['present_count' => $presentCount]));
+        try {
+            event(new SessionLiveEvent($session->fresh(['course']), 'attendance_marked', ['present_count' => $presentCount]));
+        } catch (\Throwable $e) {
+            // Broadcasting / queue outage must never break an attendance mark.
+            \Log::warning('SessionLiveEvent dispatch failed: '.$e->getMessage(), ['session_id' => $session->id]);
+        }
 
         return response()->json([
             'success' => true,
