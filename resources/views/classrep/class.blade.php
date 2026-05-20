@@ -38,6 +38,30 @@
                     </div>
                 </div>
             </div>
+
+            @php $assignedCourses = $class->relationLoaded('assignedCourses') ? $class->assignedCourses : collect(); @endphp
+            @if($assignedCourses->isNotEmpty())
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Assigned courses</p>
+                    <ul class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        @foreach($assignedCourses as $course)
+                            <li class="flex items-start gap-2 text-sm">
+                                <i class="fas fa-book text-primary/60 text-xs mt-1"></i>
+                                <span class="text-gray-700">
+                                    <span class="font-medium">{{ $course->course_name }}</span>
+                                    @if($course->course_code)
+                                        <span class="text-gray-500"> ({{ $course->course_code }})</span>
+                                    @endif
+                                </span>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @else
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <p class="text-xs text-gray-500">No courses assigned to this class yet.</p>
+                </div>
+            @endif
         </div>
         @endforeach
     </div>

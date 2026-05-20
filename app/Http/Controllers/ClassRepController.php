@@ -15,6 +15,7 @@ use App\Models\SystemSetting;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
 use App\Support\RepCourseAccess;
+use App\Support\SchemaFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -566,9 +567,32 @@ class ClassRepController extends Controller
         $classIds = $this->getRepClassIds($rep);
         $classes = SchoolClass::with(['faculty', 'department'])
             ->whereIn('id', $classIds)
-            ->withCount(['students', 'courses'])
+            ->withCount('students')
             ->orderBy('name')
             ->get();
+
+        // Load courses from BOTH the legacy class_id column AND the course_class
+        // pivot, since many courses are now linked exclusively via the pivot.
+        $hasPivot = SchemaFeatures::hasCourseClassPivot();
+        foreach ($classes as $class) {
+            $courses = Course::query()
+                ->where(function ($q) use ($class, $hasPivot) {
+                    $q->where('courses.class_id', $class->id);
+                    if ($hasPivot) {
+                        $q->orWhereHas(
+                            'schoolClasses',
+                            fn ($sq) => $sq->where('classes.id', $class->id)
+                        );
+                    }
+                })
+                ->orderBy('course_name')
+                ->get()
+                ->unique('id')
+                ->values();
+
+            $class->setAttribute('courses_count', $courses->count());
+            $class->setRelation('assignedCourses', $courses);
+        }
 
         return view('classrep.class', ['classes' => $classes]);
     }
