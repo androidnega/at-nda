@@ -54,36 +54,13 @@
         </div>
 
         <div class="border-b border-gray-100 pb-5">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Course defaults</h3>
-            <p class="text-xs text-gray-500 mb-3">The weekly day &amp; time are picked by each class rep on their per-class timetable, so two classes that share this course can run on different days. Set credit hours and an optional default lecturer / venue here.</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                    <label for="credit_hours" class="block text-sm font-medium text-gray-700 mb-2">Credit Hours</label>
-                    <input type="number" id="credit_hours" name="credit_hours" value="{{ old('credit_hours', $course?->credit_hours ?? 2) }}" min="1" max="12" required
-                        class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                    @error('credit_hours')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label for="venue_id" class="block text-sm font-medium text-gray-700 mb-2">Default venue <span class="text-xs font-normal text-gray-500">(optional)</span></label>
-                    <select id="venue_id" name="venue_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
-                        <option value="">— None —</option>
-                        @foreach($venues ?? [] as $v)
-                        <option value="{{ $v->id }}" {{ old('venue_id', $course?->venue_id) == $v->id ? 'selected' : '' }}>{{ $v->name }}{{ $v->code ? ' (' . $v->code . ')' : '' }}</option>
-                        @endforeach
-                    </select>
-                    @error('venue_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label for="lecturer_id" class="block text-sm font-medium text-gray-700 mb-2">Default lecturer <span class="text-xs font-normal text-gray-500">(optional)</span></label>
-                    <select id="lecturer_id" name="lecturer_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary">
-                        <option value="">— None —</option>
-                        @foreach($lecturers ?? [] as $l)
-                        <option value="{{ $l->id }}" {{ old('lecturer_id', $course?->lecturer_id) == $l->id ? 'selected' : '' }}>{{ $l->name }}{{ ($label = $l->assignedClassesLabel()) !== '' ? ' · ' . $label : '' }}</option>
-                        @endforeach
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">Add people under <strong>Lecturers</strong> first, then assign here.</p>
-                    @error('lecturer_id')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-                </div>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Credit hours</h3>
+            <p class="text-xs text-gray-500 mb-3">The weekly day, time, lecturer and venue for this course are picked by each class rep on their per-class timetable, so two classes that share this course can run on different days with different lecturers.</p>
+            <div class="max-w-xs">
+                <label for="credit_hours" class="block text-sm font-medium text-gray-700 mb-2">Credit Hours</label>
+                <input type="number" id="credit_hours" name="credit_hours" value="{{ old('credit_hours', $course?->credit_hours ?? 2) }}" min="1" max="12" required
+                    class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                @error('credit_hours')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
         </div>
 

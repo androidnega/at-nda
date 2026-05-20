@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Course;
-use App\Models\Lecturer;
 use App\Models\SchoolClass;
 use App\Support\SchemaFeatures;
 use Illuminate\Http\RedirectResponse;
@@ -24,10 +23,8 @@ class CourseController extends Controller
     public function create(): View
     {
         $classes = SchoolClass::orderBy('name')->get();
-        $lecturers = $this->lecturersForForm();
-        $venues = \App\Models\Venue::orderBy('name')->get();
 
-        return view('admin.course-form', ['course' => null, 'classes' => $classes, 'lecturers' => $lecturers, 'venues' => $venues]);
+        return view('admin.course-form', ['course' => null, 'classes' => $classes]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -40,10 +37,6 @@ class CourseController extends Controller
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
             'credit_hours' => 'required|integer|min:1|max:12',
-            'venue' => 'nullable|string|max:255',
-            'venue_id' => 'nullable|exists:venues,id',
-            'lecturer_name' => 'nullable|string|max:255',
-            'lecturer_id' => 'nullable|exists:lecturers,id',
             'attendance_window_minutes' => 'nullable|integer|min:1',
             'location_lat' => 'nullable|numeric',
             'location_lng' => 'nullable|numeric',
@@ -52,7 +45,6 @@ class CourseController extends Controller
         ]);
         $validated['attendance_window_minutes'] = $validated['attendance_window_minutes'] ?? 60;
         $validated['credit_hours'] = $validated['credit_hours'] ?? 2;
-        $validated['lecturer_name'] = $this->syncLecturerName($validated);
         foreach (['location_lat', 'location_lng', 'attendance_range_m', 'next_week_number'] as $k) {
             if (array_key_exists($k, $validated) && $validated[$k] === '') {
                 $validated[$k] = null;
@@ -69,13 +61,11 @@ class CourseController extends Controller
     public function edit(Course $course): View
     {
         $classes = SchoolClass::orderBy('name')->get();
-        $lecturers = $this->lecturersForForm();
-        $venues = \App\Models\Venue::orderBy('name')->get();
         if (SchemaFeatures::hasCourseClassPivot()) {
             $course->load('schoolClasses');
         }
 
-        return view('admin.course-form', compact('course', 'classes', 'lecturers', 'venues'));
+        return view('admin.course-form', compact('course', 'classes'));
     }
 
     public function update(Request $request, Course $course): RedirectResponse
@@ -86,10 +76,6 @@ class CourseController extends Controller
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
             'credit_hours' => 'required|integer|min:1|max:12',
-            'venue' => 'nullable|string|max:255',
-            'venue_id' => 'nullable|exists:venues,id',
-            'lecturer_name' => 'nullable|string|max:255',
-            'lecturer_id' => 'nullable|exists:lecturers,id',
         ];
         if ($request->session()->has('admin_id')) {
             $rules['attendance_window_minutes'] = 'nullable|integer|min:1';
@@ -99,7 +85,6 @@ class CourseController extends Controller
             $rules['next_week_number'] = 'nullable|integer|min:1|max:500';
         }
         $validated = $request->validate($rules);
-        $validated['lecturer_name'] = $this->syncLecturerName($validated);
         if ($request->session()->has('admin_id')) {
             $validated['attendance_window_minutes'] = $validated['attendance_window_minutes'] ?? $course->attendance_window_minutes ?? 60;
             foreach (['location_lat', 'location_lng', 'attendance_range_m', 'next_week_number'] as $k) {
@@ -126,39 +111,11 @@ class CourseController extends Controller
     }
 
     /**
-     * Keep lecturer_name in sync when lecturer_id is set (for PDFs / legacy display).
-     *
-     * @param  array<string, mixed>  $validated
-     */
-    private function syncLecturerName(array $validated): string
-    {
-        if (! empty($validated['lecturer_id'])) {
-            $lecturer = Lecturer::find($validated['lecturer_id']);
-
-            return $lecturer ? trim((string) $lecturer->name) : '';
-        }
-
-        return trim((string) ($validated['lecturer_name'] ?? ''));
-    }
-
-    /**
      * @param  array<string, mixed>  $validated
      * @return list<int>
      */
     private function mergeClassIds(array $validated): array
     {
         return array_values(array_unique(array_filter(array_map('intval', $validated['class_ids'] ?? []))));
-    }
-
-    /**
-     * @return \Illuminate\Database\Eloquent\Collection<int, Lecturer>
-     */
-    private function lecturersForForm(): \Illuminate\Database\Eloquent\Collection
-    {
-        $with = SchemaFeatures::hasClassLecturerPivot()
-            ? ['schoolClasses', 'schoolClass']
-            : ['schoolClass'];
-
-        return Lecturer::with($with)->orderBy('name')->get();
     }
 }

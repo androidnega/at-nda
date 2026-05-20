@@ -181,8 +181,6 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
 
     Route::middleware('classrep')->group(function () {
         Route::get('/timetable/manage', [ClassRepTimetableController::class, 'index'])->name('timetable.manage');
-        Route::get('/timetable/bulk-template', [ClassRepTimetableController::class, 'bulkTemplate'])->name('timetable.bulk-template');
-        Route::post('/timetable/bulk-import', [ClassRepTimetableController::class, 'bulkImport'])->name('timetable.bulk-import');
         Route::post('/timetable', [ClassRepTimetableController::class, 'store'])->name('timetable.store');
         Route::put('/timetable/{entry}', [ClassRepTimetableController::class, 'update'])
             ->name('timetable.update')
