@@ -90,10 +90,32 @@ class ClassRepController extends Controller
         }
 
         $classIds = $this->getRepClassIds($student);
+        $classIdsArr = $classIds->map(fn ($id) => (int) $id)->all();
         $studentsCount = Student::whereIn('class_id', $classIds)->count();
-        $courseQuery = RepCourseAccess::coursesQueryForRep($student);
-        $coursesCount = (clone $courseQuery)->count();
-        $courseIds = (clone $courseQuery)->pluck('id');
+
+        // The rep dashboard now mirrors the per-class timetable: a course is
+        // "assigned" only once the rep has added it to their own class
+        // timetable. This keeps the Courses tile and Today's schedule in
+        // sync with /dashboard/timetable.
+        $useClassTimetable = SchemaFeatures::hasClassTimetables() && $classIdsArr !== [];
+        $timetableCourseIds = $useClassTimetable
+            ? \App\Models\ClassTimetable::query()
+                ->whereIn('class_id', $classIdsArr)
+                ->whereNotNull('course_id')
+                ->pluck('course_id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+            : collect();
+
+        $coursesCount = $useClassTimetable
+            ? $timetableCourseIds->count()
+            : (clone RepCourseAccess::coursesQueryForRep($student))->count();
+
+        // Attendance counters stay scoped to every course assigned to the
+        // rep's classes so historical marks aren't hidden if a slot was
+        // later removed from the timetable.
+        $courseIds = (clone RepCourseAccess::coursesQueryForRep($student))->pluck('id');
 
         $totalAttendanceMarks = $courseIds->isEmpty()
             ? 0
@@ -118,14 +140,7 @@ class ClassRepController extends Controller
                 ->where('attendance_time', '>=', now()->subDays(7)->startOfDay())
                 ->count();
 
-        $todayName = strtolower(now()->format('l'));
-        $todayCourses = RepCourseAccess::coursesQueryForRep($student)
-            ->with(['schoolClass', 'schoolClasses', 'lecturer'])
-            ->whereNotNull('day_of_week')
-            ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
-            ->orderBy('start_time')
-            ->limit(6)
-            ->get();
+        $todayCourses = $this->buildRepTodayCourses($student, $classIdsArr, $useClassTimetable);
 
         return view('classrep.overview', [
             'student' => $student,
@@ -137,6 +152,69 @@ class ClassRepController extends Controller
             'todayCourses' => $todayCourses,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Build a normalized list of today's slots for the rep's dashboard,
+     * preferring per-class timetable entries and falling back to the legacy
+     * course-level day/time columns when no per-class entries exist.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private function buildRepTodayCourses(Student $student, array $classIdsArr, bool $useClassTimetable): \Illuminate\Support\Collection
+    {
+        $todayName = strtolower(now()->format('l'));
+
+        if ($useClassTimetable && $classIdsArr !== []) {
+            $slots = \App\Models\ClassTimetable::query()
+                ->whereIn('class_id', $classIdsArr)
+                ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
+                ->with(['course', 'venueRelation', 'lecturer'])
+                ->orderBy('start_time')
+                ->limit(10)
+                ->get();
+
+            if ($slots->isNotEmpty()) {
+                return $slots->map(function (\App\Models\ClassTimetable $slot) {
+                    $course = $slot->course;
+                    $scheduleParts = [];
+                    try {
+                        $start = \Carbon\Carbon::parse($slot->start_time)->format('H:i');
+                        $end = \Carbon\Carbon::parse($slot->end_time)->format('H:i');
+                        $scheduleParts[] = $start.'–'.$end;
+                    } catch (\Throwable $e) {
+                        // Ignore unparsable times — they'll just be omitted from the label.
+                    }
+                    $venueDisplay = $slot->resolvedVenueName();
+                    if ($venueDisplay !== '') {
+                        $scheduleParts[] = $venueDisplay;
+                    }
+
+                    return (object) [
+                        'course_name' => $course?->course_name ?? '—',
+                        'course_code' => $course?->course_code,
+                        'schedule_label' => implode(' · ', $scheduleParts),
+                        'has_active_session' => $course?->activeSession() !== null,
+                    ];
+                })->values();
+            }
+        }
+
+        // Legacy fallback: course-level day/time when the rep has no per-class
+        // timetable rows yet (or the schema doesn't support them).
+        return RepCourseAccess::coursesQueryForRep($student)
+            ->with(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation'])
+            ->whereNotNull('day_of_week')
+            ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
+            ->orderBy('start_time')
+            ->limit(6)
+            ->get()
+            ->map(fn (Course $c) => (object) [
+                'course_name' => $c->course_name,
+                'course_code' => $c->course_code,
+                'schedule_label' => $c->getScheduleLabel(),
+                'has_active_session' => $c->activeSession() !== null,
+            ]);
     }
 
     public function dashboard(Request $request): View|RedirectResponse

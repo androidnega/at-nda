@@ -16,7 +16,13 @@
         <div class="absolute inset-0 bg-teal-900/65"></div>
         <div class="relative z-10 px-5 py-6 sm:px-8 sm:py-8">
             <p class="text-teal-100/90 text-xs font-semibold uppercase tracking-widest">Dashboard</p>
-            <h1 class="text-2xl sm:text-3xl font-bold mt-1 tracking-tight">Hello, {{ $student->getDisplayNameOrIndex() }}</h1>
+            @php
+                $repGreetingName = trim((string) ($student->last_name ?? ''));
+                if ($repGreetingName === '') {
+                    $repGreetingName = (string) ($student->index_number ?? 'there');
+                }
+            @endphp
+            <h1 class="text-2xl sm:text-3xl font-bold mt-1 tracking-tight">Hello, {{ $repGreetingName }}</h1>
             <p class="text-teal-100/80 text-sm mt-2 max-w-xl">{{ now()->format('l, F j, Y') }} · Stay on top of sessions and attendance</p>
             <div class="mt-5 flex flex-wrap gap-2">
                 <a href="{{ route('dashboard.session') }}" class="inline-flex items-center gap-2 rounded-xl bg-white text-teal-800 px-4 py-2.5 text-sm font-semibold hover:bg-teal-50">
@@ -94,13 +100,20 @@
                                     <i class="fas fa-book-open text-[11px]"></i>
                                 </span>
                                 <div class="min-w-0">
-                                    <p class="font-semibold text-[#142a38] leading-snug truncate">{{ $c->course_name }}</p>
-                                    <p class="text-[12px] text-[#5a6f7c] mt-1 leading-relaxed">
-                                        <span class="text-[#3d5a6e] font-medium">{{ $c->getScheduleLabel() }}</span>
+                                    <p class="font-semibold text-[#142a38] leading-snug truncate">
+                                        {{ $c->course_name }}
+                                        @if(!empty($c->course_code))
+                                            <span class="ml-1 text-[11px] font-mono text-[#5a6f7c]">{{ $c->course_code }}</span>
+                                        @endif
                                     </p>
+                                    @if(!empty($c->schedule_label))
+                                        <p class="text-[12px] text-[#5a6f7c] mt-1 leading-relaxed">
+                                            <span class="text-[#3d5a6e] font-medium">{{ $c->schedule_label }}</span>
+                                        </p>
+                                    @endif
                                 </div>
                             </div>
-                            @if($c->activeSession())
+                            @if(!empty($c->has_active_session))
                                 <span class="shrink-0 self-start inline-flex items-center gap-1.5 rounded-lg border border-[#b5d9c4] bg-[#ecf6f0] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#1f5c36]">
                                     <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#2d8f4e]" aria-hidden="true"></span>
                                     Live
@@ -114,7 +127,7 @@
                             <i class="fas fa-mug-hot text-lg"></i>
                         </span>
                         <p class="text-sm font-medium text-[#3d5a6e]">Nothing on your timetable today</p>
-                        <p class="text-xs text-[#7a919c] mt-1.5 max-w-xs mx-auto">When courses are scheduled for this weekday, they&rsquo;ll show up here.</p>
+                        <p class="text-xs text-[#7a919c] mt-1.5 max-w-xs mx-auto">When you add a course to <a href="{{ route('dashboard.timetable.manage') }}" class="text-[#2d5a6e] underline">your timetable</a> for {{ now()->format('l') }}, it&rsquo;ll show up here.</p>
                     </div>
                 @endforelse
             </div>
