@@ -684,13 +684,74 @@ class ClassRepController extends Controller
         }
         $attendanceWeeks = $weeksQuery->get();
 
+        $dailyStats = $this->buildDailyAttendanceStats($request, $rep, $course, $repClassIds);
+
         return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
             'recentSessions' => $recentSessions,
             'attendanceWeeks' => $attendanceWeeks,
+            'dailyStats' => $dailyStats,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Build a per-day present/absent breakdown for the course, scoped to the
+     * rep's class and any active date filter on the request.
+     *
+     * @param  list<int>  $repClassIds
+     * @return \Illuminate\Support\Collection<int, array{date: string, present: int, absent: int, total: int}>
+     */
+    private function buildDailyAttendanceStats(Request $request, Student $rep, Course $course, array $repClassIds): \Illuminate\Support\Collection
+    {
+        if ($repClassIds === []) {
+            return collect();
+        }
+
+        $enrolled = Student::query()->whereIn('class_id', $repClassIds)->count();
+        $dateFrom = $request->query('date_from');
+        $dateTo = $request->query('date_to');
+
+        $presentByDate = RepCourseAccess::scopeAttendanceForRep(Attendance::query(), $rep, $course)
+            ->when($dateFrom, fn ($q) => $q->whereDate('attendance_time', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('attendance_time', '<=', $dateTo))
+            ->selectRaw('DATE(attendance_time) as d, COUNT(DISTINCT student_id) as c')
+            ->groupBy('d')
+            ->orderByDesc('d')
+            ->limit(60)
+            ->get()
+            ->keyBy(fn ($row) => (string) $row->d)
+            ->map(fn ($row) => (int) $row->c);
+
+        $sessionDates = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->when($dateFrom, fn ($q) => $q->whereDate(DB::raw('COALESCE(start_time, created_at)'), '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate(DB::raw('COALESCE(start_time, created_at)'), '<=', $dateTo))
+            ->selectRaw('DATE(COALESCE(start_time, created_at)) as d')
+            ->distinct()
+            ->orderByDesc('d')
+            ->limit(60)
+            ->pluck('d')
+            ->map(fn ($d) => (string) $d);
+
+        $allDates = $presentByDate->keys()
+            ->merge($sessionDates)
+            ->unique()
+            ->sort()
+            ->reverse()
+            ->values()
+            ->take(30);
+
+        return $allDates->map(function (string $date) use ($presentByDate, $enrolled): array {
+            $present = (int) ($presentByDate[$date] ?? 0);
+            return [
+                'date' => $date,
+                'present' => $present,
+                'absent' => max(0, $enrolled - $present),
+                'total' => $enrolled,
+            ];
+        });
     }
 
     /**

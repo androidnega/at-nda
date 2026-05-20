@@ -130,6 +130,65 @@
     </div>
 </form>
 
+@if(isset($dailyStats) && $dailyStats->isNotEmpty())
+<div class="mb-4">
+    <div class="flex items-end justify-between mb-2">
+        <div>
+            <p class="text-xs font-semibold text-gray-800 uppercase tracking-wide">Daily attendance</p>
+            <p class="text-[11px] text-gray-500">
+                Present vs absent per day{{ request()->hasAny(['date_from', 'date_to']) ? ' (filtered)' : '' }}.
+                Absent = class size − unique students who marked.
+            </p>
+        </div>
+        <span class="text-[11px] text-gray-400">{{ $dailyStats->count() }} day{{ $dailyStats->count() === 1 ? '' : 's' }}</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+        @foreach($dailyStats as $stat)
+            @php
+                $dateObj = \Carbon\Carbon::parse($stat['date']);
+                $total = max(1, $stat['total']);
+                $pct = (int) round(($stat['present'] / $total) * 100);
+                $pct = min(100, max(0, $pct));
+                if ($pct >= 75) {
+                    $badge = 'bg-emerald-50 text-emerald-700';
+                    $bar = 'bg-emerald-500';
+                } elseif ($pct >= 50) {
+                    $badge = 'bg-amber-50 text-amber-700';
+                    $bar = 'bg-amber-500';
+                } else {
+                    $badge = 'bg-rose-50 text-rose-700';
+                    $bar = 'bg-rose-500';
+                }
+            @endphp
+            <div class="rounded-xl border border-gray-200 bg-white p-3 hover:border-primary/40 hover:shadow-sm transition">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{{ $dateObj->format('D') }}</p>
+                        <p class="text-sm font-bold text-gray-900 leading-tight">{{ $dateObj->format('M j') }}</p>
+                        <p class="text-[10px] text-gray-400">{{ $dateObj->format('Y') }}</p>
+                    </div>
+                    <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg {{ $badge }} text-[11px] font-bold tabular-nums">{{ $pct }}%</span>
+                </div>
+                <div class="mt-3 grid grid-cols-2 gap-1.5 text-center">
+                    <div class="rounded-lg bg-emerald-50 border border-emerald-100 px-1.5 py-1.5">
+                        <p class="text-[9px] font-semibold uppercase tracking-wide text-emerald-700">Present</p>
+                        <p class="text-base font-bold text-emerald-800 tabular-nums leading-tight">{{ $stat['present'] }}</p>
+                    </div>
+                    <div class="rounded-lg bg-rose-50 border border-rose-100 px-1.5 py-1.5">
+                        <p class="text-[9px] font-semibold uppercase tracking-wide text-rose-700">Absent</p>
+                        <p class="text-base font-bold text-rose-800 tabular-nums leading-tight">{{ $stat['absent'] }}</p>
+                    </div>
+                </div>
+                <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                    <div class="h-full {{ $bar }} rounded-full" style="width: {{ $pct }}%"></div>
+                </div>
+                <p class="mt-1.5 text-[10px] text-gray-500 text-center">of {{ $stat['total'] }} student{{ $stat['total'] === 1 ? '' : 's' }}</p>
+            </div>
+        @endforeach
+    </div>
+</div>
+@endif
+
 @if($recentSessions->isNotEmpty())
 <div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">
     <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent session lecturer tags</p>
