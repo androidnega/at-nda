@@ -88,6 +88,12 @@
                     </div>
 
                     <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Credit hours</label>
+                        <input type="number" name="credit_hours" min="1" max="12" required value="{{ old('credit_hours', 2) }}" class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                        @error('credit_hours') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    <div>
                         <label class="block text-xs font-semibold text-gray-700 mb-1">Lecturer</label>
                         <select name="lecturer_id" class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
                             <option value="">— Not assigned —</option>
@@ -201,6 +207,10 @@
                                         <div class="sm:col-span-2">
                                             <label class="block text-[11px] font-semibold text-gray-700 mb-1">End</label>
                                             <input type="time" name="end_time" value="{{ \Carbon\Carbon::parse($entry->end_time)->format('H:i') }}" required class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                                        </div>
+                                        <div class="sm:col-span-2">
+                                            <label class="block text-[11px] font-semibold text-gray-700 mb-1">Credit hours</label>
+                                            <input type="number" name="credit_hours" min="1" max="12" required value="{{ $entry->credit_hours ?? $entry->course?->credit_hours ?? 2 }}" class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
                                         </div>
                                         <div class="sm:col-span-6">
                                             <label class="block text-[11px] font-semibold text-gray-700 mb-1">Venue</label>

@@ -36,7 +36,6 @@ class CourseController extends Controller
             'course_code' => 'nullable|string|max:50',
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
-            'credit_hours' => 'required|integer|min:1|max:12',
             'attendance_window_minutes' => 'nullable|integer|min:1',
             'location_lat' => 'nullable|numeric',
             'location_lng' => 'nullable|numeric',
@@ -44,7 +43,6 @@ class CourseController extends Controller
             'next_week_number' => 'nullable|integer|min:1|max:500',
         ]);
         $validated['attendance_window_minutes'] = $validated['attendance_window_minutes'] ?? 60;
-        $validated['credit_hours'] = $validated['credit_hours'] ?? 2;
         foreach (['location_lat', 'location_lng', 'attendance_range_m', 'next_week_number'] as $k) {
             if (array_key_exists($k, $validated) && $validated[$k] === '') {
                 $validated[$k] = null;
@@ -75,7 +73,6 @@ class CourseController extends Controller
             'course_code' => 'nullable|string|max:50',
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
-            'credit_hours' => 'required|integer|min:1|max:12',
         ];
         if ($request->session()->has('admin_id')) {
             $rules['attendance_window_minutes'] = 'nullable|integer|min:1';

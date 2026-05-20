@@ -234,6 +234,7 @@ class ClassRepTimetableController extends Controller
             'end_time' => 'required|date_format:H:i|after:start_time',
             'lecturer_id' => 'nullable|integer|exists:lecturers,id',
             'venue_id' => 'required|integer|exists:venues,id',
+            'credit_hours' => 'required|integer|min:1|max:12',
         ];
 
         $validator = Validator::make($request->all(), $rules);

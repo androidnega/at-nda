@@ -526,13 +526,15 @@ class Student extends Model implements AuthenticatableContract
         }
 
         $classId = (int) $this->class_id;
+        $perSlotCredits = collect();
         if (\App\Support\SchemaFeatures::hasClassTimetables() && \App\Support\ClassTimetableAccess::classHasEntries($classId)) {
-            $courseIds = \App\Models\ClassTimetable::query()
+            $entries = \App\Models\ClassTimetable::query()
                 ->where('class_id', $classId)
-                ->distinct()
-                ->pluck('course_id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+                ->get(['course_id', 'credit_hours']);
+            $perSlotCredits = $entries
+                ->groupBy(fn ($e) => (int) $e->course_id)
+                ->map(fn ($group) => $group->pluck('credit_hours')->filter()->first());
+            $courseIds = $perSlotCredits->keys()->all();
             $courses = $courseIds === []
                 ? collect()
                 : Course::query()->whereIn('id', $courseIds)->get(['id', 'credit_hours']);
@@ -556,8 +558,13 @@ class Student extends Model implements AuthenticatableContract
             ];
         }
 
-        $courseCredits = $courses
-            ->mapWithKeys(fn (Course $c) => [$c->id => max(1, (int) ($c->credit_hours ?? 2))]);
+        // Prefer the per-class slot's credit_hours (set by the rep on the
+        // timetable); fall back to the course's own value, then to 2.
+        $courseCredits = $courses->mapWithKeys(function (Course $c) use ($perSlotCredits) {
+            $perSlot = $perSlotCredits->get($c->id);
+            $value = $perSlot !== null && $perSlot !== '' ? (int) $perSlot : (int) ($c->credit_hours ?? 2);
+            return [$c->id => max(1, $value)];
+        });
         $creditHoursTotal = $courseCredits->sum();
 
         $now = $at ?? now();

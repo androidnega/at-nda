@@ -21,7 +21,12 @@ class ClassTimetable extends Model
         'lecturer_id',
         'venue_id',
         'venue',
+        'credit_hours',
         'created_by_student_id',
+    ];
+
+    protected $casts = [
+        'credit_hours' => 'integer',
     ];
 
     public const DAYS = [

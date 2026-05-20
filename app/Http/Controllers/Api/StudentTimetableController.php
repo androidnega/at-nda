@@ -93,7 +93,7 @@ class StudentTimetableController extends Controller
             'day_of_week' => $entry->day_of_week,
             'start_time' => $startStr,
             'end_time' => $endStr,
-            'credit_hours' => (int) ($course?->credit_hours ?? 0),
+            'credit_hours' => (int) ($entry->credit_hours ?? $course?->credit_hours ?? 0),
             'lecturer_name' => $entry->resolvedLecturerName() ?: ($course?->lecturer_name ?? null),
             'venue' => $entry->resolvedVenueName() ?: ($course?->venue ?? null),
             'class_name' => $entry->schoolClass?->name ?? $course?->schoolClass?->name,

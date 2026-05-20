@@ -54,14 +54,8 @@
         </div>
 
         <div class="border-b border-gray-100 pb-5">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Credit hours</h3>
-            <p class="text-xs text-gray-500 mb-3">The weekly day, time, lecturer and venue for this course are picked by each class rep on their per-class timetable, so two classes that share this course can run on different days with different lecturers.</p>
-            <div class="max-w-xs">
-                <label for="credit_hours" class="block text-sm font-medium text-gray-700 mb-2">Credit Hours</label>
-                <input type="number" id="credit_hours" name="credit_hours" value="{{ old('credit_hours', $course?->credit_hours ?? 2) }}" min="1" max="12" required
-                    class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                @error('credit_hours')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Per-class settings</h3>
+            <p class="text-xs text-gray-500">Day, time, credit hours, lecturer and venue for this course are picked by each class rep on their per-class timetable, so two classes that share the course can run different schedules.</p>
         </div>
 
         @if(session()->has('admin_id'))
