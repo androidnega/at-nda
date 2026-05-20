@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ClassTimetable;
 use App\Models\Course;
 use App\Models\Student;
+use App\Support\ClassTimetableAccess;
+use App\Support\SchemaFeatures;
 use App\Support\StudentCourseAccess;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -25,26 +28,36 @@ class StudentTimetableController extends Controller
             ], 401);
         }
 
-        $courses = $user->class_id
-            ? StudentCourseAccess::coursesQueryForStudent($user)
+        $classId = (int) ($user->class_id ?? 0);
+        $slots = [];
+
+        if ($classId > 0 && SchemaFeatures::hasClassTimetables() && ClassTimetableAccess::classHasEntries($classId)) {
+            $entries = ClassTimetableAccess::entriesForClass($classId);
+            foreach ($entries as $entry) {
+                $slots[] = $this->serializeEntry($entry);
+            }
+        } elseif ($classId > 0) {
+            $courses = StudentCourseAccess::coursesQueryForStudent($user)
                 ->with(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation'])
                 ->whereNotNull('day_of_week')
                 ->whereNotNull('start_time')
                 ->orderByRaw("CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 WHEN 'Sunday' THEN 7 ELSE 99 END")
                 ->orderBy('start_time')
-                ->get()
-            : collect();
+                ->get();
+            foreach ($courses as $course) {
+                $slots[] = $this->serializeCourseSlot($course);
+            }
+        }
 
         $dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         $byDay = [];
         $orderedDays = [];
 
-        foreach ($courses as $course) {
-            $dayKey = ucfirst(strtolower(trim((string) $course->day_of_week)));
+        foreach ($slots as $slot) {
+            $dayKey = ucfirst(strtolower(trim((string) ($slot['day_of_week'] ?? ''))));
             $byDay[$dayKey] ??= [];
-            $byDay[$dayKey][] = $this->serializeCourseSlot($course);
+            $byDay[$dayKey][] = $slot;
         }
-
         foreach ($dayOrder as $d) {
             if (! empty($byDay[$d])) {
                 $orderedDays[] = $d;
@@ -56,11 +69,35 @@ class StudentTimetableController extends Controller
             'week_progress' => $user->weeklyTimetableSummary(),
             'ordered_days' => $orderedDays,
             'by_day' => $byDay,
-            'courses' => $courses->map(fn (Course $c) => array_merge(
-                $this->serializeCourseSlot($c),
-                ['day_key' => ucfirst(strtolower(trim((string) $c->day_of_week)))],
-            ))->values()->all(),
+            'courses' => array_map(function (array $slot): array {
+                $slot['day_key'] = ucfirst(strtolower(trim((string) ($slot['day_of_week'] ?? ''))));
+
+                return $slot;
+            }, $slots),
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeEntry(ClassTimetable $entry): array
+    {
+        $course = $entry->course;
+        $startStr = $entry->start_time ? Carbon::parse($entry->start_time)->format('H:i') : null;
+        $endStr = $entry->end_time ? Carbon::parse($entry->end_time)->format('H:i') : null;
+
+        return [
+            'id' => $course?->id ?? 0,
+            'course_code' => $course?->course_code,
+            'course_name' => $course?->course_name,
+            'day_of_week' => $entry->day_of_week,
+            'start_time' => $startStr,
+            'end_time' => $endStr,
+            'credit_hours' => (int) ($course?->credit_hours ?? 0),
+            'lecturer_name' => $entry->resolvedLecturerName() ?: ($course?->lecturer_name ?? null),
+            'venue' => $entry->resolvedVenueName() ?: ($course?->venue ?? null),
+            'class_name' => $entry->schoolClass?->name ?? $course?->schoolClass?->name,
+        ];
     }
 
     /**

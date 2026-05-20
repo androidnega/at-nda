@@ -10,6 +10,7 @@ use App\Http\Controllers\ClassController;
 use App\Http\Controllers\ClassLogoController;
 use App\Http\Controllers\UniversityLogoController;
 use App\Http\Controllers\ClassRepController;
+use App\Http\Controllers\ClassRepTimetableController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DashboardProfileController;
@@ -179,6 +180,15 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
     Route::middleware('classrep')->group(function () {
+        Route::get('/timetable/manage', [ClassRepTimetableController::class, 'index'])->name('timetable.manage');
+        Route::post('/timetable', [ClassRepTimetableController::class, 'store'])->name('timetable.store');
+        Route::put('/timetable/{entry}', [ClassRepTimetableController::class, 'update'])
+            ->name('timetable.update')
+            ->whereNumber('entry');
+        Route::delete('/timetable/{entry}', [ClassRepTimetableController::class, 'destroy'])
+            ->name('timetable.destroy')
+            ->whereNumber('entry');
+
         Route::get('/session', [ClassRepController::class, 'dashboard'])->name('session');
         Route::get('/my-class', [ClassRepController::class, 'classShow'])->name('my-class');
         Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');

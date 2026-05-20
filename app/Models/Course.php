@@ -239,6 +239,11 @@ class Course extends Model
         return $this->hasMany(AttendanceWeek::class, 'course_id');
     }
 
+    public function classTimetables(): HasMany
+    {
+        return $this->hasMany(ClassTimetable::class, 'course_id');
+    }
+
     public function attendances(): HasMany
     {
         return $this->hasMany(Attendance::class);
@@ -273,6 +278,16 @@ class Course extends Model
         return !empty($this->day_of_week) && !empty($this->start_time) && !empty($this->end_time);
     }
 
+    /**
+     * True when this course has a runnable schedule for the given class. Prefers
+     * the per-class `class_timetables` entry; falls back to the legacy columns
+     * so historical data still opens attendance.
+     */
+    public function hasScheduleForClass(?int $classId): bool
+    {
+        return \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($this, $classId) !== null;
+    }
+
     public function isWithinClassTime(?\Carbon\Carbon $date = null): bool
     {
         if (!$this->hasSchedule()) {
@@ -293,19 +308,24 @@ class Course extends Model
      * at the timetable end time so the live session does not run past the official slot.
      * On other days (or after that day's slot has ended), the full requested duration applies.
      */
-    public function computeSessionExpiresAt(int $durationMinutes): \Carbon\Carbon
+    public function computeSessionExpiresAt(int $durationMinutes, ?int $classId = null): \Carbon\Carbon
     {
         $candidate = now()->addMinutes(max(1, $durationMinutes));
-        if (!$this->hasSchedule()) {
+        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($this, $classId);
+        if ($snapshot === null) {
             return $candidate;
         }
         $todayName = now()->format('l');
-        if (strcasecmp(trim((string) $this->day_of_week), $todayName) !== 0) {
+        if (strcasecmp(trim((string) $snapshot['day_of_week']), $todayName) !== 0) {
             return $candidate;
         }
-        $slotEnd = now()->copy()->setTimeFromTimeString(
-            \Carbon\Carbon::parse($this->end_time)->format('H:i:s')
-        );
+        try {
+            $slotEnd = now()->copy()->setTimeFromTimeString(
+                \Carbon\Carbon::parse($snapshot['end_time'])->format('H:i:s')
+            );
+        } catch (\Throwable $e) {
+            return $candidate;
+        }
         if ($slotEnd->isPast()) {
             return $candidate;
         }
@@ -325,7 +345,7 @@ class Course extends Model
     }
 
     /**
-     * Highest week label used for this course (for admin / sequencing).
+     * Highest week label used for this course across all classes (admin sequencing view).
      */
     public function maxAttendanceWeekNumber(): int
     {
@@ -333,29 +353,71 @@ class Course extends Model
     }
 
     /**
-     * Reuse today's week row if it exists; otherwise create one using max(week)+1 or admin "next week" seed.
+     * Highest week label this class has reached for this course. Each class runs
+     * its own week counter so two classes sharing the same course (e.g. Software
+     * Engineering) do not inherit each other's numbering.
      */
-    public function createOrGetAttendanceWeekForToday(): AttendanceWeek
+    public function maxAttendanceWeekNumberForClass(int $classId): int
+    {
+        if ($classId <= 0) {
+            return 0;
+        }
+
+        $query = $this->attendanceWeeks();
+        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
+            $query->where('class_id', $classId);
+        }
+
+        return (int) ($query->max('week_number') ?? 0);
+    }
+
+    /**
+     * Reuse today's week row if it exists; otherwise create one using
+     * `max(week_number) + 1` *scoped to the given class* (or all classes when
+     * `$classId` is null, which preserves legacy admin-only flows).
+     */
+    public function createOrGetAttendanceWeekForToday(?int $classId = null): AttendanceWeek
     {
         $today = now()->toDateString();
-        $existing = $this->attendanceWeeks()->where('week_date', $today)->first();
+        $classAware = $classId !== null && $classId > 0 && \App\Support\SchemaFeatures::hasAttendanceWeeksClassId();
+
+        $existingQuery = $this->attendanceWeeks()->where('week_date', $today);
+        if ($classAware) {
+            $existingQuery->where('class_id', $classId);
+        }
+        $existing = $existingQuery->first();
         if ($existing) {
             return $existing;
         }
 
-        $maxWeek = (int) ($this->attendanceWeeks()->max('week_number') ?? 0);
-        if ($this->next_week_number !== null) {
-            $num = max((int) $this->next_week_number, $maxWeek + 1);
+        $maxQuery = $this->attendanceWeeks();
+        if ($classAware) {
+            $maxQuery->where('class_id', $classId);
+        }
+        $maxWeek = (int) ($maxQuery->max('week_number') ?? 0);
+
+        // The course-wide next_week_number seed only applies when the rep has
+        // never attended for this (course, class) pair, so a brand new cohort
+        // always begins at week 1 instead of inheriting another class's number.
+        if ($maxWeek === 0 && $this->next_week_number !== null && ! $classAware) {
+            $num = (int) $this->next_week_number;
             $this->update(['next_week_number' => $num + 1]);
+        } elseif ($maxWeek === 0) {
+            $num = 1;
         } else {
             $num = $maxWeek + 1;
         }
 
-        return AttendanceWeek::create([
+        $attributes = [
             'course_id' => $this->id,
             'week_number' => $num,
             'week_date' => $today,
-        ]);
+        ];
+        if ($classAware) {
+            $attributes['class_id'] = $classId;
+        }
+
+        return AttendanceWeek::create($attributes);
     }
 
     /**

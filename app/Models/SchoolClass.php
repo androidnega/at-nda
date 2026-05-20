@@ -60,6 +60,11 @@ class SchoolClass extends Model
         return $this->hasMany(Student::class, 'class_id');
     }
 
+    public function classTimetables(): HasMany
+    {
+        return $this->hasMany(ClassTimetable::class, 'class_id');
+    }
+
     public function logoUrl(): ?string
     {
         $university = $this->resolveUniversity();

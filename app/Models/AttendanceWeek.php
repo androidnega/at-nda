@@ -10,6 +10,7 @@ class AttendanceWeek extends Model
 {
     protected $fillable = [
         'course_id',
+        'class_id',
         'week_number',
         'week_date',
         'cancelled_at',
@@ -30,6 +31,11 @@ class AttendanceWeek extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function schoolClass(): BelongsTo
+    {
+        return $this->belongsTo(SchoolClass::class, 'class_id');
     }
 
     public function attendances(): HasMany

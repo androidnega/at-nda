@@ -54,12 +54,13 @@
         </div>
 
         <div class="border-b border-gray-100 pb-5">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Weekly Schedule</h3>
-            <p class="text-xs text-gray-500 mb-3">Each course runs once per week. Set the day and time.</p>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Weekly Schedule <span class="text-xs font-normal text-gray-500">(optional — class reps own this per class)</span></h3>
+            <p class="text-xs text-gray-500 mb-3">Day, time, lecturer, and venue are now managed by each class&rsquo;s rep so two classes that share this course can run different timetables. Anything you set here is just a default suggestion.</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                     <label for="day_of_week" class="block text-sm font-medium text-gray-700 mb-2">Day</label>
-                    <select id="day_of_week" name="day_of_week" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                    <select id="day_of_week" name="day_of_week" class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Let reps choose —</option>
                         @foreach(['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] as $d)
                         <option value="{{ $d }}" {{ old('day_of_week', $course?->day_of_week) == $d ? 'selected' : '' }}>{{ $d }}</option>
                         @endforeach
@@ -68,13 +69,13 @@
                 </div>
                 <div>
                     <label for="start_time" class="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                    <input type="time" id="start_time" name="start_time" value="{{ old('start_time', $course?->start_time ? \Carbon\Carbon::parse($course->start_time)->format('H:i') : '09:00') }}" required
+                    <input type="time" id="start_time" name="start_time" value="{{ old('start_time', $course?->start_time ? \Carbon\Carbon::parse($course->start_time)->format('H:i') : '') }}"
                         class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
                     @error('start_time')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div>
                     <label for="end_time" class="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                    <input type="time" id="end_time" name="end_time" value="{{ old('end_time', $course?->end_time ? \Carbon\Carbon::parse($course->end_time)->format('H:i') : '11:00') }}" required
+                    <input type="time" id="end_time" name="end_time" value="{{ old('end_time', $course?->end_time ? \Carbon\Carbon::parse($course->end_time)->format('H:i') : '') }}"
                         class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
                     @error('end_time')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>

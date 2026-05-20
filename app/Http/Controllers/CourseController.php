@@ -32,14 +32,16 @@ class CourseController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        // Day / time / lecturer / venue are now optional on the admin form —
+        // class reps build the per-class timetable from this catalog entry.
         $validated = $request->validate([
             'course_name' => 'required|string|max:255',
             'course_code' => 'nullable|string|max:50',
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
-            'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i',
+            'day_of_week' => 'nullable|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'start_time' => 'nullable|date_format:H:i',
+            'end_time' => 'nullable|date_format:H:i',
             'credit_hours' => 'required|integer|min:1|max:12',
             'venue' => 'nullable|string|max:255',
             'venue_id' => 'nullable|exists:venues,id',
@@ -86,9 +88,9 @@ class CourseController extends Controller
             'course_code' => 'nullable|string|max:50',
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
-            'day_of_week' => 'required|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i',
+            'day_of_week' => 'nullable|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'start_time' => 'nullable|date_format:H:i',
+            'end_time' => 'nullable|date_format:H:i',
             'credit_hours' => 'required|integer|min:1|max:12',
             'venue' => 'nullable|string|max:255',
             'venue_id' => 'nullable|exists:venues,id',

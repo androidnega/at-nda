@@ -69,9 +69,13 @@
                     <i class="fas fa-users w-4 text-center text-xs"></i>
                     <span>Students</span>
                 </a>
-                <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.timetable') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ (request()->routeIs('dashboard.timetable') && ! request()->routeIs('dashboard.timetable.manage')) ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-calendar-alt w-4 text-center text-xs"></i>
                     <span>Timetable</span>
+                </a>
+                <a href="{{ route('dashboard.timetable.manage') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.timetable.manage') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-pen-to-square w-4 text-center text-xs"></i>
+                    <span>Manage timetable</span>
                 </a>
                 <a href="{{ route('dashboard.class-attendance.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.class-attendance.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-clipboard-list w-4 text-center text-xs"></i>

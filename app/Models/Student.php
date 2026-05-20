@@ -525,11 +525,24 @@ class Student extends Model implements AuthenticatableContract
             ];
         }
 
-        $courses = \App\Support\StudentCourseAccess::coursesQueryForStudent($this)
-            ->whereNotNull('day_of_week')
-            ->whereNotNull('start_time')
-            ->whereNotNull('end_time')
-            ->get(['id', 'credit_hours']);
+        $classId = (int) $this->class_id;
+        if (\App\Support\SchemaFeatures::hasClassTimetables() && \App\Support\ClassTimetableAccess::classHasEntries($classId)) {
+            $courseIds = \App\Models\ClassTimetable::query()
+                ->where('class_id', $classId)
+                ->distinct()
+                ->pluck('course_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            $courses = $courseIds === []
+                ? collect()
+                : Course::query()->whereIn('id', $courseIds)->get(['id', 'credit_hours']);
+        } else {
+            $courses = \App\Support\StudentCourseAccess::coursesQueryForStudent($this)
+                ->whereNotNull('day_of_week')
+                ->whereNotNull('start_time')
+                ->whereNotNull('end_time')
+                ->get(['id', 'credit_hours']);
+        }
 
         $lecturesTotal = $courses->count();
         if ($lecturesTotal === 0) {

@@ -117,6 +117,18 @@ class ClassRepApiService
         return $input === $stored;
     }
 
+    /**
+     * First class id the rep manages that is also assigned to this course.
+     * Used to scope attendance weeks and timetable lookups per class so two
+     * cohorts sharing a course don't share their week counter.
+     */
+    private function resolveRepClassId(Student $rep, Course $course): ?int
+    {
+        $scoped = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+
+        return $scoped !== [] ? (int) $scoped[0] : null;
+    }
+
     public function isMainRepForCourse(Student $student, int $courseId): bool
     {
         $course = Course::find($courseId);
@@ -311,44 +323,60 @@ class ClassRepApiService
             return response()->json(['message' => 'Only main reps can open sessions'], 403);
         }
 
-        if (! $course->hasSchedule()) {
-            return response()->json(['message' => 'Set day and time for this course first (timetable).'], 422);
+        $repClassId = $this->resolveRepClassId($student, $course);
+        if (! $course->hasScheduleForClass($repClassId)) {
+            return response()->json(['message' => 'Add this course to your class timetable (day, time, lecturer) first.'], 422);
         }
 
-        RepCourseAccess::deactivateSessionsForCourse($rep, $course);
+        RepCourseAccess::deactivateSessionsForCourse($student, $course);
 
         $week = null;
         $weekNumber = $validated['week_number'] ?? null;
+        $classAware = $repClassId !== null && \App\Support\SchemaFeatures::hasAttendanceWeeksClassId();
         if ($weekNumber !== null) {
             $today = now()->toDateString();
-            $existing = AttendanceWeek::query()
+            $existingQuery = AttendanceWeek::query()
                 ->where('course_id', $course->id)
-                ->where('week_date', $today)
-                ->first();
+                ->where('week_date', $today);
+            if ($classAware) {
+                $existingQuery->where('class_id', $repClassId);
+            }
+            $existing = $existingQuery->first();
 
             if ($existing) {
                 $existing->update(['week_number' => (int) $weekNumber]);
                 $week = $existing;
             } else {
-                $week = AttendanceWeek::create([
+                $attributes = [
                     'course_id' => $course->id,
                     'week_number' => (int) $weekNumber,
                     'week_date' => $today,
-                ]);
+                ];
+                if ($classAware) {
+                    $attributes['class_id'] = $repClassId;
+                }
+                $week = AttendanceWeek::create($attributes);
             }
 
-            // Advance default week seed so the next auto week doesn't re-use the same number.
-            $maxWeek = (int) ($course->attendanceWeeks()->max('week_number') ?? $weekNumber);
-            $currentNext = (int) ($course->next_week_number ?? 0);
-            $course->update([
-                'next_week_number' => (int) max($currentNext, $maxWeek + 1, ((int) $weekNumber) + 1),
-            ]);
+            // Advance default week seed for THIS class only (so other classes
+            // sharing the same course are not pushed forward).
+            $maxQuery = $course->attendanceWeeks();
+            if ($classAware) {
+                $maxQuery->where('class_id', $repClassId);
+            }
+            $maxWeek = (int) ($maxQuery->max('week_number') ?? $weekNumber);
+            if (! $classAware) {
+                $currentNext = (int) ($course->next_week_number ?? 0);
+                $course->update([
+                    'next_week_number' => (int) max($currentNext, $maxWeek + 1, ((int) $weekNumber) + 1),
+                ]);
+            }
         } else {
-            $week = $course->createOrGetAttendanceWeekForToday();
+            $week = $course->createOrGetAttendanceWeekForToday($repClassId);
         }
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expectedEnd = $course->computeSessionExpiresAt($duration);
+        $expectedEnd = $course->computeSessionExpiresAt($duration, $repClassId);
         $expiresAt = $expectedEnd->copy();
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
@@ -369,6 +397,8 @@ class ClassRepApiService
             }
         }
 
+        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
+
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
@@ -379,8 +409,8 @@ class ClassRepApiService
             'is_active' => true,
             'checkout_enabled' => false,
             'session_token' => Str::random(32),
-            'lecturer_id' => $course->lecturer_id,
-            'venue_id' => $course->venue_id,
+            'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
+            'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
             'start_time' => now(),
             'end_time' => $expiresAt,
             'expected_end_time' => $expectedEnd,

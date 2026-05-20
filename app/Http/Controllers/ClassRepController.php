@@ -63,6 +63,18 @@ class ClassRepController extends Controller
         return $rep->repManagedClassIds();
     }
 
+    /**
+     * Class the rep is acting on behalf of for a given course (intersection of
+     * the rep's managed classes and the course's assigned classes). Returns the
+     * first matching class id so per-class attendance weeks are tracked correctly.
+     */
+    private function resolveRepClassId(Student $rep, Course $course): ?int
+    {
+        $scoped = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+
+        return $scoped !== [] ? (int) $scoped[0] : null;
+    }
+
     private function canAccessStudent(Student $rep, Student $target): bool
     {
         $classIds = $this->getRepClassIds($rep);
@@ -206,16 +218,17 @@ class ClassRepController extends Controller
             return back()->with('error', 'Only main reps can open sessions');
         }
 
-        if (!$course->hasSchedule()) {
-            return back()->with('error', 'Set day and time for this course first (timetable).');
+        $repClassId = $this->resolveRepClassId($student, $course);
+        if (!$course->hasScheduleForClass($repClassId)) {
+            return back()->with('error', 'Add this course to your class timetable (day, time, lecturer) first.');
         }
 
         RepCourseAccess::deactivateSessionsForCourse($student, $course);
 
-        $week = $course->createOrGetAttendanceWeekForToday();
+        $week = $course->createOrGetAttendanceWeekForToday($repClassId);
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expectedEnd = $course->computeSessionExpiresAt($duration);
+        $expectedEnd = $course->computeSessionExpiresAt($duration, $repClassId);
         $expiresAt = $expectedEnd->copy();
         $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
@@ -234,6 +247,10 @@ class ClassRepController extends Controller
             }
         }
 
+        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
+        $sessionLecturerId = $snapshot['lecturer_id'] ?? $course->lecturer_id;
+        $sessionVenueId = $snapshot['venue_id'] ?? $course->venue_id;
+
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
@@ -244,8 +261,8 @@ class ClassRepController extends Controller
             'is_active' => true,
             'checkout_enabled' => false,
             'session_token' => Str::random(32),
-            'lecturer_id' => $course->lecturer_id,
-            'venue_id' => $course->venue_id,
+            'lecturer_id' => $sessionLecturerId,
+            'venue_id' => $sessionVenueId,
             'start_time' => now(),
             'end_time' => $expiresAt,
             'expected_end_time' => $expectedEnd,
@@ -632,7 +649,16 @@ class ClassRepController extends Controller
 
         $attendances = $query->paginate(30)->withQueryString();
 
-        $attendanceWeeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+        // Show only the weeks the rep's own class has opened (each class runs
+        // its own week counter, so reps should not see other classes' rows).
+        $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+        $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
+        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
+            $weeksQuery->where(function ($q) use ($repClassIds) {
+                $q->whereIn('class_id', $repClassIds)->orWhereNull('class_id');
+            });
+        }
+        $attendanceWeeks = $weeksQuery->get();
 
         return view('classrep.attendance-course', [
             'course' => $course,

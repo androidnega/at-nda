@@ -35,8 +35,9 @@ class AttendanceSessionController extends Controller
         ]);
 
         $course = Course::findOrFail($validated['course_id']);
+        $primaryClassId = $course->class_id ? (int) $course->class_id : ($course->assignedClassIds()[0] ?? null);
 
-        if (!$course->hasSchedule()) {
+        if (! $course->hasScheduleForClass($primaryClassId)) {
             return redirect()->route('dashboard.portal')->with('error', 'Set day and time for this course first.');
         }
 
@@ -61,10 +62,11 @@ class AttendanceSessionController extends Controller
             $course->class_id ? (int) $course->class_id : null
         );
 
-        $week = $course->createOrGetAttendanceWeekForToday();
+        $week = $course->createOrGetAttendanceWeekForToday($primaryClassId);
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expiresAt = $course->computeSessionExpiresAt($duration);
+        $expiresAt = $course->computeSessionExpiresAt($duration, $primaryClassId);
+        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $primaryClassId);
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
@@ -72,8 +74,8 @@ class AttendanceSessionController extends Controller
             'mode' => $validated['mode'],
             'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
             'is_active' => true,
-            'lecturer_id' => $course->lecturer_id,
-            'venue_id' => $course->venue_id,
+            'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
+            'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
             'start_time' => now(),
             'end_time' => $expiresAt,
             'expires_at' => $expiresAt,
