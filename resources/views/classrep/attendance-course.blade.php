@@ -153,11 +153,13 @@
                             <i class="fas fa-chevron-down text-[10px] opacity-70 group-open:rotate-180 transition"></i>
                             Open week
                         </span>
-                        <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
-                           onclick="event.stopPropagation();"
-                           class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-50">
-                            <i class="fas fa-file-pdf text-red-500"></i> Week PDF
-                        </a>
+                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.pdf'))
+                            <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
+                               onclick="event.stopPropagation();"
+                               class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-50">
+                                <i class="fas fa-file-pdf text-red-500"></i> Week PDF
+                            </a>
+                        @endif
                     </div>
                 </summary>
 
@@ -194,18 +196,22 @@
                     @endif
 
                     <div class="pt-2 border-t border-gray-100 flex flex-wrap items-center gap-2">
-                        <a href="{{ route('dashboard.class-attendance.course.week.export-json', [$course, $week]) }}"
-                           class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
-                            <i class="fas fa-file-code text-slate-500"></i> Download JSON
-                        </a>
-                        <form action="{{ route('dashboard.class-attendance.course.week.import-json', [$course, $week]) }}" method="post" enctype="multipart/form-data" class="flex items-center gap-1">
-                            @csrf
-                            <input type="file" name="backup" accept=".json,application/json" required
-                                class="text-[11px] border border-gray-200 rounded-md file:mr-1.5 file:py-1 file:px-2 file:text-[11px] file:rounded file:border-0 file:bg-gray-100">
-                            <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white hover:bg-primary/90">
-                                <i class="fas fa-upload"></i> Upload
-                            </button>
-                        </form>
+                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.export-json'))
+                            <a href="{{ route('dashboard.class-attendance.course.week.export-json', [$course, $week]) }}"
+                               class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+                                <i class="fas fa-file-code text-slate-500"></i> Download JSON
+                            </a>
+                        @endif
+                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.import-json'))
+                            <form action="{{ route('dashboard.class-attendance.course.week.import-json', [$course, $week]) }}" method="post" enctype="multipart/form-data" class="flex items-center gap-1">
+                                @csrf
+                                <input type="file" name="backup" accept=".json,application/json" required
+                                    class="text-[11px] border border-gray-200 rounded-md file:mr-1.5 file:py-1 file:px-2 file:text-[11px] file:rounded file:border-0 file:bg-gray-100">
+                                <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white hover:bg-primary/90">
+                                    <i class="fas fa-upload"></i> Upload
+                                </button>
+                            </form>
+                        @endif
                         @unless($week->isCancelled())
                             <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="ml-auto flex items-center gap-1">
                                 @csrf
