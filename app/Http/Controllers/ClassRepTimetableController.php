@@ -69,6 +69,8 @@ class ClassRepTimetableController extends Controller
         $validated = $this->validateEntry($request, $student);
         $validated['start_time'] = $this->normalizeTime($validated['start_time']);
         $validated['end_time'] = $this->normalizeTime($validated['end_time']);
+        // Reps only choose existing venues — clear any legacy free-text value.
+        $validated['venue'] = null;
         $entry = ClassTimetable::create($validated + [
             'created_by_student_id' => $student->id,
         ]);
@@ -90,6 +92,7 @@ class ClassRepTimetableController extends Controller
         $validated = $this->validateEntry($request, $student, $entry);
         $validated['start_time'] = $this->normalizeTime($validated['start_time']);
         $validated['end_time'] = $this->normalizeTime($validated['end_time']);
+        $validated['venue'] = null;
         $entry->update($validated);
 
         return redirect()
@@ -183,13 +186,19 @@ class ClassRepTimetableController extends Controller
             $lecturer = $this->matchLecturer($lecturers, $slot['lecturer'] ?? null);
             $venue = $this->matchVenue($venues, $slot['venue'] ?? null);
 
+            if (! $venue) {
+                $skipped[] = $slot['day'].' '.$start.' — '.($course->course_code ?: $course->course_name)
+                    .': venue "'.($slot['venue'] ?? 'unspecified').'" is not registered. Ask admin to add it under Venues, then re-import.';
+                continue;
+            }
+
             $payload = [
                 'day_of_week' => $slot['day'],
                 'start_time' => $start.':00',
                 'end_time' => $end.':00',
                 'lecturer_id' => $lecturer?->id,
-                'venue_id' => $venue?->id,
-                'venue' => $venue ? null : ($slot['venue'] ?? null),
+                'venue_id' => $venue->id,
+                'venue' => null,
             ];
 
             // One course can only have ONE slot per class — re-importing
@@ -528,8 +537,7 @@ TXT;
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'lecturer_id' => 'nullable|integer|exists:lecturers,id',
-            'venue_id' => 'nullable|integer|exists:venues,id',
-            'venue' => 'nullable|string|max:255',
+            'venue_id' => 'required|integer|exists:venues,id',
         ];
 
         $validator = Validator::make($request->all(), $rules);
