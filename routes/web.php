@@ -194,6 +194,7 @@ Route::prefix('dashboard')->name('dashboard.')->group(function () {
         Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');
         Route::get('/class-attendance/course/{course}', [ClassRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
         Route::get('/class-attendance/course/{course}/pdf', [AttendancePdfController::class, 'export'])->name('class-attendance.course.pdf');
+        Route::get('/class-attendance/course/{course}/weeks/{attendanceWeek}/pdf', [AttendancePdfController::class, 'exportWeek'])->name('class-attendance.course.week.pdf');
         Route::get('/class-attendance/course/{course}/export.json', [ClassRepController::class, 'exportAttendanceJson'])->name('class-attendance.course.export-json');
         Route::post('/class-attendance/course/{course}/import.json', [ClassRepController::class, 'importAttendanceJson'])->name('class-attendance.course.import-json');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');

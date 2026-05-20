@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\University;
@@ -10,20 +11,40 @@ use App\Support\RepCourseAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 class AttendancePdfController extends Controller
 {
     /**
-     * PDF preview (opens in browser). Authorized: admin or class rep for this course’s class.
+     * PDF preview for the whole semester (every teaching week in one grid).
      */
     public function export(Request $request, Course $course): Response
     {
         $this->authorizePdfExport($request, $course);
-
-        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty.university', 'schoolClass.department']);
-
         $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+        return $this->renderPdf($request, $course, $weeks, 'all');
+    }
+
+    /**
+     * PDF preview for a single teaching week of this course / rep class.
+     */
+    public function exportWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): Response
+    {
+        $this->authorizePdfExport($request, $course);
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+        $weeks = collect([$attendanceWeek]);
+        return $this->renderPdf($request, $course, $weeks, 'week-'.$attendanceWeek->week_number);
+    }
+
+    /**
+     * @param  Collection<int, AttendanceWeek>  $weeks
+     */
+    private function renderPdf(Request $request, Course $course, Collection $weeks, string $slugSuffix): Response
+    {
+        $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty.university', 'schoolClass.department']);
 
         $studentsQuery = $course->studentsQuery();
         $studentId = $request->session()->get('student_id');
@@ -117,7 +138,7 @@ class AttendancePdfController extends Controller
             'attendanceByStudent' => $attendanceByStudent,
         ]);
 
-        return $pdf->stream('attendance-'.\Str::slug($course->course_name).'.pdf', ['Attachment' => false]);
+        return $pdf->stream('attendance-'.\Str::slug($course->course_name).'-'.$slugSuffix.'.pdf', ['Attachment' => false]);
     }
 
     private function authorizePdfExport(Request $request, Course $course): void

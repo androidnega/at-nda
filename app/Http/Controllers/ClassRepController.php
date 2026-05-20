@@ -607,18 +607,12 @@ class ClassRepController extends Controller
             return $rep;
         }
 
+        // Strictly scoped to courses linked (via course_class pivot or the
+        // legacy class_id column) to a class this student reps — no leaks.
         $courses = RepCourseAccess::coursesQueryForRep($rep)
             ->with(['schoolClass', 'schoolClasses'])
-            ->with(['attendanceSessions' => fn ($q) => $q->latest('id')->limit(1)])
             ->orderBy('course_name')
             ->get();
-
-        foreach ($courses as $course) {
-            $course->setAttribute(
-                'attendances_count',
-                RepCourseAccess::scopeAttendanceForRep(Attendance::query(), $rep, $course)->count()
-            );
-        }
 
         return view('classrep.attendance-index', [
             'courses' => $courses,
@@ -685,6 +679,10 @@ class ClassRepController extends Controller
         $attendanceWeeks = $weeksQuery->get();
 
         $dailyStats = $this->buildDailyAttendanceStats($request, $rep, $course, $repClassIds);
+        $weeklyAttendees = $this->buildWeeklyAttendees($rep, $course, $attendanceWeeks, $repClassIds);
+        $enrolledCount = $repClassIds === []
+            ? 0
+            : Student::query()->whereIn('class_id', $repClassIds)->count();
 
         return view('classrep.attendance-course', [
             'course' => $course,
@@ -692,8 +690,46 @@ class ClassRepController extends Controller
             'recentSessions' => $recentSessions,
             'attendanceWeeks' => $attendanceWeeks,
             'dailyStats' => $dailyStats,
+            'weeklyAttendees' => $weeklyAttendees,
+            'enrolledCount' => $enrolledCount,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * For each teaching week, build the list of students from the rep's class
+     * who marked attendance, plus the absent count derived from class size.
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, AttendanceWeek>  $weeks
+     * @param  list<int>  $repClassIds
+     * @return \Illuminate\Support\Collection<int, array{week: AttendanceWeek, present: \Illuminate\Support\Collection<int, Attendance>, present_count: int, absent_count: int}>
+     */
+    private function buildWeeklyAttendees(Student $rep, Course $course, $weeks, array $repClassIds): \Illuminate\Support\Collection
+    {
+        if ($weeks->isEmpty() || $repClassIds === []) {
+            return collect();
+        }
+        $enrolled = Student::query()->whereIn('class_id', $repClassIds)->count();
+        $weekIds = $weeks->pluck('id')->all();
+        $byWeek = RepCourseAccess::scopeAttendanceForRep(
+            Attendance::query()->with(['student'])->whereIn('attendance_week_id', $weekIds),
+            $rep,
+            $course
+        )
+            ->orderBy('attendance_time')
+            ->get()
+            ->groupBy(fn ($a) => (int) $a->attendance_week_id);
+
+        return collect($weeks)->map(function (AttendanceWeek $week) use ($byWeek, $enrolled): array {
+            $present = $byWeek->get((int) $week->id, collect());
+            $presentCount = $present->pluck('student_id')->unique()->count();
+            return [
+                'week' => $week,
+                'present' => $present,
+                'present_count' => $presentCount,
+                'absent_count' => max(0, $enrolled - $presentCount),
+            ];
+        });
     }
 
     /**

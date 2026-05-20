@@ -130,65 +130,6 @@
     </div>
 </form>
 
-@if(isset($dailyStats) && $dailyStats->isNotEmpty())
-<div class="mb-4">
-    <div class="flex items-end justify-between mb-2">
-        <div>
-            <p class="text-xs font-semibold text-gray-800 uppercase tracking-wide">Daily attendance</p>
-            <p class="text-[11px] text-gray-500">
-                Present vs absent per day{{ request()->hasAny(['date_from', 'date_to']) ? ' (filtered)' : '' }}.
-                Absent = class size − unique students who marked.
-            </p>
-        </div>
-        <span class="text-[11px] text-gray-400">{{ $dailyStats->count() }} day{{ $dailyStats->count() === 1 ? '' : 's' }}</span>
-    </div>
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-        @foreach($dailyStats as $stat)
-            @php
-                $dateObj = \Carbon\Carbon::parse($stat['date']);
-                $total = max(1, $stat['total']);
-                $pct = (int) round(($stat['present'] / $total) * 100);
-                $pct = min(100, max(0, $pct));
-                if ($pct >= 75) {
-                    $badge = 'bg-emerald-50 text-emerald-700';
-                    $bar = 'bg-emerald-500';
-                } elseif ($pct >= 50) {
-                    $badge = 'bg-amber-50 text-amber-700';
-                    $bar = 'bg-amber-500';
-                } else {
-                    $badge = 'bg-rose-50 text-rose-700';
-                    $bar = 'bg-rose-500';
-                }
-            @endphp
-            <div class="rounded-xl border border-gray-200 bg-white p-3 hover:border-primary/40 hover:shadow-sm transition">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{{ $dateObj->format('D') }}</p>
-                        <p class="text-sm font-bold text-gray-900 leading-tight">{{ $dateObj->format('M j') }}</p>
-                        <p class="text-[10px] text-gray-400">{{ $dateObj->format('Y') }}</p>
-                    </div>
-                    <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg {{ $badge }} text-[11px] font-bold tabular-nums">{{ $pct }}%</span>
-                </div>
-                <div class="mt-3 grid grid-cols-2 gap-1.5 text-center">
-                    <div class="rounded-lg bg-emerald-50 border border-emerald-100 px-1.5 py-1.5">
-                        <p class="text-[9px] font-semibold uppercase tracking-wide text-emerald-700">Present</p>
-                        <p class="text-base font-bold text-emerald-800 tabular-nums leading-tight">{{ $stat['present'] }}</p>
-                    </div>
-                    <div class="rounded-lg bg-rose-50 border border-rose-100 px-1.5 py-1.5">
-                        <p class="text-[9px] font-semibold uppercase tracking-wide text-rose-700">Absent</p>
-                        <p class="text-base font-bold text-rose-800 tabular-nums leading-tight">{{ $stat['absent'] }}</p>
-                    </div>
-                </div>
-                <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                    <div class="h-full {{ $bar }} rounded-full" style="width: {{ $pct }}%"></div>
-                </div>
-                <p class="mt-1.5 text-[10px] text-gray-500 text-center">of {{ $stat['total'] }} student{{ $stat['total'] === 1 ? '' : 's' }}</p>
-            </div>
-        @endforeach
-    </div>
-</div>
-@endif
-
 @if($recentSessions->isNotEmpty())
 <div class="mb-4 bg-white rounded-lg border border-gray-200 p-3">
     <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent session lecturer tags</p>
@@ -204,7 +145,131 @@
 </div>
 @endif
 
-<div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+@if(isset($weeklyAttendees) && $weeklyAttendees->isNotEmpty())
+<div class="mb-4">
+    <div class="flex items-end justify-between mb-2">
+        <div>
+            <p class="text-xs font-semibold text-gray-800 uppercase tracking-wide">Attendance by week</p>
+            <p class="text-[11px] text-gray-500">
+                Open a week to see who attended. Each week has its own PDF; the top "PDF preview" button covers every week together.
+            </p>
+        </div>
+        <span class="text-[11px] text-gray-400">{{ $weeklyAttendees->count() }} week{{ $weeklyAttendees->count() === 1 ? '' : 's' }}</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        @foreach($weeklyAttendees as $row)
+            @php
+                $week = $row['week'];
+                $present = $row['present'];
+                $presentCount = $row['present_count'];
+                $absentCount = $row['absent_count'];
+                $total = max(1, ($enrolledCount ?? ($presentCount + $absentCount)));
+                $pct = (int) round(($presentCount / $total) * 100);
+                $pct = min(100, max(0, $pct));
+                if ($week->isCancelled()) {
+                    $badge = 'bg-amber-50 text-amber-700';
+                    $bar = 'bg-amber-500';
+                } elseif ($pct >= 75) {
+                    $badge = 'bg-emerald-50 text-emerald-700';
+                    $bar = 'bg-emerald-500';
+                } elseif ($pct >= 50) {
+                    $badge = 'bg-amber-50 text-amber-700';
+                    $bar = 'bg-amber-500';
+                } else {
+                    $badge = 'bg-rose-50 text-rose-700';
+                    $bar = 'bg-rose-500';
+                }
+            @endphp
+
+            <details class="group rounded-xl border border-gray-200 bg-white hover:border-primary/40 transition open:shadow-sm">
+                <summary class="cursor-pointer list-none p-3.5">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-sm font-bold text-gray-900">Week {{ $week->week_number }}</p>
+                            <p class="text-[11px] text-gray-500 mt-0.5">
+                                {{ $week->week_date ? $week->week_date->format('M j, Y') : 'Date not set' }}
+                                @if($week->isCancelled())
+                                    <span class="ml-1 inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">Cancelled</span>
+                                @endif
+                            </p>
+                        </div>
+                        <span class="inline-flex items-center justify-center px-2 h-7 rounded-lg {{ $badge }} text-[11px] font-bold tabular-nums">
+                            {{ $week->isCancelled() ? 'Cancelled' : $pct.'%' }}
+                        </span>
+                    </div>
+
+                    @unless($week->isCancelled())
+                        <div class="mt-3 grid grid-cols-2 gap-2 text-center">
+                            <div class="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1.5">
+                                <p class="text-[9px] font-semibold uppercase tracking-wide text-emerald-700">Present</p>
+                                <p class="text-base font-bold text-emerald-800 tabular-nums leading-tight">{{ $presentCount }}</p>
+                            </div>
+                            <div class="rounded-lg bg-rose-50 border border-rose-100 px-2 py-1.5">
+                                <p class="text-[9px] font-semibold uppercase tracking-wide text-rose-700">Absent</p>
+                                <p class="text-base font-bold text-rose-800 tabular-nums leading-tight">{{ $absentCount }}</p>
+                            </div>
+                        </div>
+                        <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                            <div class="h-full {{ $bar }} rounded-full" style="width: {{ $pct }}%"></div>
+                        </div>
+                    @endunless
+
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                        <span class="text-[11px] text-gray-500 inline-flex items-center gap-1">
+                            <i class="fas fa-chevron-down text-[10px] opacity-70 group-open:rotate-180 transition"></i>
+                            View attendees
+                        </span>
+                        <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
+                           onclick="event.stopPropagation();"
+                           class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-50">
+                            <i class="fas fa-file-pdf text-red-500"></i> Week PDF
+                        </a>
+                    </div>
+                </summary>
+
+                <div class="border-t border-gray-100 p-3 bg-gray-50/50">
+                    @if($week->isCancelled())
+                        <p class="text-xs text-amber-900">
+                            This week was marked cancelled@if($week->cancelled_by) by <strong>{{ $week->cancelled_by }}</strong>@endif.
+                            @if($week->cancellation_note)
+                                <br><span class="text-amber-800/80">"{{ $week->cancellation_note }}"</span>
+                            @endif
+                        </p>
+                    @elseif($present->isEmpty())
+                        <p class="text-xs text-gray-500">No students marked attendance this week.</p>
+                    @else
+                        <ul class="divide-y divide-gray-100 bg-white rounded-lg border border-gray-100 max-h-72 overflow-y-auto">
+                            @foreach($present->unique('student_id') as $a)
+                                <li class="px-3 py-2 flex items-center justify-between gap-2 text-xs">
+                                    <span class="min-w-0">
+                                        <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
+                                        @if($a->student)
+                                            <span class="ml-1 text-gray-600">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
+                                        @endif
+                                    </span>
+                                    <span class="text-gray-500 whitespace-nowrap">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+            </details>
+        @endforeach
+    </div>
+</div>
+@else
+<div class="rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-4 py-10 text-center text-sm text-gray-500">
+    No teaching weeks yet for this course.
+</div>
+@endif
+
+@if($attendances->total() > 0 && (request()->filled('date_from') || request()->filled('date_to') || request()->filled('search')))
+<div class="mt-4 bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+        <p class="text-xs font-semibold text-gray-700">Filtered marks ({{ $attendances->total() }})</p>
+        <a href="{{ route('dashboard.class-attendance.course', $course) }}" class="text-[11px] text-primary hover:underline">Clear filters</a>
+    </div>
     <div class="overflow-x-auto">
         <table class="w-full min-w-[360px] text-xs">
             <thead class="bg-gray-50 border-b border-gray-200">
@@ -215,7 +280,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                @forelse($attendances as $a)
+                @foreach($attendances as $a)
                 <tr class="hover:bg-gray-50/80">
                     <td class="px-3 py-2">
                         @if($a->student)
@@ -229,11 +294,7 @@
                         <span class="inline-block px-1.5 py-0.5 bg-green-50 text-green-800 rounded text-[11px] font-medium">{{ $a->status }}</span>
                     </td>
                 </tr>
-                @empty
-                <tr>
-                    <td colspan="3" class="px-4 py-10 text-center text-gray-500">No attendance marks for this course in this date range</td>
-                </tr>
-                @endforelse
+                @endforeach
             </tbody>
         </table>
     </div>
@@ -243,6 +304,7 @@
     </div>
     @endif
 </div>
+@endif
 
 @push('scripts')
 <script>
