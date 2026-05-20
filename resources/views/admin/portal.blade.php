@@ -40,7 +40,7 @@
                             data-default-lng="{{ $course->location_lng !== null ? e($course->location_lng) : '' }}"
                             data-default-range="{{ $course->attendance_range_m !== null ? e($course->attendance_range_m) : '' }}"
                             {{ old('course_id') == $course->id ? 'selected' : '' }}>
-                            {{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }} — {{ $course->getScheduleLabel() }}
+                            {{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}
                         </option>
                         @endforeach
                     </select>

@@ -26,16 +26,13 @@
         <div class="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
                 <h3 class="font-semibold text-gray-800">{{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}</h3>
-                <p class="text-sm text-gray-500 mt-0.5">{{ $course->getScheduleLabel() }}</p>
                 @php $classNames = $course->relationLoaded('schoolClasses') && $course->schoolClasses->isNotEmpty()
                     ? $course->schoolClasses->pluck('name')->join(', ')
                     : ($course->schoolClass?->name); @endphp
                 @if($classNames)
                 <p class="text-xs text-gray-500 mt-1"><i class="fas fa-layer-group text-gray-400 mr-1"></i>{{ $classNames }}</p>
                 @endif
-                @if($course->lecturer)
-                <p class="text-xs text-gray-500 mt-0.5"><i class="fas fa-chalkboard-teacher text-gray-400 mr-1"></i>{{ $course->lecturer->name }}</p>
-                @endif
+                <p class="text-[11px] text-gray-400 mt-1 italic">Day, time, lecturer &amp; venue are set per class by each rep.</p>
             </div>
             <div class="flex flex-wrap gap-2">
                 <a href="{{ route('web.attendance.form', $course) }}" target="_blank" class="text-blue-600 hover:underline text-sm">Attendance</a>
