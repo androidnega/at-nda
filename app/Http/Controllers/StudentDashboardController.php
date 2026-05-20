@@ -24,6 +24,13 @@ class StudentDashboardController extends Controller
      */
     public function lookupIndex(Request $request): RedirectResponse
     {
+        // If an authenticated student tries to start a new sign-in (e.g. by
+        // tapping Back to a cached page and re-submitting), keep them where
+        // they are instead of letting them re-auth as a different account.
+        if ($request->session()->has('student_id')) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
         $validated = $request->validate([
             'index_number' => 'required|string|max:64',
         ]);
@@ -55,6 +62,10 @@ class StudentDashboardController extends Controller
 
     public function showPasswordForm(Request $request): View|RedirectResponse
     {
+        if ($request->session()->has('student_id')) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
         $indexNumber = $request->session()->get('pending_password_login_index');
         if (!$indexNumber || ! Student::findByIndex($indexNumber)) {
             $request->session()->forget('pending_password_login_index');
@@ -69,6 +80,10 @@ class StudentDashboardController extends Controller
 
     public function authenticateWithPassword(Request $request): RedirectResponse
     {
+        if ($request->session()->has('student_id')) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
         $validated = $request->validate([
             'password' => 'required|string',
         ]);
@@ -102,6 +117,12 @@ class StudentDashboardController extends Controller
     {
         $request->session()->forget(['pending_password_login_index', 'pending_set_password_index']);
 
+        // If they were already signed in (and just tapped Back into the
+        // login flow), don't send them out to the public home page.
+        if ($request->session()->has('student_id')) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
         return redirect()->route('home');
     }
 
@@ -111,7 +132,10 @@ class StudentDashboardController extends Controller
         if ($studentId) {
             $student = Student::find($studentId);
             if ($student && \App\Support\StudentSignOutLock::isSignOutBlocked($student)) {
-                return back()->with(
+                // Keep the student inside their authenticated area while a
+                // class is in session, so they cannot sign back in as a
+                // different account during the attendance window.
+                return redirect()->route('dashboard.dashboard')->with(
                     'error',
                     \App\Support\StudentSignOutLock::blockMessage($student)
                         ?? 'Sign out is unavailable while a class is in session.'
@@ -571,6 +595,10 @@ class StudentDashboardController extends Controller
 
     public function setPasswordForm(Request $request): View|RedirectResponse
     {
+        if ($request->session()->has('student_id')) {
+            return redirect()->route('dashboard.dashboard');
+        }
+
         $indexNumber = $request->session()->get('pending_set_password_index');
         if (! $indexNumber || ! Student::findByIndex($indexNumber)) {
             $request->session()->forget('pending_set_password_index');

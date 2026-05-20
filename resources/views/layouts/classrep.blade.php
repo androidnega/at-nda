@@ -174,6 +174,35 @@
             repWrap?.addEventListener('click', function(e) { e.stopPropagation(); });
         })();
     </script>
+
+    @if($studentSignOutBlocked ?? false)
+    {{-- Trap the device Back gesture while a class is in session so the rep
+         cannot leave their dashboard to a cached login page and sign in as a
+         different account during the attendance window. --}}
+    <script>
+        (function () {
+            try {
+                history.pushState({ atendaBackGuard: true }, '', location.href);
+            } catch (e) { /* ignore */ }
+            window.addEventListener('popstate', function () {
+                try {
+                    history.pushState({ atendaBackGuard: true }, '', location.href);
+                } catch (e) { /* ignore */ }
+                const msg = @json($studentSignOutBlockMessage ?? 'Stay on the dashboard until the class is over.');
+                if (window.navigator.vibrate) { try { window.navigator.vibrate(40); } catch (e) {} }
+                const toast = document.createElement('div');
+                toast.textContent = msg;
+                toast.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 14px;border-radius:10px;font:600 12px Inter,system-ui,sans-serif;z-index:9999;box-shadow:0 6px 20px rgba(15,23,42,.25);max-width:90vw;text-align:center;line-height:1.35';
+                document.body.appendChild(toast);
+                setTimeout(function () { toast.remove(); }, 2400);
+            });
+            window.addEventListener('pageshow', function (e) {
+                if (e.persisted) { window.location.reload(); }
+            });
+        })();
+    </script>
+    @endif
+
     @stack('scripts')
 </body>
 </html>

@@ -9,6 +9,7 @@ use App\Http\Middleware\EnsureLecturer;
 use App\Http\Middleware\EnsureNotAdminOrLecturer;
 use App\Http\Middleware\EnsureStudentAuthenticated;
 use App\Http\Middleware\ForceHttpsForApi;
+use App\Http\Middleware\NoStoreCache;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
@@ -51,6 +52,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'student.attendance' => EnsureNotAdminOrLecturer::class,
             'student.auth' => EnsureStudentAuthenticated::class,
             'api.https' => ForceHttpsForApi::class,
+            'no-store' => NoStoreCache::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

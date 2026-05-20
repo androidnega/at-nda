@@ -42,7 +42,7 @@ Route::get('/', function (Request $request) {
     }
 
     return view('home');
-})->name('home');
+})->middleware('no-store')->name('home');
 
 Route::post('/filter-by-index', function (Request $request) {
     $validated = $request->validate(['index_number' => 'required|string']);
@@ -117,7 +117,7 @@ Route::get('/media/universities/{university}/logo', [UniversityLogoController::c
 | Web-only student attendance (Blade + fetch). Canonical paths under /web/attendance.
 | Flutter/mobile continues to use /api/* only — unchanged here.
 */
-Route::middleware('student.attendance')->prefix('web/attendance')->name('web.attendance.')->group(function () {
+Route::middleware(['student.attendance', 'no-store'])->prefix('web/attendance')->name('web.attendance.')->group(function () {
     Route::post('verify', [AttendanceController::class, 'verify'])->name('verify');
     Route::post('mark', [AttendanceController::class, 'mark'])->name('mark');
     Route::post('sync', [AttendanceController::class, 'sync'])->name('sync');
@@ -134,15 +134,17 @@ Route::middleware('student.attendance')->group(function () {
     Route::get('/attendance/{course}/success', [AttendanceController::class, 'legacyRedirectToSuccess']);
 });
 
-Route::post('/student/lookup', [StudentDashboardController::class, 'lookupIndex'])->name('student.lookup');
-Route::get('/student/login/password', [StudentDashboardController::class, 'showPasswordForm'])->name('student.login.password.form');
-Route::post('/student/login/password', [StudentDashboardController::class, 'authenticateWithPassword'])->name('student.login.password');
-Route::get('/student/login/cancel', [StudentDashboardController::class, 'cancelPendingLogin'])->name('student.login.cancel');
-Route::get('/student/set-password', [StudentDashboardController::class, 'setPasswordForm'])->name('student.set-password');
-Route::post('/student/set-password', [StudentDashboardController::class, 'setPassword'])->name('student.set-password.post');
-Route::post('/student/logout', [StudentDashboardController::class, 'logout'])->name('student.logout');
+Route::middleware('no-store')->group(function () {
+    Route::post('/student/lookup', [StudentDashboardController::class, 'lookupIndex'])->name('student.lookup');
+    Route::get('/student/login/password', [StudentDashboardController::class, 'showPasswordForm'])->name('student.login.password.form');
+    Route::post('/student/login/password', [StudentDashboardController::class, 'authenticateWithPassword'])->name('student.login.password');
+    Route::get('/student/login/cancel', [StudentDashboardController::class, 'cancelPendingLogin'])->name('student.login.cancel');
+    Route::get('/student/set-password', [StudentDashboardController::class, 'setPasswordForm'])->name('student.set-password');
+    Route::post('/student/set-password', [StudentDashboardController::class, 'setPassword'])->name('student.set-password.post');
+    Route::post('/student/logout', [StudentDashboardController::class, 'logout'])->name('student.logout');
+});
 
-Route::middleware('student.auth')->group(function () {
+Route::middleware(['student.auth', 'no-store'])->group(function () {
     Route::get('/student/attendance-web', [StudentDashboardController::class, 'attendanceWebEntry'])->name('student.attendance.web');
     Route::get('/student/attendance-history', [StudentDashboardController::class, 'attendanceHistory'])->name('student.attendance.history');
     Route::get('/student/onboarding', [StudentDashboardController::class, 'onboardingForm'])->name('student.onboarding');
@@ -170,7 +172,7 @@ Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(func
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
 Route::post('/onboarding/complete', [StudentOnboardingController::class, 'complete'])->name('onboarding.complete');
 
-Route::prefix('dashboard')->name('dashboard.')->group(function () {
+Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::get('/students', [DashboardStudentsController::class, 'index'])->name('students.index');
