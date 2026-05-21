@@ -53,14 +53,13 @@ class Course extends Model
 
     /**
      * Lecturer name for PDFs, exports, and timetables (course link, then class assignment).
+     *
+     * The live Lecturer.name wins over the cached `lecturer_name` column so
+     * that renaming a lecturer immediately propagates to PDFs and exports —
+     * the cache is only consulted when no Lecturer relation can be resolved.
      */
     public function resolvedLecturerName(): string
     {
-        $fromColumn = trim((string) ($this->lecturer_name ?? ''));
-        if ($fromColumn !== '') {
-            return $fromColumn;
-        }
-
         $lecturer = $this->relationLoaded('lecturer') ? $this->lecturer : null;
         if (! $lecturer && $this->lecturer_id) {
             $lecturer = $this->lecturer()->first();
@@ -70,6 +69,11 @@ class Course extends Model
             if ($name !== '') {
                 return $name;
             }
+        }
+
+        $fromColumn = trim((string) ($this->lecturer_name ?? ''));
+        if ($fromColumn !== '') {
+            return $fromColumn;
         }
 
         $byCourseLink = Lecturer::query()

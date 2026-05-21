@@ -57,8 +57,33 @@
         </form>
     </div>
     <div class="bg-white rounded-xl border border-gray-100 p-4 sm:p-6">
-        <h2 class="text-sm font-semibold text-gray-900 mb-3">Bulk upload</h2>
-        <p class="text-sm text-gray-600 mb-4">CSV or Excel with flexible headers. Re-uploading an index <strong>overwrites</strong> the row and assigns this class.</p>
+        <h2 class="text-sm font-semibold text-gray-900 mb-1">Bulk upload</h2>
+        <p class="text-sm text-gray-600 mb-3">CSV or Excel with flexible headers. Re-uploading an index <strong>overwrites</strong> the row and assigns this class.</p>
+
+        {{-- Templates row --}}
+        <div class="mb-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-2 flex items-center gap-1.5">
+                <i class="fas fa-file-arrow-down text-slate-400 text-[10px]"></i> Download a template
+            </p>
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ asset('templates/students_template.csv') }}" download
+                   class="inline-flex items-center gap-1.5 rounded-md bg-white border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:border-primary/40 hover:text-primary">
+                    <i class="fas fa-file-csv text-emerald-600 text-[10px]"></i> CSV (this class)
+                </a>
+                <a href="{{ asset('sample_students.xlsx') }}" download
+                   class="inline-flex items-center gap-1.5 rounded-md bg-white border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:border-primary/40 hover:text-primary">
+                    <i class="fas fa-file-excel text-emerald-700 text-[10px]"></i> Excel (.xlsx)
+                </a>
+                <a href="{{ asset('templates/students_template_full.csv') }}" download
+                   class="inline-flex items-center gap-1.5 rounded-md bg-white border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:border-primary/40 hover:text-primary">
+                    <i class="fas fa-file-csv text-sky-600 text-[10px]"></i> CSV with class column
+                </a>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">
+                Required column: <code class="font-mono">index_number</code>. Optional: <code class="font-mono">first_name</code>, <code class="font-mono">middle_name</code>, <code class="font-mono">last_name</code>.
+            </p>
+        </div>
+
         <form action="{{ route('dashboard.classes.students.import', $schoolClass) }}" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-2">
             @csrf
             <input type="file" name="file" accept=".xlsx,.xls,.csv,.txt" required

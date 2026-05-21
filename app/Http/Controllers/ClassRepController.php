@@ -627,20 +627,32 @@ class ClassRepController extends Controller
             'classReps.schoolClass',
         ]);
 
-        $coursesInClass = $student->class_id
+        // Reps must only see data for courses inside classes they actually
+        // manage — never another class's courses, even when the student
+        // happens to be in their own class.
+        $repClassIds = $this->getRepClassIds($rep)->map(fn ($id) => (int) $id);
+        $studentClassId = (int) ($student->class_id ?? 0);
+        $allowedClassIds = $repClassIds->intersect([$studentClassId])->values()->all();
+
+        $coursesInClass = $allowedClassIds !== []
             ? Course::query()
-                ->forManagedClasses([(int) $student->class_id])
+                ->forManagedClasses($allowedClassIds)
                 ->orderBy('course_name')
                 ->get()
             : collect();
 
+        $courseIds = $coursesInClass->pluck('id')->map(fn ($id) => (int) $id)->all();
+
         $coursesCount = $coursesInClass->count();
-        $attendanceRecordsCount = $student->attendances()->count();
+
+        $attendanceRecordsCount = $courseIds === []
+            ? 0
+            : $student->attendances()->whereIn('course_id', $courseIds)->count();
 
         $countsByCourseId = $coursesInClass->isNotEmpty()
             ? Attendance::query()
                 ->where('student_id', $student->id)
-                ->whereIn('course_id', $coursesInClass->pluck('id'))
+                ->whereIn('course_id', $courseIds)
                 ->selectRaw('course_id, COUNT(*) as cnt')
                 ->groupBy('course_id')
                 ->pluck('cnt', 'course_id')
@@ -656,17 +668,20 @@ class ClassRepController extends Controller
 
         $coursesWithMarks = collect($attendanceByCourse)->where('count', '>', 0)->count();
 
-        $courseIds = $coursesInClass->pluck('id')->all();
         $scheduledWeekRows = $courseIds !== []
             ? (int) \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count()
             : 0;
 
-        $recentAttendances = Attendance::query()
+        $recentAttendancesQuery = Attendance::query()
             ->where('student_id', $student->id)
             ->with(['course', 'attendanceWeek'])
             ->latest('attendance_time')
-            ->limit(15)
-            ->get();
+            ->limit(15);
+        if ($courseIds === []) {
+            $recentAttendances = collect();
+        } else {
+            $recentAttendances = $recentAttendancesQuery->whereIn('course_id', $courseIds)->get();
+        }
 
         $isRepStudent = $student->classReps->isNotEmpty();
         $repAssignments = $isRepStudent

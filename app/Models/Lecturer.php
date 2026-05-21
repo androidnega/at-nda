@@ -27,6 +27,34 @@ class Lecturer extends Model
         'must_change_password' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        // When a lecturer is renamed, propagate the new name to the cached
+        // `courses.lecturer_name` column so legacy code paths and any future
+        // PDFs keep showing the correct name even if the live Lecturer
+        // relation can't be loaded for some reason.
+        static::saved(function (Lecturer $lecturer): void {
+            if (! $lecturer->wasChanged('name')) {
+                return;
+            }
+            $name = trim((string) ($lecturer->name ?? ''));
+            if ($name === '') {
+                return;
+            }
+            try {
+                Course::query()
+                    ->where('lecturer_id', $lecturer->id)
+                    ->where(function ($q) use ($name) {
+                        $q->whereNull('lecturer_name')->orWhere('lecturer_name', '!=', $name);
+                    })
+                    ->update(['lecturer_name' => $name]);
+            } catch (\Throwable $e) {
+                // Cache backfill is best-effort; the live relation is the
+                // source of truth, so swallow schema/DB errors silently.
+            }
+        });
+    }
+
     public function schoolClass(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(SchoolClass::class, 'class_id');

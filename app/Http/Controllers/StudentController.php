@@ -155,15 +155,36 @@ class StudentController extends Controller
             'classReps.schoolClass',
             'deviceToken',
         ]);
-        $coursesCount = $student->class_id
-            ? Course::query()->forManagedClasses([(int) $student->class_id])->count()
-            : 0;
-        $presentCount = $student->attendances()->count();
-        $courseIds = $student->class_id
-            ? Course::query()->forManagedClasses([(int) $student->class_id])->pluck('id')->all()
+
+        // Lecturers must only see attendance for the courses *they* teach
+        // inside the student's class. Admins keep their global view.
+        $lecturer = $this->requireLecturer($request);
+        $studentClassId = (int) ($student->class_id ?? 0);
+        $classCourseIds = $studentClassId
+            ? Course::query()->forManagedClasses([$studentClassId])->pluck('id')->map(fn ($id) => (int) $id)->all()
             : [];
-        $totalWeeks = $courseIds ? \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count() : 0;
+
+        $scopedCourseIds = null; // null = no extra filter (admin view)
+        if ($lecturer) {
+            $teachingIds = $lecturer->teachingCourses()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $scopedCourseIds = array_values(array_intersect($teachingIds, $classCourseIds));
+        }
+
+        $effectiveCourseIds = $scopedCourseIds ?? $classCourseIds;
+
+        $coursesCount = count($effectiveCourseIds);
+
+        $presentQuery = $student->attendances()->newQuery();
+        if ($effectiveCourseIds !== []) {
+            $presentQuery->whereIn('course_id', $effectiveCourseIds);
+        }
+        $presentCount = $presentQuery->count();
+
+        $totalWeeks = $effectiveCourseIds !== []
+            ? \DB::table('attendance_weeks')->whereIn('course_id', $effectiveCourseIds)->count()
+            : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
+
         $repAssignableClasses = collect();
         if ($student->class_id) {
             $repAssignableClasses = \App\Models\SchoolClass::query()
@@ -176,11 +197,15 @@ class StudentController extends Controller
                 ->where('id', $fromClassId)
                 ->get();
         }
-        $recentAttendance = $student->attendances()
+
+        $recentAttendanceQuery = $student->attendances()
             ->with(['course', 'attendanceWeek'])
             ->latest('id')
-            ->limit(15)
-            ->get();
+            ->limit(15);
+        if ($effectiveCourseIds !== []) {
+            $recentAttendanceQuery->whereIn('course_id', $effectiveCourseIds);
+        }
+        $recentAttendance = $recentAttendanceQuery->get();
 
         return view('admin.student-detail', compact(
             'student',
