@@ -16,12 +16,30 @@
 @endphp
 
 {{-- Hero --}}
+@php
+    $lecturerLastName = method_exists($lecturer, 'displayLastName')
+        ? $lecturer->displayLastName()
+        : \Illuminate\Support\Str::title(mb_strtolower(trim((string) ($lecturer->name ?? ''))));
+    if ($lecturerLastName === '') {
+        $lecturerLastName = 'there';
+    }
+@endphp
 <section class="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-sky-50 p-5 sm:p-7 mb-6">
     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div class="min-w-0">
-            <p class="text-xs font-semibold uppercase tracking-wider text-sky-600">{{ $today->format('l, F j') }}</p>
-            <h1 class="mt-1 text-2xl sm:text-3xl font-bold text-slate-900 leading-tight">{{ $greeting }}, {{ $lecturer->name }}</h1>
-            <p class="mt-1 text-sm text-slate-500">Here's a quick look at your teaching today.</p>
+        <div class="flex items-start gap-4 min-w-0">
+            <span class="hidden sm:flex w-14 h-14 rounded-2xl bg-sky-100 text-sky-700 items-center justify-center shrink-0 shadow-sm ring-1 ring-sky-200/60">
+                <i class="fas fa-chalkboard-user text-2xl"></i>
+            </span>
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wider text-sky-600 inline-flex items-center gap-1.5">
+                    <i class="far fa-calendar text-[11px]"></i>{{ $today->format('l, F j') }}
+                </p>
+                <h1 class="mt-1 text-2xl sm:text-3xl font-bold text-slate-900 leading-tight">{{ $greeting }}, {{ $lecturerLastName }}</h1>
+                <p class="mt-1 text-sm text-slate-500 inline-flex items-center gap-1.5">
+                    <i class="fas fa-mug-saucer text-[11px] text-amber-500"></i>
+                    Here's a quick look at your teaching today.
+                </p>
+            </div>
         </div>
         <div class="flex flex-wrap items-start gap-2 shrink-0">
             <a href="{{ route('dashboard.teaching.attendance.index') }}"
@@ -84,12 +102,17 @@
             @foreach($activeSessions as $session)
                 <a href="{{ route('dashboard.teaching.attendance.course', $session->course) }}"
                    class="flex items-center justify-between gap-3 rounded-xl bg-white border border-emerald-200 px-3 py-2.5 hover:border-emerald-400">
-                    <div class="min-w-0">
-                        <p class="text-sm font-semibold text-slate-900 truncate">{{ $session->course?->course_name ?? 'Course' }}</p>
-                        <p class="text-[11px] text-slate-500 truncate">
-                            @if($session->course?->course_code)<span class="font-mono">{{ $session->course->course_code }}</span> · @endif
-                            Started {{ optional($session->start_time ?? $session->created_at)->diffForHumans() }}
-                        </p>
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <span class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <i class="fas fa-tower-broadcast text-sm"></i>
+                        </span>
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-slate-900 truncate">{{ $session->course?->course_name ?? 'Course' }}</p>
+                            <p class="text-[11px] text-slate-500 truncate inline-flex items-center gap-1">
+                                @if($session->course?->course_code)<span class="font-mono">{{ $session->course->course_code }}</span><span class="text-slate-300">·</span>@endif
+                                <i class="far fa-clock text-[10px]"></i>{{ optional($session->start_time ?? $session->created_at)->diffForHumans() }}
+                            </p>
+                        </div>
                     </div>
                     <i class="fas fa-chevron-right text-emerald-700 text-xs"></i>
                 </a>
@@ -135,17 +158,23 @@
                             <span class="text-[10px] font-semibold tracking-wider uppercase">{{ $startLabel }}</span>
                             <span class="text-[10px] text-sky-600">{{ $endLabel }}</span>
                         </div>
+                        <span class="sm:hidden w-9 h-9 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                            <i class="fas fa-chalkboard text-sm"></i>
+                        </span>
                         <div class="min-w-0">
-                            <p class="text-sm font-semibold text-slate-900 truncate">{{ $slotCourse->course_name }}</p>
+                            <p class="text-sm font-semibold text-slate-900 truncate inline-flex items-center gap-1.5">
+                                <i class="fas fa-book-open text-amber-600 text-[11px]"></i>{{ $slotCourse->course_name }}
+                            </p>
                             <p class="text-[11px] text-slate-500 truncate flex flex-wrap items-center gap-x-1.5">
                                 @if($slotCourse->course_code)<span class="font-mono">{{ $slotCourse->course_code }}</span>@endif
-                                <span class="sm:hidden">· {{ $startLabel }}–{{ $endLabel }}</span>
+                                <span class="sm:hidden inline-flex items-center gap-1"><i class="far fa-clock text-[10px]"></i>{{ $startLabel }}–{{ $endLabel }}</span>
                                 @if($slotClass)
-                                    <span>· {{ $slotClass->name }}</span>
+                                    <span class="text-slate-300">·</span>
+                                    <span class="inline-flex items-center gap-1"><i class="fas fa-users text-[10px] text-indigo-500"></i>{{ $slotClass->name }}</span>
                                 @endif
                                 @if($slot['venue'])
-                                    <span class="text-slate-400">·</span>
-                                    <span class="inline-flex items-center gap-1"><i class="fas fa-location-dot text-[10px]"></i>{{ $slot['venue'] }}</span>
+                                    <span class="text-slate-300">·</span>
+                                    <span class="inline-flex items-center gap-1"><i class="fas fa-location-dot text-[10px] text-rose-500"></i>{{ $slot['venue'] }}</span>
                                 @endif
                             </p>
                         </div>

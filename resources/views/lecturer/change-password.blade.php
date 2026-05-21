@@ -14,7 +14,7 @@
     <div class="w-full max-w-md">
         <div class="bg-white rounded-2xl border border-gray-100 p-8">
             <h1 class="text-2xl font-bold text-gray-800">Set your new password</h1>
-            <p class="text-gray-500 text-sm mt-1">Welcome, {{ $lecturer->name }}. Please update your temporary password before continuing.</p>
+            <p class="text-gray-500 text-sm mt-1">Welcome, {{ method_exists($lecturer, 'displayLastName') ? $lecturer->displayLastName() : $lecturer->name }}. Please update your temporary password before continuing.</p>
 
             @if ($errors->any())
                 <div class="mt-4 p-3 bg-red-50 text-red-800 rounded-xl text-sm">{{ $errors->first() }}</div>

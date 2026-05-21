@@ -131,7 +131,12 @@
                     $isLecturerView = session()->has('lecturer_id') && !session()->has('admin_id');
                     $user = $user ?? (session()->has('admin_id') ? \App\Models\User::find(session('admin_id')) : null);
                     $lecturerProfile = $isLecturerView ? \App\Models\Lecturer::find(session('lecturer_id')) : null;
-                    $profileName = $isLecturerView ? ($lecturerProfile?->name ?? 'Lecturer') : ($user?->name ?? 'Administrator');
+                    // Normalize lecturer names so block-capital or all-lowercase
+                    // imports still render as "Mr. Joseph Danso", not "MR. JOSEPH DANSO".
+                    $lecturerProfileName = $isLecturerView && $lecturerProfile
+                        ? (method_exists($lecturerProfile, 'displayName') ? $lecturerProfile->displayName() : $lecturerProfile->name)
+                        : null;
+                    $profileName = $isLecturerView ? ($lecturerProfileName ?: 'Lecturer') : ($user?->name ?? 'Administrator');
                     $profileEmail = $isLecturerView ? ($lecturerProfile?->email ?? 'Staff dashboard') : ($user?->email ?? 'Staff dashboard');
                     $logoutRoute = $isLecturerView ? route('lecturer.logout') : route('admin.logout');
                 @endphp

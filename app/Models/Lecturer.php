@@ -105,6 +105,53 @@ class Lecturer extends Model
         return ! empty($this->password);
     }
 
+    /**
+     * Friendly surname for dashboards/greetings. Strips common honorifics
+     * (Mr., Dr., Prof., Miss, etc.) and returns the last token in proper
+     * title-case so that "MR. HILARY ACKAH-ARTHUR" → "Ackah-Arthur" and
+     * "papa kweku abaidoo" → "Abaidoo".
+     */
+    public function displayLastName(): string
+    {
+        $name = trim((string) ($this->name ?? ''));
+        if ($name === '') {
+            return '';
+        }
+        // Strip leading honorifics (repeated, e.g. "Dr. Mr.").
+        $honorifics = '/^(mr|mrs|ms|miss|mx|dr|prof|professor|rev|reverend|sir|madam|madame|hon|honorable|engr|engineer)\.?\s+/i';
+        while (preg_match($honorifics, $name)) {
+            $name = (string) preg_replace($honorifics, '', $name);
+        }
+        $parts = preg_split('/\s+/', trim($name)) ?: [];
+        $parts = array_values(array_filter($parts, fn ($p) => $p !== ''));
+        if ($parts === []) {
+            return '';
+        }
+        $last = (string) end($parts);
+        // Drop trailing punctuation that sneaks in from CSV imports.
+        $last = trim($last, " \t\n\r\0\x0B.,;:");
+        if ($last === '') {
+            return '';
+        }
+
+        // mb_convert_case treats hyphens as word boundaries, so "ACKAH-ARTHUR"
+        // becomes "Ackah-Arthur" correctly.
+        return \Illuminate\Support\Str::title(mb_strtolower($last));
+    }
+
+    /**
+     * Proper-cased full name for headers/PDFs. "MR. JOSEPH DANSO" → "Mr. Joseph Danso".
+     */
+    public function displayName(): string
+    {
+        $name = trim((string) ($this->name ?? ''));
+        if ($name === '') {
+            return '';
+        }
+
+        return \Illuminate\Support\Str::title(mb_strtolower($name));
+    }
+
     public function staffLoginLabel(): string
     {
         if (! $this->hasStaffLogin()) {
