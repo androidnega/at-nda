@@ -164,6 +164,24 @@
                 </summary>
 
                 <div class="border-t border-gray-100 p-3 bg-gray-50/50 space-y-3">
+                    @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.rename'))
+                        <form action="{{ route('dashboard.class-attendance.week.rename', [$course, $week]) }}" method="post"
+                              class="flex flex-wrap items-end gap-2 bg-white rounded-lg border border-slate-200 px-3 py-2"
+                              onsubmit="event.stopPropagation();">
+                            @csrf
+                            <div class="flex-1 min-w-0">
+                                <label for="rename-week-{{ $week->id }}" class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Edit week label</label>
+                                <p class="text-[11px] text-slate-500">Currently <strong class="text-slate-700">Week {{ $week->week_number }}</strong> — change if it was tagged wrong.</p>
+                            </div>
+                            <input type="number" name="week_number" id="rename-week-{{ $week->id }}" min="1" max="500" required value="{{ $week->week_number }}"
+                                   onclick="event.stopPropagation();"
+                                   class="w-20 text-[12px] tabular-nums border border-slate-200 rounded-md px-2 py-1 focus:ring-1 focus:ring-primary/30 focus:border-primary/50">
+                            <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-slate-800 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-700">
+                                <i class="fas fa-pen text-[9px]"></i> Save
+                            </button>
+                        </form>
+                    @endif
+
                     @if($week->isCancelled())
                         <p class="text-xs text-amber-900">
                             This week was marked cancelled@if($week->cancelled_by) by <strong>{{ $week->cancelled_by }}</strong>@endif.

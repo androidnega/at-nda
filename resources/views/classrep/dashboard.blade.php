@@ -118,6 +118,14 @@
                     </div>
                 </div>
                 <div class="space-y-1.5">
+                    <label for="week_number" class="{{ $labelBase }}">Week number <span class="text-slate-400 font-normal">(optional)</span></label>
+                    <div class="relative">
+                        <input type="number" name="week_number" id="week_number" value="{{ old('week_number') }}" min="1" max="500" inputmode="numeric" placeholder="Auto"
+                            class="{{ $fieldBase }} tabular-nums">
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-1">Leave blank to auto-number. Set to pin this session to a specific week (e.g. resuming after a break).</p>
+                </div>
+                <div class="space-y-1.5">
                     <label for="lecturer_status" class="{{ $labelBase }}">Lecturer status</label>
                     <div class="relative">
                         <select name="lecturer_status" id="lecturer_status" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" required>

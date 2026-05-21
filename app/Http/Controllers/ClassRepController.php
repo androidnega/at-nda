@@ -286,6 +286,7 @@ class ClassRepController extends Controller
             'location_lng' => 'nullable|numeric',
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
+            'week_number' => 'nullable|integer|min:1|max:500',
         ]);
         $validated['mode'] = $forcedMode;
 
@@ -304,7 +305,10 @@ class ClassRepController extends Controller
 
         RepCourseAccess::deactivateSessionsForCourse($student, $course);
 
-        $week = $course->createOrGetAttendanceWeekForToday($repClassId);
+        $overrideWeekNumber = isset($validated['week_number']) && $validated['week_number'] !== null
+            ? (int) $validated['week_number']
+            : null;
+        $week = $course->createOrGetAttendanceWeekForToday($repClassId, $overrideWeekNumber);
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expectedEnd = $course->computeSessionExpiresAt($duration, $repClassId);
@@ -867,6 +871,42 @@ class ClassRepController extends Controller
         ]);
 
         return back()->with('success', 'Week '.$attendanceWeek->week_number.' cancellation cleared.');
+    }
+
+    /**
+     * Rename an existing week row (change the displayed week_number) — handy
+     * when the rep realises a session was labelled the wrong week.
+     */
+    public function renameAttendanceWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403);
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'week_number' => 'required|integer|min:1|max:500',
+        ]);
+
+        $newNumber = (int) $validated['week_number'];
+        $oldNumber = (int) $attendanceWeek->week_number;
+        if ($newNumber === $oldNumber) {
+            return back()->with('success', 'Week number unchanged.');
+        }
+
+        $attendanceWeek->update(['week_number' => $newNumber]);
+
+        return back()->with(
+            'success',
+            'Week '.$oldNumber.' renamed to Week '.$newNumber.' for this course.'
+        );
     }
 
     /**

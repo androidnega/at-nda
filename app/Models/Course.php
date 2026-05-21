@@ -375,8 +375,14 @@ class Course extends Model
      * Reuse today's week row if it exists; otherwise create one using
      * `max(week_number) + 1` *scoped to the given class* (or all classes when
      * `$classId` is null, which preserves legacy admin-only flows).
+     *
+     * @param  int|null  $overrideWeekNumber  When provided (1–500) it overrides
+     *                                        both the seed and the auto-increment
+     *                                        so the rep can pin the session to
+     *                                        a specific week label (e.g. resuming
+     *                                        after a break).
      */
-    public function createOrGetAttendanceWeekForToday(?int $classId = null): AttendanceWeek
+    public function createOrGetAttendanceWeekForToday(?int $classId = null, ?int $overrideWeekNumber = null): AttendanceWeek
     {
         $today = now()->toDateString();
         $classAware = $classId !== null && $classId > 0 && \App\Support\SchemaFeatures::hasAttendanceWeeksClassId();
@@ -387,25 +393,32 @@ class Course extends Model
         }
         $existing = $existingQuery->first();
         if ($existing) {
+            if ($overrideWeekNumber !== null && (int) $existing->week_number !== $overrideWeekNumber) {
+                $existing->update(['week_number' => $overrideWeekNumber]);
+            }
             return $existing;
         }
 
-        $maxQuery = $this->attendanceWeeks();
-        if ($classAware) {
-            $maxQuery->where('class_id', $classId);
-        }
-        $maxWeek = (int) ($maxQuery->max('week_number') ?? 0);
-
-        // The course-wide next_week_number seed only applies when the rep has
-        // never attended for this (course, class) pair, so a brand new cohort
-        // always begins at week 1 instead of inheriting another class's number.
-        if ($maxWeek === 0 && $this->next_week_number !== null && ! $classAware) {
-            $num = (int) $this->next_week_number;
-            $this->update(['next_week_number' => $num + 1]);
-        } elseif ($maxWeek === 0) {
-            $num = 1;
+        if ($overrideWeekNumber !== null) {
+            $num = $overrideWeekNumber;
         } else {
-            $num = $maxWeek + 1;
+            $maxQuery = $this->attendanceWeeks();
+            if ($classAware) {
+                $maxQuery->where('class_id', $classId);
+            }
+            $maxWeek = (int) ($maxQuery->max('week_number') ?? 0);
+
+            // The course-wide next_week_number seed only applies when the rep has
+            // never attended for this (course, class) pair, so a brand new cohort
+            // always begins at week 1 instead of inheriting another class's number.
+            if ($maxWeek === 0 && $this->next_week_number !== null && ! $classAware) {
+                $num = (int) $this->next_week_number;
+                $this->update(['next_week_number' => $num + 1]);
+            } elseif ($maxWeek === 0) {
+                $num = 1;
+            } else {
+                $num = $maxWeek + 1;
+            }
         }
 
         $attributes = [

@@ -140,6 +140,33 @@
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
+        /* Stack the word CANCELLED letter-by-letter so it reads top-to-bottom
+           inside narrow week columns. dompdf doesn't reliably honour CSS
+           writing-mode / transform: rotate, so this stacked approach is the
+           most portable way to get vertical text in the PDF. */
+        .week-cancelled-vert {
+            display: inline-block;
+            font-size: 7px;
+            font-weight: bold;
+            color: #b91c1c;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            line-height: 1.05;
+            text-align: center;
+            padding: 1px 0;
+        }
+        .week-cancelled-vert span {
+            display: block;
+        }
+        td.week-cancelled-cell {
+            background: repeating-linear-gradient(
+                45deg,
+                #fff7ed,
+                #fff7ed 3px,
+                #fed7aa 3px,
+                #fed7aa 4px
+            ) !important;
+        }
         .footer-note {
             font-size: 8px;
             color: #78716c;
@@ -212,9 +239,11 @@
                         <td>{{ $row['student']->index_number }}</td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
-                        <td class="week-col">
+                        <td class="week-col @if($w->isCancelled()) week-cancelled-cell @endif">
                             @if($w->isCancelled())
-                                <span class="week-cancelled">Cancelled</span>
+                                <span class="week-cancelled-vert" aria-label="Cancelled">
+                                    <span>C</span><span>A</span><span>N</span><span>C</span><span>E</span><span>L</span><span>L</span><span>E</span><span>D</span>
+                                </span>
                             @elseif(isset($row['weeks'][$w->week_number]))
                                 @if($row['weeks'][$w->week_number] === true)
                                     <span class="check">&#10003;</span>
