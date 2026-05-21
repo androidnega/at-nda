@@ -12,6 +12,7 @@ use App\Http\Controllers\UniversityLogoController;
 use App\Http\Controllers\ClassRepController;
 use App\Http\Controllers\ClassRepTimetableController;
 use App\Http\Controllers\CourseController;
+use App\Http\Controllers\CourseMaterialController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DashboardProfileController;
 use App\Http\Controllers\DashboardStudentsController;
@@ -181,6 +182,13 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
 
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
+    // Course materials: any signed-in student in the class can see the list
+    // and download files. Uploading / deleting is restricted to reps below.
+    Route::middleware('student.auth')->group(function () {
+        Route::get('/materials', [CourseMaterialController::class, 'index'])->name('materials.index');
+        Route::get('/materials/{material}/download', [CourseMaterialController::class, 'download'])->name('materials.download');
+    });
+
     Route::middleware('classrep')->group(function () {
         Route::get('/timetable/manage', [ClassRepTimetableController::class, 'index'])->name('timetable.manage');
         Route::post('/timetable', [ClassRepTimetableController::class, 'store'])->name('timetable.store');
@@ -204,6 +212,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
+
+        // Course material upload + delete: reps only.
+        Route::post('/materials', [CourseMaterialController::class, 'store'])->name('materials.store');
+        Route::delete('/materials/{material}', [CourseMaterialController::class, 'destroy'])->name('materials.destroy');
         Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');
         Route::get('/live-sessions/{session}/close', [ClassRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
         Route::post('/live-sessions/{session}/close', [ClassRepController::class, 'closeSession'])->name('live-sessions.close');

@@ -74,6 +74,10 @@
                 <i class="fas fa-chart-line w-5 text-center text-sky-500"></i>
                 Attendance history
             </a>
+            <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.materials.*') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+                <i class="fas fa-folder-open w-5 text-center text-sky-500"></i>
+                Course materials
+            </a>
         </nav>
     </aside>
 
