@@ -1,9 +1,14 @@
-@extends($isRep ? 'layouts.classrep' : 'layouts.student')
+@php
+    $isLecturer = $isLecturer ?? false;
+    $materialsLayout = $isLecturer ? 'layouts.admin' : ($isRep ? 'layouts.classrep' : 'layouts.student');
+@endphp
+@extends($materialsLayout)
 
 @section('title', 'Course materials')
 
 @section('content')
 @php
+    $canUpload = $isRep || $isLecturer;
     $iconFor = function (string $kind) {
         return match ($kind) {
             'pdf' => ['fa-file-pdf', 'text-red-600 bg-red-50'],
@@ -26,10 +31,12 @@
             <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Class resources</p>
             <h1 class="text-2xl font-bold text-slate-900">Course materials</h1>
             <p class="text-sm text-slate-600 max-w-xl">
-                @if($isRep)
+                @if($isLecturer)
+                    Share course outlines, slides, and study material with the classes you teach. Students download straight from their dashboard.
+                @elseif($isRep)
                     Upload course outlines, lecture notes, slides, and recordings — students in your class can download them straight from their dashboard.
                 @else
-                    Course outlines and study materials shared by your class rep. Tap any file to download.
+                    Course outlines and study materials shared by your lecturer or class rep. Tap any file to download.
                 @endif
             </p>
         </div>
@@ -61,8 +68,13 @@
         </div>
     @endif
 
-    {{-- Rep-only upload card --}}
-    @if($isRep)
+    {{-- Upload card (rep or lecturer) --}}
+    @if($canUpload)
+        @php
+            // Lecturers need a course→class map so the class dropdown can be
+            // filtered to only the classes that share the picked course.
+            $courseClassMapJson = isset($courseClassMap) ? $courseClassMap->toJson() : '{}';
+        @endphp
         <section class="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <header class="px-5 py-3.5 border-b border-slate-100 bg-slate-50/70 flex items-center gap-2.5">
                 <span class="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -75,36 +87,43 @@
             </header>
             @if($uploadableCourses->isEmpty())
                 <div class="p-5">
-                    <p class="text-sm text-slate-600">No courses are assigned to your class yet. Ask an admin to assign courses first.</p>
+                    @if($isLecturer)
+                        <p class="text-sm text-slate-600">No courses assigned to you yet. Ask an admin to link you to courses you teach.</p>
+                    @else
+                        <p class="text-sm text-slate-600">No courses are assigned to your class yet. Ask an admin to assign courses first.</p>
+                    @endif
                 </div>
             @else
-                <form method="POST" action="{{ route('dashboard.materials.store') }}" enctype="multipart/form-data" class="p-5 grid grid-cols-1 sm:grid-cols-12 gap-4">
+                <form method="POST" action="{{ route('dashboard.materials.store') }}" enctype="multipart/form-data" class="p-5 grid grid-cols-1 sm:grid-cols-12 gap-4"
+                      data-course-class-map='{!! $courseClassMapJson !!}'
+                      id="material-upload-form">
                     @csrf
 
-                    @if($classes->count() > 1)
+                    <div class="sm:col-span-{{ ($isLecturer || $classes->count() > 1) ? 8 : 12 }}">
+                        <label for="material_course_id" class="block text-xs font-semibold text-slate-700 mb-1">Course</label>
+                        <select name="course_id" id="material_course_id" required class="w-full border-2 border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                            <option value="">Select course…</option>
+                            @foreach($uploadableCourses as $course)
+                                <option value="{{ $course->id }}" @selected(old('course_id') == $course->id)>
+                                    {{ $course->course_name }}@if($course->course_code) ({{ $course->course_code }})@endif
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    @if($isLecturer || $classes->count() > 1)
                         <div class="sm:col-span-4">
                             <label for="material_class_id" class="block text-xs font-semibold text-slate-700 mb-1">Class</label>
                             <select name="class_id" id="material_class_id" required class="w-full border-2 border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                                <option value="">Select class…</option>
                                 @foreach($classes as $cls)
                                     <option value="{{ $cls->id }}" @selected(old('class_id') == $cls->id)>{{ $cls->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="sm:col-span-8">
                     @else
                         <input type="hidden" name="class_id" value="{{ $classes->first()->id ?? '' }}">
-                        <div class="sm:col-span-12">
                     @endif
-                            <label for="material_course_id" class="block text-xs font-semibold text-slate-700 mb-1">Course</label>
-                            <select name="course_id" id="material_course_id" required class="w-full border-2 border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
-                                <option value="">Select course…</option>
-                                @foreach($uploadableCourses as $course)
-                                    <option value="{{ $course->id }}" @selected(old('course_id') == $course->id)>
-                                        {{ $course->course_name }}@if($course->course_code) ({{ $course->course_code }})@endif
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
 
                     <div class="sm:col-span-12">
                         <label for="material_title" class="block text-xs font-semibold text-slate-700 mb-1">Title</label>
@@ -143,10 +162,10 @@
             </span>
             <p class="text-sm font-semibold text-slate-700">No materials shared yet</p>
             <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                @if($isRep)
-                    Upload a course outline or lecture notes above to share with your class.
+                @if($canUpload)
+                    Upload a course outline or lecture notes above to share with the class.
                 @else
-                    Once your class rep uploads outlines or lecture notes, you&rsquo;ll see them here.
+                    Once your lecturer or class rep uploads outlines or lecture notes, you&rsquo;ll see them here.
                 @endif
             </p>
         </section>
@@ -171,16 +190,34 @@
                     @foreach($items as $material)
                         @php
                             [$iconName, $iconCls] = $iconFor($material->fileKind());
-                            $uploaderName = $material->uploader
-                                ? trim((string) (($material->uploader->first_name ?? '').' '.($material->uploader->last_name ?? '')))
-                                : '';
+                            $uploadedByLecturer = (int) ($material->uploaded_by_lecturer_id ?? 0) > 0;
+                            $uploaderName = $uploadedByLecturer
+                                ? trim((string) ($material->lecturerUploader->name ?? ''))
+                                : ($material->uploader
+                                    ? trim((string) (($material->uploader->first_name ?? '').' '.($material->uploader->last_name ?? '')))
+                                    : '');
+                            $uploaderBadge = $uploadedByLecturer ? 'Lecturer' : 'Rep';
+                            $uploaderBadgeClass = $uploadedByLecturer
+                                ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                                : 'bg-amber-100 text-amber-800 border-amber-200';
+                            $canDelete = $isRep
+                                || ($isLecturer && (
+                                    ((int) ($material->uploaded_by_lecturer_id ?? 0) === (int) ($lecturer->id ?? 0))
+                                    || ($material->course && method_exists($lecturer ?? null, 'managesCourse') && optional($lecturer)->managesCourse($material->course))
+                                ));
                         @endphp
                         <li class="px-5 py-3 flex items-start gap-3 hover:bg-slate-50/60 transition">
                             <span class="shrink-0 h-10 w-10 rounded-lg {{ $iconCls }} flex items-center justify-center">
                                 <i class="fas {{ $iconName }} text-base"></i>
                             </span>
                             <div class="min-w-0 flex-1">
-                                <p class="text-sm font-semibold text-slate-900 truncate">{{ $material->title }}</p>
+                                <p class="text-sm font-semibold text-slate-900 truncate">
+                                    {{ $material->title }}
+                                    <span class="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide {{ $uploaderBadgeClass }}">
+                                        <i class="fas {{ $uploadedByLecturer ? 'fa-chalkboard-user' : 'fa-user-tie' }} text-[8px]"></i>
+                                        {{ $uploaderBadge }}
+                                    </span>
+                                </p>
                                 @if($material->description)
                                     <p class="text-xs text-slate-600 mt-0.5 line-clamp-2">{{ $material->description }}</p>
                                 @endif
@@ -206,7 +243,7 @@
                                    class="inline-flex items-center gap-1.5 rounded-md bg-primary text-white px-3 py-1.5 text-xs font-semibold hover:bg-primary/90">
                                     <i class="fas fa-download text-[10px]"></i> Download
                                 </a>
-                                @if($isRep)
+                                @if($canDelete)
                                     <form method="POST" action="{{ route('dashboard.materials.destroy', $material) }}"
                                           onsubmit="return confirm('Remove this material? Students will lose access.');">
                                         @csrf
@@ -225,4 +262,48 @@
         @endforeach
     @endif
 </div>
+
+@push('scripts')
+<script>
+(function () {
+    var form = document.getElementById('material-upload-form');
+    if (!form) return;
+    var raw = form.getAttribute('data-course-class-map') || '{}';
+    var map = {};
+    try { map = JSON.parse(raw); } catch (e) { map = {}; }
+    if (!map || typeof map !== 'object' || Object.keys(map).length === 0) return;
+
+    var courseSelect = document.getElementById('material_course_id');
+    var classSelect = document.getElementById('material_class_id');
+    if (!courseSelect || !classSelect) return;
+
+    var allOptions = Array.prototype.slice.call(classSelect.options).map(function (o) {
+        return { value: o.value, text: o.text };
+    });
+
+    function refresh() {
+        var courseId = courseSelect.value;
+        var allowed = map[courseId] || null;
+        classSelect.innerHTML = '';
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.text = 'Select class…';
+        classSelect.appendChild(blank);
+        allOptions.forEach(function (opt) {
+            if (!opt.value) return;
+            if (allowed && allowed.indexOf(parseInt(opt.value, 10)) === -1) return;
+            var o = document.createElement('option');
+            o.value = opt.value;
+            o.text = opt.text;
+            classSelect.appendChild(o);
+        });
+        if (classSelect.options.length === 2) {
+            classSelect.value = classSelect.options[1].value;
+        }
+    }
+    courseSelect.addEventListener('change', refresh);
+    if (courseSelect.value) refresh();
+})();
+</script>
+@endpush
 @endsection

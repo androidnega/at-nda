@@ -140,6 +140,27 @@
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
+        /* Small inline pill used to flag class reps inside the Index No. cell. */
+        .rep-badge {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 1px 5px 2px 5px;
+            font-size: 7px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #ffffff;
+            background: #0b3c98;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        .rep-badge.assist {
+            background: #2563eb;
+        }
+        .rep-badge.main {
+            background: #b45309;
+            color: #fffbeb;
+        }
         /* Stack the word CANCELLED letter-by-letter so it reads top-to-bottom
            inside narrow week columns. dompdf doesn't reliably honour CSS
            writing-mode / transform: rotate, so this stacked approach is the
@@ -233,10 +254,24 @@
                     </tr>
                 </thead>
                 <tbody>
+                    @php
+                        $repRolesByStudent = $repRolesByStudent ?? [];
+                    @endphp
                     @foreach($attendanceByStudent as $idx => $row)
+                    @php
+                        $studentId = (int) ($row['student']->id ?? 0);
+                        $repRole = $repRolesByStudent[$studentId] ?? null;
+                    @endphp
                     <tr>
                         <td class="week-col" style="font-weight:bold;">{{ $idx + 1 }}</td>
-                        <td>{{ $row['student']->index_number }}</td>
+                        <td>
+                            {{ $row['student']->index_number }}
+                            @if($repRole === \App\Models\ClassRep::ROLE_REP)
+                                <span class="rep-badge main">Rep</span>
+                            @elseif($repRole === \App\Models\ClassRep::ROLE_ASSIST)
+                                <span class="rep-badge assist">Asst</span>
+                            @endif
+                        </td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
                         <td class="week-col @if($w->isCancelled()) week-cancelled-cell @endif">
@@ -261,8 +296,15 @@
             </table>
         </div>
 
+        @php
+            $repRolesByStudent = $repRolesByStudent ?? [];
+            $hasReps = !empty($repRolesByStudent);
+        @endphp
         <p class="footer-note">
             {{ config('app.name', 'Attendance') }} &mdash; weekly marks indicate recorded attendance for each teaching week.
+            @if($hasReps)
+                <span style="margin-left:10px;">Legend: <span class="rep-badge main">Rep</span> class rep &middot; <span class="rep-badge assist">Asst</span> assistant rep.</span>
+            @endif
         </p>
     </div>
 </body>

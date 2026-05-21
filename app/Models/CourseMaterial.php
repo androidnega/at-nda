@@ -17,6 +17,7 @@ class CourseMaterial extends Model
         'mime_type',
         'file_size',
         'uploaded_by_student_id',
+        'uploaded_by_lecturer_id',
     ];
 
     protected $casts = [
@@ -36,6 +37,42 @@ class CourseMaterial extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(Student::class, 'uploaded_by_student_id');
+    }
+
+    public function lecturerUploader(): BelongsTo
+    {
+        return $this->belongsTo(Lecturer::class, 'uploaded_by_lecturer_id');
+    }
+
+    /**
+     * Friendly "Uploaded by …" string for badges.
+     */
+    public function uploadedByLabel(): string
+    {
+        if ($this->relationLoaded('lecturerUploader') && $this->lecturerUploader) {
+            $name = method_exists($this->lecturerUploader, 'displayName')
+                ? $this->lecturerUploader->displayName()
+                : $this->lecturerUploader->name;
+
+            return 'Lecturer · '.$name;
+        }
+        if ($this->uploaded_by_lecturer_id) {
+            return 'Lecturer';
+        }
+        if ($this->relationLoaded('uploader') && $this->uploader) {
+            $first = trim((string) ($this->uploader->first_name ?? ''));
+            $last = trim((string) ($this->uploader->last_name ?? ''));
+            $name = trim($first.' '.$last);
+
+            return 'Rep'.($name !== '' ? ' · '.$name : '');
+        }
+
+        return $this->uploaded_by_lecturer_id ? 'Lecturer' : 'Rep';
+    }
+
+    public function uploaderRole(): string
+    {
+        return $this->uploaded_by_lecturer_id ? 'lecturer' : 'rep';
     }
 
     /**

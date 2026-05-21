@@ -28,16 +28,20 @@
             @endif
         </div>
         <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('dashboard.class-attendance.course.pdf', $course) }}" target="_blank" rel="noopener"
-               class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/80 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100">
-                <i class="fas fa-file-pdf"></i>
-                Semester PDF
-            </a>
-            <a href="{{ route('dashboard.class-attendance.course.export-json', $course) }}"
-               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
-                <i class="fas fa-file-code"></i>
-                Semester JSON
-            </a>
+            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.pdf'))
+                <a href="{{ route('dashboard.class-attendance.course.pdf', $course) }}" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/80 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100">
+                    <i class="fas fa-file-pdf"></i>
+                    Semester PDF
+                </a>
+            @endif
+            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.export-json'))
+                <a href="{{ route('dashboard.class-attendance.course.export-json', $course) }}"
+                   class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                    <i class="fas fa-file-code"></i>
+                    Semester JSON
+                </a>
+            @endif
         </div>
     </div>
 </div>
@@ -189,12 +193,14 @@
                                 <br><span class="text-amber-800/80">"{{ $week->cancellation_note }}"</span>
                             @endif
                         </p>
-                        <form action="{{ route('dashboard.class-attendance.week.uncancel', [$course, $week]) }}" method="post">
-                            @csrf
-                            <button type="submit" class="text-[11px] font-semibold rounded-md border border-primary/40 bg-white px-2.5 py-1 text-primary hover:bg-primary/10">
-                                Clear cancellation
-                            </button>
-                        </form>
+                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.uncancel'))
+                            <form action="{{ route('dashboard.class-attendance.week.uncancel', [$course, $week]) }}" method="post">
+                                @csrf
+                                <button type="submit" class="text-[11px] font-semibold rounded-md border border-primary/40 bg-white px-2.5 py-1 text-primary hover:bg-primary/10">
+                                    Clear cancellation
+                                </button>
+                            </form>
+                        @endif
                     @elseif($present->isEmpty())
                         <p class="text-xs text-gray-500">No students marked attendance this week.</p>
                     @else
@@ -231,14 +237,16 @@
                             </form>
                         @endif
                         @unless($week->isCancelled())
-                            <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="ml-auto flex items-center gap-1">
-                                @csrf
-                                <input type="text" name="note" placeholder="Cancellation note" maxlength="2000"
-                                    class="text-[11px] border border-gray-200 rounded-md px-2 py-1 w-32 sm:w-40">
-                                <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-amber-700 text-white px-2 py-1 text-[11px] font-semibold hover:bg-amber-800">
-                                    Cancel week
-                                </button>
-                            </form>
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.cancel'))
+                                <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="ml-auto flex items-center gap-1">
+                                    @csrf
+                                    <input type="text" name="note" placeholder="Cancellation note" maxlength="2000"
+                                        class="text-[11px] border border-gray-200 rounded-md px-2 py-1 w-32 sm:w-40">
+                                    <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-amber-700 text-white px-2 py-1 text-[11px] font-semibold hover:bg-amber-800">
+                                        Cancel week
+                                    </button>
+                                </form>
+                            @endif
                         @endunless
                     </div>
                 </div>

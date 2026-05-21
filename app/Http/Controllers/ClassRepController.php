@@ -785,11 +785,20 @@ class ClassRepController extends Controller
         }
 
         $course->loadMissing(['schoolClass', 'lecturer', 'venueRelation']);
-        $recentSessions = AttendanceSession::query()
-            ->where('course_id', $course->id)
-            ->latest('id')
-            ->limit(20)
-            ->get(['id', 'attendance_week_id', 'lecturer_status', 'start_time', 'created_at']);
+        // Best-effort recent sessions list. We only ask for columns that
+        // definitely exist on the model; failures here (stale schema cache,
+        // missing migration on a fresh server) must never blow up the whole
+        // page since the rep simply wants to see the weekly grid.
+        try {
+            $recentSessions = AttendanceSession::query()
+                ->where('course_id', $course->id)
+                ->latest('id')
+                ->limit(20)
+                ->get();
+        } catch (\Throwable $e) {
+            report($e);
+            $recentSessions = collect();
+        }
 
         $query = RepCourseAccess::scopeAttendanceForRep(
             Attendance::query()->with(['student']),
@@ -817,22 +826,38 @@ class ClassRepController extends Controller
 
         // Show only the weeks the rep's own class has opened (each class runs
         // its own week counter, so reps should not see other classes' rows).
-        $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
-        $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
-        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
-            $weeksQuery->where(function ($q) use ($repClassIds) {
-                $q->whereIn('class_id', $repClassIds)->orWhereNull('class_id');
-            });
+        try {
+            $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+            $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
+            if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
+                $weeksQuery->where(function ($q) use ($repClassIds) {
+                    $q->whereIn('class_id', $repClassIds)->orWhereNull('class_id');
+                });
+            }
+            $attendanceWeeks = $weeksQuery->get();
+        } catch (\Throwable $e) {
+            report($e);
+            $repClassIds = [];
+            $attendanceWeeks = collect();
         }
-        $attendanceWeeks = $weeksQuery->get();
 
         // The page now drives its visual layout from $weeklyAttendees; the
         // legacy $dailyStats grid was removed in the per-week redesign, so we
         // no longer pay for that aggregation on every page load.
-        $weeklyAttendees = $this->buildWeeklyAttendees($rep, $course, $attendanceWeeks, $repClassIds);
-        $enrolledCount = $repClassIds === []
-            ? 0
-            : Student::query()->whereIn('class_id', $repClassIds)->count();
+        try {
+            $weeklyAttendees = $this->buildWeeklyAttendees($rep, $course, $attendanceWeeks, $repClassIds);
+        } catch (\Throwable $e) {
+            report($e);
+            $weeklyAttendees = collect();
+        }
+        try {
+            $enrolledCount = $repClassIds === []
+                ? 0
+                : Student::query()->whereIn('class_id', $repClassIds)->count();
+        } catch (\Throwable $e) {
+            report($e);
+            $enrolledCount = 0;
+        }
 
         return view('classrep.attendance-course', [
             'course' => $course,

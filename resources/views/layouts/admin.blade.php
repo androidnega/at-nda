@@ -68,6 +68,10 @@
                     <i class="fas fa-clipboard-check w-5 text-center"></i>
                     <span>Attendance</span>
                 </a>
+                <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.materials.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fas fa-folder-open w-5 text-center"></i>
+                    <span>Course materials</span>
+                </a>
                 @endif
                 @if(!$isLecturerView)
                 <a href="{{ route('dashboard.classes.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.classes.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">

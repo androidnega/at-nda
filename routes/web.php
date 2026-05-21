@@ -182,11 +182,15 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
 
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
-    // Course materials: any signed-in student in the class can see the list
-    // and download files. Uploading / deleting is restricted to reps below.
-    Route::middleware('student.auth')->group(function () {
+    // Course materials: any signed-in user (student, rep or lecturer) can
+    // hit the index/download endpoints. The controller decides which
+    // materials are visible and who is allowed to upload/delete based on
+    // the session role, so we only require *some* signed-in session here.
+    Route::middleware('signed-in-anybody')->group(function () {
         Route::get('/materials', [CourseMaterialController::class, 'index'])->name('materials.index');
         Route::get('/materials/{material}/download', [CourseMaterialController::class, 'download'])->name('materials.download');
+        Route::post('/materials', [CourseMaterialController::class, 'store'])->name('materials.store');
+        Route::delete('/materials/{material}', [CourseMaterialController::class, 'destroy'])->name('materials.destroy');
     });
 
     Route::middleware('classrep')->group(function () {
@@ -212,10 +216,6 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
-
-        // Course material upload + delete: reps only.
-        Route::post('/materials', [CourseMaterialController::class, 'store'])->name('materials.store');
-        Route::delete('/materials/{material}', [CourseMaterialController::class, 'destroy'])->name('materials.destroy');
 
         // Rep bulk-imports a class roster (index numbers, optionally names).
         Route::post('/rep/students/import', [ClassRepController::class, 'importStudents'])->name('rep.students.import');

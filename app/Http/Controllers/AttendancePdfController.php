@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Attendance;
 use App\Models\AttendanceWeek;
+use App\Models\ClassRep;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\University;
@@ -124,6 +125,12 @@ class AttendancePdfController extends Controller
 
         $courseTitle = trim($course->course_name.($course->course_code ? ' - '.$course->course_code : ''));
 
+        // Map of student_id => role for everyone in this class who is a
+        // class rep. We render a small "REP" / "ASSIST" badge next to their
+        // index number on the PDF so lecturers know who their class
+        // contacts are at a glance.
+        $repRolesByStudent = $this->repRolesForStudents($students);
+
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
             'courseTitle' => $courseTitle,
@@ -136,9 +143,55 @@ class AttendancePdfController extends Controller
             'venueDisplay' => $venueDisplay,
             'weeks' => $weeks,
             'attendanceByStudent' => $attendanceByStudent,
+            'repRolesByStudent' => $repRolesByStudent,
         ]);
 
         return $pdf->stream('attendance-'.\Str::slug($course->course_name).'-'.$slugSuffix.'.pdf', ['Attachment' => false]);
+    }
+
+    /**
+     * Returns ['student_id' => 'rep'|'assist'] for any student in the
+     * supplied collection that holds a class_reps row for their class.
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, Student>  $students
+     * @return array<int, string>
+     */
+    private function repRolesForStudents($students): array
+    {
+        if ($students->isEmpty()) {
+            return [];
+        }
+        $studentIds = $students->pluck('id')->all();
+        try {
+            $rows = ClassRep::query()
+                ->whereIn('student_id', $studentIds)
+                ->get(['student_id', 'class_id', 'role']);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return [];
+        }
+        // Build student_id => class_id lookup so we only credit a rep role
+        // when the rep entry matches the student's *own* class (avoids
+        // labelling someone as a rep for a class they no longer attend).
+        $studentClassIds = $students->mapWithKeys(fn (Student $s) => [(int) $s->id => (int) ($s->class_id ?? 0)]);
+        $map = [];
+        foreach ($rows as $row) {
+            $sid = (int) $row->student_id;
+            $expectedClass = $studentClassIds->get($sid);
+            if ($expectedClass !== null && $expectedClass !== 0 && (int) $row->class_id !== $expectedClass) {
+                continue;
+            }
+            $existing = $map[$sid] ?? null;
+            // ROLE_REP wins over ROLE_ASSIST when a student somehow has both.
+            if ($existing !== ClassRep::ROLE_REP) {
+                $map[$sid] = ((string) $row->role) === ClassRep::ROLE_REP
+                    ? ClassRep::ROLE_REP
+                    : ClassRep::ROLE_ASSIST;
+            }
+        }
+
+        return $map;
     }
 
     private function authorizePdfExport(Request $request, Course $course): void
