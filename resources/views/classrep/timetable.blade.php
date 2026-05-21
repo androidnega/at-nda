@@ -45,21 +45,27 @@
 
             @if($availableCourses->isEmpty())
                 <p class="text-sm text-gray-600">No courses are assigned to this class yet. Ask admin to assign courses first.</p>
+            @elseif($addableCourses->isEmpty())
+                <div class="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm px-3 py-2.5">
+                    <i class="fas fa-circle-check mr-1.5"></i>
+                    Every course assigned to this class is already on the timetable. Edit an existing slot below if you need to make changes.
+                </div>
             @else
-                <form method="POST" action="{{ route('dashboard.timetable.store') }}" class="space-y-3">
+                <form method="POST" action="{{ route('dashboard.timetable.store') }}" class="space-y-3" data-timetable-add-form>
                     @csrf
                     <input type="hidden" name="class_id" value="{{ $selectedClass->id }}">
 
                     <div>
                         <label class="block text-xs font-semibold text-gray-700 mb-1">Course</label>
-                        <select name="course_id" required class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                        <select name="course_id" required data-course-picker class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
                             <option value="">Select course…</option>
-                            @foreach($availableCourses as $course)
+                            @foreach($addableCourses as $course)
                                 <option value="{{ $course->id }}" @selected(old('course_id') == $course->id)>
                                     {{ $course->course_name }}@if($course->course_code) ({{ $course->course_code }})@endif
                                 </option>
                             @endforeach
                         </select>
+                        <p class="text-[11px] text-gray-500 mt-1">Courses already on the timetable are hidden — each course can only have one slot per class.</p>
                         @error('course_id') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
 
@@ -95,14 +101,14 @@
 
                     <div>
                         <label class="block text-xs font-semibold text-gray-700 mb-1">Lecturer</label>
-                        <select name="lecturer_id" class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                        <select name="lecturer_id" data-lecturer-picker class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary">
                             <option value="">— Not assigned —</option>
                             @foreach($availableLecturers as $lec)
                                 <option value="{{ $lec->id }}" @selected(old('lecturer_id') == $lec->id)>{{ $lec->name }}</option>
                             @endforeach
                         </select>
                         @error('lecturer_id') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                        <p class="text-[11px] text-gray-500 mt-1">Pick from admin-created lecturers. The same lecturer can be assigned to multiple classes.</p>
+                        <p class="text-[11px] text-gray-500 mt-1" data-lecturer-hint>Pick from admin-created lecturers. We auto-fill this when the course has a known lecturer — you can still change it.</p>
                     </div>
 
                     <div>
@@ -171,21 +177,29 @@
                                     </span>
                                 </summary>
                                 <div class="px-4 pb-4 bg-gray-50/60">
-                                    <form method="POST" action="{{ route('dashboard.timetable.update', $entry) }}" class="grid grid-cols-1 sm:grid-cols-6 gap-3 pt-3">
+                                    @php
+                                        // For the edit form, allow the entry's own course plus any course
+                                        // not already used elsewhere on this class's timetable.
+                                        $editableCourses = $availableCourses->filter(function ($course) use ($entry, $usedCourseIds) {
+                                            return (int) $course->id === (int) $entry->course_id
+                                                || ! $usedCourseIds->contains((int) $course->id);
+                                        })->values();
+                                    @endphp
+                                    <form method="POST" action="{{ route('dashboard.timetable.update', $entry) }}" class="grid grid-cols-1 sm:grid-cols-6 gap-3 pt-3" data-timetable-edit-form>
                                         @csrf
                                         @method('PUT')
                                         <input type="hidden" name="class_id" value="{{ $entry->class_id }}">
                                         <div class="sm:col-span-3">
                                             <label class="block text-[11px] font-semibold text-gray-700 mb-1">Course</label>
-                                            <select name="course_id" required class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
-                                                @foreach($availableCourses as $course)
+                                            <select name="course_id" required data-course-picker class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                                                @foreach($editableCourses as $course)
                                                     <option value="{{ $course->id }}" @selected($course->id === $entry->course_id)>{{ $course->course_name }}@if($course->course_code) ({{ $course->course_code }})@endif</option>
                                                 @endforeach
                                             </select>
                                         </div>
                                         <div class="sm:col-span-3">
                                             <label class="block text-[11px] font-semibold text-gray-700 mb-1">Lecturer</label>
-                                            <select name="lecturer_id" class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
+                                            <select name="lecturer_id" data-lecturer-picker class="w-full border-2 border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:ring-2 focus:ring-primary/25 focus:border-primary">
                                                 <option value="">— Not assigned —</option>
                                                 @foreach($availableLecturers as $lec)
                                                     <option value="{{ $lec->id }}" @selected($lec->id === $entry->lecturer_id)>{{ $lec->name }}</option>
@@ -271,6 +285,41 @@
             end.addEventListener('input', () => syncForm(form));
             syncForm(form);
         });
+
+        // Auto-fill the lecturer dropdown when the rep changes the course.
+        // Map<courseId, lecturerId|null> built server-side.
+        const courseLecturerMap = @json($courseLecturerMap ?? new \stdClass);
+        const wireAutofill = (form) => {
+            const coursePicker = form.querySelector('[data-course-picker]');
+            const lecturerPicker = form.querySelector('[data-lecturer-picker]');
+            const hint = form.querySelector('[data-lecturer-hint]');
+            if (!coursePicker || !lecturerPicker) return;
+            // Track whether the rep has manually overridden the lecturer so we
+            // don't keep stomping their choice when they switch courses.
+            let userTouchedLecturer = false;
+            lecturerPicker.addEventListener('change', () => { userTouchedLecturer = true; });
+            const apply = (force) => {
+                const cid = parseInt(coursePicker.value, 10);
+                if (!cid) return;
+                const candidate = courseLecturerMap[cid];
+                if (!candidate) {
+                    if (hint && force) hint.textContent = 'No saved lecturer for this course yet — pick one below.';
+                    return;
+                }
+                // Only set if the option exists in the dropdown.
+                const opt = lecturerPicker.querySelector('option[value="' + candidate + '"]');
+                if (!opt) {
+                    if (hint && force) hint.textContent = 'No saved lecturer for this course yet — pick one below.';
+                    return;
+                }
+                if (force || !userTouchedLecturer || lecturerPicker.value === '') {
+                    lecturerPicker.value = String(candidate);
+                    if (hint) hint.textContent = 'Auto-filled from this course\u2019s default lecturer. You can still change it.';
+                }
+            };
+            coursePicker.addEventListener('change', () => apply(true));
+        };
+        document.querySelectorAll('[data-timetable-add-form], [data-timetable-edit-form]').forEach(wireAutofill);
     })();
 </script>
 @endsection

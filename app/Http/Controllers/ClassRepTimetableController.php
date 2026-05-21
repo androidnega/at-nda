@@ -43,12 +43,43 @@ class ClassRepTimetableController extends Controller
         $availableLecturers = $this->availableLecturersForClass($selectedClass);
         $availableVenues = Venue::query()->orderBy('name')->get();
 
+        // Courses already on this class's timetable — hide them from the "Add
+        // slot" dropdown so each course can only be added once per class.
+        $usedCourseIds = $entries
+            ->pluck('course_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $addableCourses = $availableCourses->reject(
+            fn ($c) => $usedCourseIds->contains((int) $c->id)
+        )->values();
+
+        // courseId → lecturerId default, so the lecturer field can auto-fill
+        // when the rep selects a course. Falls back to the most recent
+        // class_timetable lecturer for the same course (any class) when the
+        // course catalog itself doesn't carry a default lecturer.
+        $courseLecturerMap = $availableCourses->mapWithKeys(function ($c) {
+            $lecturerId = $c->lecturer_id ? (int) $c->lecturer_id : null;
+            if ($lecturerId === null) {
+                $lecturerId = (int) (ClassTimetable::query()
+                    ->where('course_id', $c->id)
+                    ->whereNotNull('lecturer_id')
+                    ->orderByDesc('id')
+                    ->value('lecturer_id') ?? 0) ?: null;
+            }
+            return [(int) $c->id => $lecturerId];
+        });
+
         return view('classrep.timetable', [
             'student' => $student,
             'classes' => $classes,
             'selectedClass' => $selectedClass,
             'entries' => $entries,
             'availableCourses' => $availableCourses,
+            'addableCourses' => $addableCourses,
+            'usedCourseIds' => $usedCourseIds,
+            'courseLecturerMap' => $courseLecturerMap,
             'availableLecturers' => $availableLecturers,
             'availableVenues' => $availableVenues,
             'days' => ClassTimetable::DAYS,
@@ -243,7 +274,23 @@ class ClassRepTimetableController extends Controller
             $courseId = (int) $request->input('course_id');
             $day = (string) $request->input('day_of_week');
             $start = (string) $request->input('start_time');
-            if ($classId <= 0 || $courseId <= 0 || $day === '' || $start === '') {
+            if ($classId <= 0 || $courseId <= 0) {
+                return;
+            }
+
+            // Each course may appear at most once per class on the timetable.
+            $duplicateCourseQuery = ClassTimetable::query()
+                ->where('class_id', $classId)
+                ->where('course_id', $courseId);
+            if ($existing) {
+                $duplicateCourseQuery->where('id', '!=', $existing->id);
+            }
+            if ($duplicateCourseQuery->exists()) {
+                $v->errors()->add('course_id', 'This course is already on this class\'s timetable. Edit the existing slot instead.');
+                return;
+            }
+
+            if ($day === '' || $start === '') {
                 return;
             }
 
