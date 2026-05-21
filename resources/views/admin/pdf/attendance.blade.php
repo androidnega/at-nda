@@ -5,13 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <style>
         * { box-sizing: border-box; }
+        /* Tight, explicit page margins so the .sheet exactly fills the page
+           without spilling a stray row onto a new (mostly-empty) page. */
+        @page {
+            margin: 12mm 10mm 12mm 10mm;
+        }
         body {
             font-family: DejaVu Sans, sans-serif;
             font-size: 10px;
             color: #292524;
             margin: 0;
-            padding: 12px;
-            background: #fafaf9;
+            padding: 0;
+            background: #ffffff;
         }
         .sheet {
             background: #ffffff;
@@ -94,7 +99,7 @@
             color: #44403c;
         }
         .table-wrap {
-            padding: 0 0 8px 0;
+            padding: 0;
         }
         table.grid {
             width: 100%;
@@ -194,28 +199,29 @@
             padding: 8px 12px 12px 12px;
             border-top: 1px solid #e7e5e4;
         }
-        /* Diagonal "AT-ENDA" watermarks rendered on every PDF page.
-           dompdf honours position: fixed by repainting the elements on each
-           page, so three of these create a stripe of branding without
-           obscuring the data underneath. Opacity is intentionally low so the
-           grid stays legible when printed. */
+        /* Single centered "a-tenda" watermark rendered on every PDF page.
+           dompdf re-paints position: fixed elements on each new page, so
+           one watermark per page is all we need. The element is vertically
+           centered (top: 38%) so it sits in the visual middle of the page
+           rather than the bottom edge. Opacity stays low so the grid
+           underneath remains legible when printed. */
         .wm {
             position: fixed;
-            left: -10%;
-            width: 120%;
+            top: 38%;
+            left: 0;
+            right: 0;
+            width: 100%;
             text-align: center;
             transform: rotate(-30deg);
-            opacity: 0.07;
+            opacity: 0.08;
             color: #0b3c98;
             font-weight: bold;
-            font-size: 78px;
+            font-size: 90px;
             letter-spacing: 0.18em;
             text-transform: uppercase;
             z-index: 0;
+            pointer-events: none;
         }
-        .wm-top    { top: 12%; }
-        .wm-mid    { top: 44%; }
-        .wm-bot    { top: 76%; }
         .wm-text {
             display: inline-block;
             vertical-align: middle;
@@ -223,16 +229,22 @@
         .wm-logo {
             display: inline-block;
             vertical-align: middle;
-            width: 64px;
-            height: 64px;
-            margin-right: 18px;
+            width: 72px;
+            height: 72px;
+            margin-right: 20px;
         }
         /* Make sure the main sheet sits above the watermark layer. */
         .sheet {
             position: relative;
             z-index: 1;
             background: transparent;
+            page-break-after: avoid;
         }
+        /* Keep each student row intact across page breaks so we don't end up
+           with a trailing page that contains nothing but a half-row plus
+           the watermark. */
+        table.grid tbody tr { page-break-inside: avoid; }
+        .table-wrap { page-break-after: avoid; }
         body { background: #ffffff; }
     </style>
 </head>
@@ -255,16 +267,10 @@
         $brandDataUri = 'data:image/svg+xml;base64,'.base64_encode($brandSvg);
     @endphp
 
-    {{-- Diagonal brand watermarks. They sit behind the sheet via z-index. --}}
-    <div class="wm wm-top">
-        <img src="{{ $brandDataUri }}" alt="" class="wm-logo">
-        <span class="wm-text">a-tenda</span>
-    </div>
-    <div class="wm wm-mid">
-        <img src="{{ $brandDataUri }}" alt="" class="wm-logo">
-        <span class="wm-text">a-tenda</span>
-    </div>
-    <div class="wm wm-bot">
+    {{-- Single diagonal brand watermark — dompdf repaints position: fixed
+         elements on every new page, so this one element ends up on every
+         content page automatically. Sits behind the sheet via z-index. --}}
+    <div class="wm">
         <img src="{{ $brandDataUri }}" alt="" class="wm-logo">
         <span class="wm-text">a-tenda</span>
     </div>
