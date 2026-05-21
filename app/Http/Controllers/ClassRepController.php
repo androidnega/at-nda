@@ -245,12 +245,17 @@ class ClassRepController extends Controller
             ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
             : SystemSetting::INSTANT_MODE_LOCATION_QR;
 
+        // Venues let the rep override the timetable default for one session
+        // (e.g. when class meets in a different room today).
+        $venues = \App\Models\Venue::query()->orderBy('name')->get();
+
         return view('classrep.dashboard', [
             'student' => $student,
             'courses' => $courses,
             'dashboardRole' => 'classrep',
             'attendanceMode' => $attendanceMode,
             'instantModeType' => $instantModeType,
+            'venues' => $venues,
         ]);
     }
 
@@ -287,6 +292,7 @@ class ClassRepController extends Controller
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
             'week_number' => 'nullable|integer|min:1|max:500',
+            'venue_id' => 'nullable|integer|exists:venues,id',
         ]);
         $validated['mode'] = $forcedMode;
 
@@ -332,7 +338,12 @@ class ClassRepController extends Controller
 
         $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
         $sessionLecturerId = $snapshot['lecturer_id'] ?? $course->lecturer_id;
-        $sessionVenueId = $snapshot['venue_id'] ?? $course->venue_id;
+        // Optional venue override from the rep wins over the timetable default
+        // for this single session (does not rewrite the timetable row).
+        $overrideVenueId = isset($validated['venue_id']) && $validated['venue_id'] !== null
+            ? (int) $validated['venue_id']
+            : null;
+        $sessionVenueId = $overrideVenueId ?? ($snapshot['venue_id'] ?? $course->venue_id);
 
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
@@ -367,7 +378,15 @@ class ClassRepController extends Controller
 
         $activeMinutes = max(1, (int) ceil(($expectedEnd->getTimestamp() - now()->getTimestamp()) / 60));
 
-        return back()->with('success', 'Session opened. Week ' . $week->week_number . '. Active for ~' . $activeMinutes . ' min.');
+        $msg = 'Session opened. Week '.$week->week_number.'. Active for ~'.$activeMinutes.' min.';
+        if ($overrideVenueId !== null) {
+            $venueName = optional(\App\Models\Venue::find($overrideVenueId))->name;
+            if ($venueName) {
+                $msg .= ' Venue overridden to '.$venueName.' for this session.';
+            }
+        }
+
+        return back()->with('success', $msg);
     }
 
     /**

@@ -117,13 +117,30 @@
                         <p class="text-[11px] text-slate-400 mt-1">Minutes (5–480)</p>
                     </div>
                 </div>
-                <div class="space-y-1.5">
-                    <label for="week_number" class="{{ $labelBase }}">Week number <span class="text-slate-400 font-normal">(optional)</span></label>
-                    <div class="relative">
-                        <input type="number" name="week_number" id="week_number" value="{{ old('week_number') }}" min="1" max="500" inputmode="numeric" placeholder="Auto"
-                            class="{{ $fieldBase }} tabular-nums">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label for="week_number" class="{{ $labelBase }}">Week number <span class="text-slate-400 font-normal">(optional)</span></label>
+                        <div class="relative">
+                            <input type="number" name="week_number" id="week_number" value="{{ old('week_number') }}" min="1" max="500" inputmode="numeric" placeholder="Auto"
+                                class="{{ $fieldBase }} tabular-nums">
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-1">Blank = auto-number. Pin to a specific week if needed.</p>
                     </div>
-                    <p class="text-[11px] text-slate-400 mt-1">Leave blank to auto-number. Set to pin this session to a specific week (e.g. resuming after a break).</p>
+                    <div class="space-y-1.5">
+                        <label for="venue_id" class="{{ $labelBase }}">Venue <span class="text-slate-400 font-normal">(optional)</span></label>
+                        <div class="relative">
+                            <select name="venue_id" id="venue_id" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer">
+                                <option value="">Use timetable default</option>
+                                @foreach(($venues ?? collect()) as $v)
+                                    <option value="{{ $v->id }}" {{ (string) old('venue_id') === (string) $v->id ? 'selected' : '' }}>
+                                        {{ $v->name }}@if(!empty($v->code)) — {{ $v->code }}@endif
+                                    </option>
+                                @endforeach
+                            </select>
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-1">Overrides the day's default venue for this session only.</p>
+                    </div>
                 </div>
                 <div class="space-y-1.5">
                     <label for="lecturer_status" class="{{ $labelBase }}">Lecturer status</label>
