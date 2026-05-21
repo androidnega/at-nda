@@ -143,24 +143,36 @@ class AdminAttendanceWeekController extends Controller
                 ->map(fn ($id) => (int) $id)
                 ->all();
 
-            $sessionIds = $weekIds === []
-                ? []
-                : AttendanceSession::query()
-                    ->whereIn('attendance_week_id', $weekIds)
-                    ->pluck('id')
-                    ->map(fn ($id) => (int) $id)
-                    ->all();
-
-            // Delete attendance rows for this class+course (match by week_id when
-            // available, otherwise by the student's class_id). Cursor loop keeps
-            // model events firing for any downstream listeners.
-            $attendanceQuery = Attendance::query()
+            // Collect every session that points at this class+course slice,
+            // including orphan sessions whose attendance_week_id is NULL or
+            // points at a row we're about to delete. Skipping those was the
+            // reason cleared classes kept showing up as "missed" in student
+            // history.
+            $sessionQuery = AttendanceSession::query()
                 ->where('course_id', $courseId)
                 ->where(function ($q) use ($weekIds, $classId) {
                     if ($weekIds !== []) {
                         $q->whereIn('attendance_week_id', $weekIds);
                     }
+                    $q->orWhereNull('attendance_week_id')
+                        ->orWhereHas('attendances.student', fn ($sq) => $sq->where('class_id', $classId));
+                });
+            $sessionIds = $sessionQuery->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+            // Delete attendance rows for this class+course. Match by week_id
+            // when available, by the student's class_id when not, and also
+            // by attendance_session_id for any rows tied to a session we're
+            // about to drop (covers reps marked from another class context).
+            $attendanceQuery = Attendance::query()
+                ->where('course_id', $courseId)
+                ->where(function ($q) use ($weekIds, $classId, $sessionIds) {
+                    if ($weekIds !== []) {
+                        $q->whereIn('attendance_week_id', $weekIds);
+                    }
                     $q->orWhereHas('student', fn ($sq) => $sq->where('class_id', $classId));
+                    if ($sessionIds !== []) {
+                        $q->orWhereIn('attendance_session_id', $sessionIds);
+                    }
                 });
 
             foreach ($attendanceQuery->cursor() as $a) {
@@ -173,6 +185,19 @@ class AdminAttendanceWeekController extends Controller
             if ($weekIds !== []) {
                 AttendanceWeek::whereIn('id', $weekIds)->delete();
             }
+
+            // Final sweep: any attendance row still tied to a now-missing
+            // session or week for THIS class+course needs to go. Scoped
+            // strictly to students in the class so a sister class on the
+            // same shared course keeps its rows intact.
+            Attendance::query()
+                ->where('course_id', $courseId)
+                ->whereHas('student', fn ($sq) => $sq->where('class_id', $classId))
+                ->where(function ($q) {
+                    $q->whereNull('attendance_week_id')
+                        ->orWhereDoesntHave('attendanceWeek');
+                })
+                ->delete();
         });
 
         // Only reseed the course's next_week_number when no other class still
@@ -197,11 +222,18 @@ class AdminAttendanceWeekController extends Controller
         }
 
         DB::transaction(function () use ($courseIds) {
-            foreach (Attendance::whereIn('course_id', $courseIds)->cursor() as $a) {
+            // Delete every attendance row for these courses regardless of
+            // its week/session linkage so orphan rows (NULL week_id, missing
+            // session) don't survive the wipe and pop up as "missed" later.
+            foreach (Attendance::query()->whereIn('course_id', $courseIds)->cursor() as $a) {
                 $a->delete();
             }
             AttendanceSession::whereIn('course_id', $courseIds)->delete();
             AttendanceWeek::whereIn('course_id', $courseIds)->delete();
+            // Belt-and-braces: drop anything still pointing at these courses
+            // through dangling FK columns. The model events above keep audit
+            // log entries; this catches rows the loop somehow skipped.
+            Attendance::query()->whereIn('course_id', $courseIds)->delete();
             // Seed next week label to 1 so new sessions start at Week 1 (not max+1 from stale state).
             Course::whereIn('id', $courseIds)->update(['next_week_number' => 1]);
         });

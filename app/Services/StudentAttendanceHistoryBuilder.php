@@ -161,8 +161,16 @@ class StudentAttendanceHistoryBuilder
 
         $attendedSessionIds = $attendanceBySession->keys();
 
+        // Only consider sessions whose backing attendance_week still exists
+        // and is not cancelled. After an admin reset / week cancellation,
+        // the session row sometimes lingers — counting it as an "absent"
+        // would pollute the student's history with classes that no longer
+        // exist. Sessions whose attendance_week_id is null are also dropped
+        // (legacy / debug rows that can't be tied back to a real week).
         $sessions = AttendanceSession::query()
             ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
+            ->whereNotNull('attendance_week_id')
+            ->whereHas('attendanceWeek', fn ($q) => $q->whereNull('cancelled_at'))
             ->where(function ($q) use ($attendedSessionIds) {
                 $q->ended()
                     ->orWhere(function ($q2) {
@@ -202,6 +210,18 @@ class StudentAttendanceHistoryBuilder
         );
 
         foreach ($orphanAttendances as $attendance) {
+            // Skip orphan attendance rows whose week is gone or cancelled —
+            // they're audit artefacts of a reset/cancellation and must not
+            // surface as "missed class" entries.
+            $week = $attendance->attendanceWeek;
+            if ($attendance->attendance_week_id !== null) {
+                if ($week === null) {
+                    continue;
+                }
+                if ($week->cancelled_at !== null) {
+                    continue;
+                }
+            }
             $weekKey = $this->courseWeekKey($attendance->course_id, $attendance->attendance_week_id);
             if (! $this->attendanceCountsAsPresent($attendance) && $presentWeekKeys->has($weekKey)) {
                 continue;

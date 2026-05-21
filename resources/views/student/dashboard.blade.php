@@ -251,22 +251,93 @@
     </div>
     @endif
 
-    <div class="grid grid-cols-2 gap-3 sm:gap-4">
+    {{-- Quick stats — Today / This week first, since they're the most
+         actionable for a student. "Present" is the lifetime total of
+         non-cancelled marks; "Courses" is how many distinct class
+         courses the student has been marked present in so far. --}}
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
+                <span class="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-700"><i class="fas fa-sun text-sm"></i></span>
+                Today
+            </div>
+            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $todayCount }}</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">marks · {{ now()->format('D, M j') }}</p>
+        </div>
+        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
+                <span class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-700"><i class="fas fa-calendar-week text-sm"></i></span>
+                This week
+            </div>
+            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $weekCount }}</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">since {{ now()->startOfWeek()->format('D, M j') }}</p>
+        </div>
         <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
             <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
                 <span class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-700"><i class="fas fa-check-double text-sm"></i></span>
                 Present
             </div>
             <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalPresent }}</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">total marks</p>
         </div>
         <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
             <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-700"><i class="fas fa-calendar-week text-sm"></i></span>
-                Weeks
+                <span class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-700"><i class="fas fa-book text-sm"></i></span>
+                Courses
             </div>
-            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalWeeks }}</p>
+            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">
+                {{ $coursesAttended }}@if(($totalCoursesEnrolled ?? 0) > 0)<span class="text-base text-slate-400 font-medium"> / {{ $totalCoursesEnrolled }}</span>@endif
+            </p>
+            <p class="text-[11px] text-slate-500 mt-0.5">attended at least once</p>
         </div>
     </div>
+
+    {{-- Today's schedule — straight from the per-class timetable.
+         Each row shows the slot's time, lecturer, venue, and whether
+         the student has already been marked present today. --}}
+    @if(($todaysClasses ?? collect())->isNotEmpty())
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div>
+                <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fas fa-calendar-day text-slate-400"></i>
+                    Today’s classes
+                </h2>
+                <p class="text-[11px] text-slate-500 mt-0.5">{{ now()->format('l, F j') }} · {{ $todaysClasses->count() }} {{ $todaysClasses->count() === 1 ? 'slot' : 'slots' }}</p>
+            </div>
+            <a href="{{ route('student.attendance.history') }}" class="text-[11px] font-semibold text-amber-700 hover:underline">History</a>
+        </div>
+        <ul class="divide-y divide-slate-100">
+            @foreach($todaysClasses as $slot)
+                @php $course = $slot['course']; @endphp
+                <li class="px-4 py-3 flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <p class="font-semibold text-slate-900 text-sm">
+                            {{ $course->course_name }}
+                            @if($course->course_code)
+                                <span class="text-slate-400 font-normal">· {{ $course->course_code }}</span>
+                            @endif
+                        </p>
+                        <p class="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            @if($slot['start'])
+                                <span class="inline-flex items-center gap-1"><i class="far fa-clock text-slate-400 text-[10px]"></i>{{ $slot['start'] }}@if($slot['end']) – {{ $slot['end'] }}@endif</span>
+                            @endif
+                            @if(!empty($slot['lecturer']))
+                                <span class="inline-flex items-center gap-1"><i class="fas fa-chalkboard-teacher text-slate-400 text-[10px]"></i>{{ $slot['lecturer'] }}</span>
+                            @endif
+                            @if(!empty($slot['venue']))
+                                <span class="inline-flex items-center gap-1"><i class="fas fa-map-marker-alt text-slate-400 text-[10px]"></i>{{ $slot['venue'] }}</span>
+                            @endif
+                        </p>
+                    </div>
+                    <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide {{ $slot['marked'] ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
+                        {{ $slot['marked'] ? 'Marked' : 'Pending' }}
+                    </span>
+                </li>
+            @endforeach
+        </ul>
+    </div>
+    @endif
 
 </div>
 

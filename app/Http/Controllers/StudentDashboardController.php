@@ -175,18 +175,49 @@ class StudentDashboardController extends Controller
         }
 
         // Drop attendance rows whose backing week was cancelled or reset
-        // so the student's headline "marks present" matches what the rep,
-        // lecturer, and PDF views show.
-        $totalPresent = Attendance::query()
+        // so the student's headline numbers match what the rep, lecturer,
+        // and PDF views show.
+        $baseAttendance = fn () => Attendance::query()
             ->where('student_id', $student->id)
+            ->activeWeeksOnly();
+
+        $totalPresent = $baseAttendance()
             ->countedAsPresent()
-            ->activeWeeksOnly()
             ->count();
-        $totalWeeks = (int) Attendance::query()
-            ->where('student_id', $student->id)
-            ->activeWeeksOnly()
+
+        // "Courses" replaces the old "Weeks" tile. Students mostly want
+        // to know how many distinct courses they've been marked present
+        // for so far, not the raw week count.
+        $coursesAttended = $baseAttendance()
+            ->countedAsPresent()
             ->distinct()
-            ->count('attendance_week_id');
+            ->count('course_id');
+
+        // Today's marks (use the configured timezone so "today" matches
+        // what the student actually sees in their UI).
+        $todayCount = $baseAttendance()
+            ->countedAsPresent()
+            ->whereDate('attendance_time', now()->toDateString())
+            ->count();
+
+        // Marks since the start of the current ISO week (Monday → Sunday)
+        // so the value is meaningful even mid-week.
+        $weekStart = now()->startOfWeek();
+        $weekCount = $baseAttendance()
+            ->countedAsPresent()
+            ->where('attendance_time', '>=', $weekStart)
+            ->count();
+
+        // How many courses the student is enrolled in via their class —
+        // gives them a denominator so "X / Y courses" makes sense.
+        $totalCoursesEnrolled = $student->class_id
+            ? Course::query()->forManagedClasses([(int) $student->class_id])->count()
+            : 0;
+
+        // Today's scheduled classes from the per-class timetable (if any).
+        // Falls back to the legacy course.day_of_week columns when the
+        // class doesn't yet have rep-managed timetable rows.
+        $todaysClasses = $this->collectTodaysScheduledClasses($student);
 
         $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student)
             ->filter(fn (array $row) => ! $row['already_marked'])
@@ -210,11 +241,114 @@ class StudentDashboardController extends Controller
         return view('student.dashboard', compact(
             'student',
             'totalPresent',
-            'totalWeeks',
+            'coursesAttended',
+            'totalCoursesEnrolled',
+            'todayCount',
+            'weekCount',
+            'todaysClasses',
             'liveAttendanceSessions',
             'cancelledWeeks',
             'studentDashboardTheme'
         ));
+    }
+
+    /**
+     * Build today's expected classes for the student from the per-class
+     * timetable, falling back to the legacy course.day_of_week column.
+     * Returns at most a handful of rows for display — one per scheduled
+     * slot today, sorted by start time.
+     *
+     * @return Collection<int, array{course: Course, start: ?string, end: ?string, lecturer: ?string, venue: ?string, marked: bool}>
+     */
+    private function collectTodaysScheduledClasses(Student $student): Collection
+    {
+        if (! $student->class_id) {
+            return collect();
+        }
+
+        $today = strtolower(now()->format('l'));
+        $classId = (int) $student->class_id;
+        $rows = collect();
+
+        if (\App\Support\SchemaFeatures::hasClassTimetables()) {
+            $timetableRows = \App\Models\ClassTimetable::query()
+                ->where('class_id', $classId)
+                ->whereRaw('LOWER(day_of_week) = ?', [$today])
+                ->with(['course', 'lecturer', 'venueRelation'])
+                ->orderBy('start_time')
+                ->get();
+            foreach ($timetableRows as $row) {
+                if (! $row->course) {
+                    continue;
+                }
+                $lecturerName = trim((string) ($row->lecturer?->name ?? ''));
+                if ($lecturerName === '') {
+                    $lecturerName = trim((string) ($row->course->resolvedLecturerName() ?? ''));
+                }
+                $rows->push([
+                    'course' => $row->course,
+                    'start' => $this->formatScheduleTime($row->start_time),
+                    'end' => $this->formatScheduleTime($row->end_time),
+                    'lecturer' => $lecturerName !== '' ? $lecturerName : null,
+                    'venue' => $row->venueRelation?->name ?? null,
+                    'marked' => false,
+                ]);
+            }
+        }
+
+        if ($rows->isEmpty()) {
+            $courses = Course::query()
+                ->forManagedClasses([$classId])
+                ->whereRaw('LOWER(day_of_week) = ?', [$today])
+                ->orderBy('start_time')
+                ->with(['venueRelation', 'lecturer'])
+                ->get();
+            foreach ($courses as $course) {
+                $rows->push([
+                    'course' => $course,
+                    'start' => $this->formatScheduleTime($course->start_time),
+                    'end' => $this->formatScheduleTime($course->end_time),
+                    'lecturer' => trim((string) ($course->resolvedLecturerName() ?? '')) ?: null,
+                    'venue' => $course->venueRelation?->name ?? ($course->venue ?: null),
+                    'marked' => false,
+                ]);
+            }
+        }
+
+        if ($rows->isEmpty()) {
+            return $rows;
+        }
+
+        // Flag which of today's slots the student has already been
+        // marked present for, so the UI can label them as done.
+        $courseIds = $rows->pluck('course.id')->filter()->unique()->values()->all();
+        $presentToday = Attendance::query()
+            ->where('student_id', $student->id)
+            ->activeWeeksOnly()
+            ->countedAsPresent()
+            ->whereDate('attendance_time', now()->toDateString())
+            ->whereIn('course_id', $courseIds)
+            ->pluck('course_id')
+            ->map(fn ($id) => (int) $id)
+            ->flip();
+
+        return $rows->map(function (array $r) use ($presentToday) {
+            $r['marked'] = $presentToday->has((int) ($r['course']->id ?? 0));
+
+            return $r;
+        });
+    }
+
+    private function formatScheduleTime(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+        try {
+            return \Illuminate\Support\Carbon::parse((string) $value)->format('g:i A');
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     public function attendanceHistory(Request $request): View|\Illuminate\Http\RedirectResponse
@@ -247,7 +381,11 @@ class StudentDashboardController extends Controller
         $courseStats = $built['courseStats'];
         $trend = $built['trend'];
 
+        // Hide attendance rows whose backing week has been cancelled or
+        // wiped during an admin reset — those still live in the DB for
+        // audit, but shouldn't surface as "missed class" entries.
         $attendances = Attendance::where('student_id', $student->id)
+            ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek'])
             ->orderByDesc('attendance_time')
             ->limit(50)
@@ -255,6 +393,7 @@ class StudentDashboardController extends Controller
 
         $byCourse = Attendance::where('student_id', $student->id)
             ->countedAsPresent()
+            ->activeWeeksOnly()
             ->join('courses', 'attendances.course_id', '=', 'courses.id')
             ->select('courses.course_name', 'courses.course_code', DB::raw('COUNT(*) as count'))
             ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
@@ -262,7 +401,9 @@ class StudentDashboardController extends Controller
 
         $byWeek = Attendance::where('student_id', $student->id)
             ->countedAsPresent()
+            ->activeWeeksOnly()
             ->join('attendance_weeks', 'attendances.attendance_week_id', '=', 'attendance_weeks.id')
+            ->whereNull('attendance_weeks.cancelled_at')
             ->select('attendance_weeks.week_number', DB::raw('COUNT(*) as count'))
             ->groupBy('attendance_weeks.week_number')
             ->orderBy('attendance_weeks.week_number')
