@@ -18,7 +18,10 @@ final class StudentRosterRowParser
             if (! is_string($key)) {
                 continue;
             }
-            $k = strtolower(preg_replace('/[^a-z0-9]+/', '_', trim($key)) ?? '');
+            // Lowercase first, THEN strip non-alphanumerics, otherwise headers
+            // like "Index Number" lose their uppercase letters to the regex
+            // (e.g. became `_ndex_umber`) and never matched any alias.
+            $k = preg_replace('/[^a-z0-9]+/', '_', strtolower(trim($key))) ?? '';
             $k = trim($k, '_');
             if ($k !== '') {
                 $normalized[$k] = $value;
@@ -26,24 +29,45 @@ final class StudentRosterRowParser
         }
 
         $index = self::pickString($normalized, [
-            'index_number', 'indexnumber', 'index_no', 'index', 'student_id',
-            'studentid', 'id_number', 'id', 'matric', 'matric_no', 'matricnumber',
-            'registration_number', 'reg_no', 'student_index',
+            'index_number', 'index_numbers', 'indexnumber', 'indexnumbers',
+            'index_no', 'index_nos', 'indexno', 'indexnos', 'index', 'indexes', 'indices',
+            'student_index', 'student_indexes', 'student_index_number', 'student_index_numbers',
+            'studentindex', 'studentindexnumber',
+            'student_id', 'studentid', 'student_ids',
+            'id_number', 'id_numbers', 'idnumber', 'id', 'ids',
+            'matric', 'matric_no', 'matricnumber', 'matric_number', 'matric_numbers',
+            'registration_number', 'registration_no', 'reg_no', 'reg_number', 'regnumber',
         ]);
         if ($index === null || $index === '') {
-            return null;
+            // Last-resort heuristic: if none of the known header aliases hit,
+            // scan the row for the first value that looks like a student
+            // index (alphanumeric, ≥4 chars, contains a digit). Helps with
+            // bizarre headers like "Index #" or unnamed columns.
+            $index = self::guessIndexValue($normalized);
+            if ($index === null) {
+                return null;
+            }
         }
 
         $index = strtoupper(preg_replace('/\s+/', '', $index) ?? '');
-        if ($index === '' || in_array($index, ['INDEX', 'INDEX_NUMBER', 'N/A', 'NA'], true)) {
+        if ($index === '' || in_array($index, ['INDEX', 'INDEX_NUMBER', 'INDEX_NUMBERS', 'N/A', 'NA', 'NAN', 'NULL'], true)) {
             return null;
         }
 
-        $first = self::pickString($normalized, ['first_name', 'firstname', 'first', 'given_name', 'fname']);
-        $middle = self::pickString($normalized, ['middle_name', 'middlename', 'middle', 'other_name', 'mname']);
-        $last = self::pickString($normalized, ['last_name', 'lastname', 'last', 'surname', 'family_name', 'lname']);
+        $first = self::pickString($normalized, [
+            'first_name', 'first_names', 'firstname', 'firstnames', 'first', 'given_name', 'given_names', 'fname',
+        ]);
+        $middle = self::pickString($normalized, [
+            'middle_name', 'middle_names', 'middlename', 'middlenames', 'middle', 'other_name', 'other_names', 'othername', 'mname',
+        ]);
+        $last = self::pickString($normalized, [
+            'last_name', 'last_names', 'lastname', 'lastnames', 'last', 'surname', 'surnames', 'family_name', 'family_names', 'lname',
+        ]);
 
-        $full = self::pickString($normalized, ['full_name', 'fullname', 'name', 'student_name']);
+        $full = self::pickString($normalized, [
+            'full_name', 'full_names', 'fullname', 'fullnames',
+            'name', 'names', 'student_name', 'student_names', 'student_full_name',
+        ]);
         if ($full && ($first === null && $last === null)) {
             [$first, $middle, $last] = self::splitFullName($full);
         }
@@ -54,6 +78,44 @@ final class StudentRosterRowParser
             'middle_name' => $middle ?: null,
             'last_name' => $last ?: null,
         ];
+    }
+
+    /**
+     * Pick the first value that looks like a roster index number, ignoring
+     * known name / class columns.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private static function guessIndexValue(array $row): ?string
+    {
+        $skipKeys = [
+            'first_name', 'first_names', 'firstname', 'firstnames', 'first', 'given_name', 'given_names', 'fname',
+            'middle_name', 'middle_names', 'middlename', 'middlenames', 'middle', 'other_name', 'other_names', 'othername', 'mname',
+            'last_name', 'last_names', 'lastname', 'lastnames', 'last', 'surname', 'surnames', 'family_name', 'family_names', 'lname',
+            'full_name', 'full_names', 'fullname', 'fullnames', 'name', 'names', 'student_name', 'student_names', 'student_full_name',
+            'class', 'class_id', 'class_name', 'classname', 'cohort', 'group',
+            'email', 'phone', 'phone_number', 'phonenumber', 'mobile', 'tel',
+            'program', 'department', 'faculty', 'level', 'year', 'semester', 'gender', 'date_of_birth', 'dob',
+        ];
+        foreach ($row as $key => $value) {
+            if (in_array($key, $skipKeys, true)) {
+                continue;
+            }
+            $v = trim((string) $value);
+            if ($v === '') {
+                continue;
+            }
+            $compact = preg_replace('/\s+/', '', $v) ?? '';
+            if (strlen($compact) < 4) {
+                continue;
+            }
+            // Indices are typically alphanumeric and contain at least one digit.
+            if (preg_match('/^[A-Za-z0-9\-\/]+$/', $compact) && preg_match('/\d/', $compact)) {
+                return $compact;
+            }
+        }
+
+        return null;
     }
 
     /**
