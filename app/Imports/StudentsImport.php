@@ -13,9 +13,12 @@ class StudentsImport implements ToCollection, WithHeadingRow
 {
     /**
      * @param  list<int>|null  $allowedClassIds  When set, rows targeting other classes are skipped.
+     * @param  int|null  $defaultClassId  When set, rows missing a class column will be assigned
+     *                                    to this class instead of being skipped.
      */
     public function __construct(
         private readonly ?array $allowedClassIds = null,
+        private readonly ?int $defaultClassId = null,
     ) {}
 
     public int $created = 0;
@@ -39,6 +42,11 @@ class StudentsImport implements ToCollection, WithHeadingRow
             }
 
             $classId = $this->resolveClassId($array);
+            // Reps upload simple rosters with just index numbers — fall back to
+            // the default class they selected on the upload form.
+            if ($classId === null && $this->defaultClassId !== null) {
+                $classId = $this->defaultClassId;
+            }
             if ($classId && $this->allowedClassIds !== null && ! in_array($classId, $this->allowedClassIds, true)) {
                 $this->skipped++;
 

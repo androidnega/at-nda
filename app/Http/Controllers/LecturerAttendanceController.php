@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ResolvesLecturerScope;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\Lecturer;
+use App\Models\Student;
 use App\Services\CourseAttendanceBackupService;
 use App\Support\LecturerAccess;
 use Illuminate\Http\JsonResponse;
@@ -44,36 +46,57 @@ class LecturerAttendanceController extends Controller
         $lecturer = $this->authorizeCourse($request, $course);
 
         $course->loadMissing(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation']);
-        $recentSessions = AttendanceSession::query()
-            ->where('course_id', $course->id)
-            ->latest('id')
-            ->limit(20)
-            ->get(['id', 'attendance_week_id', 'lecturer_status', 'start_time', 'created_at']);
 
-        $query = Attendance::query()
-            ->with(['student'])
-            ->where('course_id', $course->id)
-            ->latest('attendance_time');
+        // All students enrolled in the class(es) this course belongs to.
+        $students = $course->studentsQuery()
+            ->orderBy('last_name')
+            ->orderBy('first_name')
+            ->get();
+        $enrolledCount = $students->count();
 
-        if ($request->filled('date_from')) {
-            $query->whereDate('attendance_time', '>=', $request->query('date_from'));
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('attendance_time', '<=', $request->query('date_to'));
-        }
-        if ($request->filled('search')) {
-            $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->query('search'))).'%';
-            $query->whereHas('student', fn ($q) => $q->where('index_number', 'like', $term));
-        }
-
-        $attendances = $query->paginate(30)->withQueryString();
         $attendanceWeeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+
+        // Build a present-set per week for fast lookup, then derive the absent
+        // list from the enrolled students that didn't appear.
+        $weekIds = $attendanceWeeks->pluck('id')->all();
+        $marksByWeek = $weekIds === []
+            ? collect()
+            : Attendance::query()
+                ->whereIn('attendance_week_id', $weekIds)
+                ->where('course_id', $course->id)
+                ->get(['student_id', 'attendance_week_id', 'attendance_time', 'status'])
+                ->groupBy('attendance_week_id');
+
+        $weeklyAttendees = $attendanceWeeks->map(function (AttendanceWeek $week) use ($marksByWeek, $students): array {
+            $marks = $marksByWeek->get((int) $week->id, collect());
+            $presentIds = $marks->pluck('student_id')->unique()->map(fn ($id) => (int) $id);
+            $presentSet = $presentIds->flip();
+            $latestByStudent = $marks->groupBy(fn ($m) => (int) $m->student_id)
+                ->map(fn ($rows) => $rows->sortByDesc('attendance_time')->first());
+
+            $present = $students->filter(fn (Student $s) => $presentSet->has((int) $s->id))
+                ->values()
+                ->map(fn (Student $s) => [
+                    'student' => $s,
+                    'time' => optional($latestByStudent[(int) $s->id] ?? null)->attendance_time,
+                ]);
+
+            $absent = $students->reject(fn (Student $s) => $presentSet->has((int) $s->id))->values();
+
+            return [
+                'week' => $week,
+                'present' => $present,
+                'absent' => $absent,
+                'present_count' => $present->count(),
+                'absent_count' => $absent->count(),
+            ];
+        });
 
         return view('lecturer.attendance-course', [
             'course' => $course,
-            'attendances' => $attendances,
-            'recentSessions' => $recentSessions,
             'attendanceWeeks' => $attendanceWeeks,
+            'weeklyAttendees' => $weeklyAttendees,
+            'enrolledCount' => $enrolledCount,
             'dashboardRole' => 'lecturer',
         ]);
     }

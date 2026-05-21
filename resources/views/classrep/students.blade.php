@@ -20,6 +20,63 @@
             <p class="text-sm font-medium leading-snug pt-1">{{ session('success') }}</p>
         </div>
     @endif
+    @if ($errors->any())
+        <div class="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
+            <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600"><i class="fas fa-triangle-exclamation text-sm"></i></span>
+            <ul class="text-sm space-y-0.5">
+                @foreach($errors->all() as $err)<li>{{ $err }}</li>@endforeach
+            </ul>
+        </div>
+    @endif
+
+    {{-- Roster upload (rep only) --}}
+    @if($classes->isNotEmpty())
+        <details class="rounded-2xl border border-slate-200/90 bg-white overflow-hidden">
+            <summary class="px-4 sm:px-5 py-3.5 cursor-pointer list-none flex items-center justify-between gap-3 hover:bg-slate-50/60">
+                <div class="flex items-center gap-2.5">
+                    <span class="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                        <i class="fas fa-file-import text-xs"></i>
+                    </span>
+                    <div>
+                        <p class="text-sm font-semibold text-slate-900">Upload class roster</p>
+                        <p class="text-[11px] text-slate-500">Excel / CSV with index numbers. Existing students update in place; new ones are added.</p>
+                    </div>
+                </div>
+                <span class="text-[11px] font-medium text-primary">Open</span>
+            </summary>
+            <form action="{{ route('dashboard.rep.students.import') }}" method="POST" enctype="multipart/form-data"
+                  class="px-4 sm:px-5 pb-4 pt-1 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-12 gap-3">
+                @csrf
+                @if($classes->count() > 1)
+                    <div class="sm:col-span-5">
+                        <label for="roster_class_id" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Target class</label>
+                        <select name="class_id" id="roster_class_id" required class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20">
+                            @foreach($classes as $c)
+                                <option value="{{ $c->id }}" {{ (string) request('class_id') === (string) $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="sm:col-span-5">
+                @else
+                    <input type="hidden" name="class_id" value="{{ $classes->first()->id }}">
+                    <div class="sm:col-span-9">
+                @endif
+                        <label for="roster_file" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">File</label>
+                        <input type="file" name="file" id="roster_file" required accept=".xlsx,.xls,.csv"
+                               class="block w-full text-sm text-slate-700 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-primary file:text-white file:font-semibold hover:file:bg-primary/90">
+                    </div>
+                <div class="sm:col-span-3 flex items-end">
+                    <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary/90">
+                        <i class="fas fa-cloud-arrow-up text-xs"></i> Upload
+                    </button>
+                </div>
+                <p class="sm:col-span-12 text-[11px] text-slate-500 leading-relaxed">
+                    Required column: <code class="font-mono text-slate-700">index_number</code>. Optional: <code class="font-mono text-slate-700">first_name</code>, <code class="font-mono text-slate-700">middle_name</code>, <code class="font-mono text-slate-700">last_name</code>.
+                    <a href="{{ asset('sample_students.xlsx') }}" download class="text-primary hover:underline">Download sample template</a>.
+                </p>
+            </form>
+        </details>
+    @endif
 
     <form method="GET" action="{{ route('dashboard.students.index') }}" class="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 w-full">
         <div class="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4">

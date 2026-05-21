@@ -579,6 +579,38 @@ class ClassRepController extends Controller
         return view('classrep.students', ['students' => $students, 'classes' => $classes, 'dashboardRole' => 'classrep']);
     }
 
+    /**
+     * Class rep bulk-import of students by index number for a class they manage.
+     * Accepts xlsx/xls/csv with at least an `index_number` column; optional
+     * first_name / middle_name / last_name. Rows without a class column are
+     * routed to the rep-selected target class.
+     */
+    public function importStudents(Request $request): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        $validated = $request->validate([
+            'class_id' => 'required|integer|exists:classes,id',
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
+        ]);
+
+        $classId = (int) $validated['class_id'];
+        $managedIds = $this->getRepClassIds($rep)->map(fn ($id) => (int) $id);
+        if (! $managedIds->contains($classId)) {
+            abort(403, 'You may only import students into a class you rep.');
+        }
+
+        $import = new \App\Imports\StudentsImport([$classId], $classId);
+        \Maatwebsite\Excel\Facades\Excel::import($import, $request->file('file'));
+
+        return redirect()
+            ->route('dashboard.students.index', ['class_id' => $classId])
+            ->with('success', "Roster import complete: {$import->created} added, {$import->updated} updated, {$import->skipped} skipped.");
+    }
+
     public function studentShow(Request $request, Student $student): View|RedirectResponse
     {
         $rep = $this->requireClassRep($request);

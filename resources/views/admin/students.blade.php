@@ -103,20 +103,14 @@
         <option value="{{ $c->id }}" {{ request('class_id') == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
         @endforeach
     </select>
-    <select id="student-program" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 min-w-[80px]">
-        <option value="">All</option>
-        <option value="ITN" {{ request('program') == 'ITN' ? 'selected' : '' }}>ITN</option>
-        <option value="ITS" {{ request('program') == 'ITS' ? 'selected' : '' }}>ITS</option>
-        <option value="ITD" {{ request('program') == 'ITD' ? 'selected' : '' }}>ITD</option>
-    </select>
 </div>
 
 <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
     <div class="p-2 border-b border-gray-100 bg-gray-50/50">
-        <p class="text-xs text-gray-500">Excel: index_number, first_name, middle_name (optional), last_name. <a href="{{ asset('sample_students.xlsx') }}" download class="text-primary hover:underline">Sample</a></p>
+        <p class="text-xs text-gray-500">Click any student to see their details. Excel template: <a href="{{ asset('sample_students.xlsx') }}" download class="text-primary hover:underline">sample_students.xlsx</a></p>
     </div>
     <div id="students-container" class="max-h-[calc(100vh-320px)] overflow-y-auto overflow-x-auto">
-        <table class="w-full min-w-[720px]">
+        <table class="w-full min-w-[560px]">
             <thead class="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
                 <tr>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-14">#</th>
@@ -124,23 +118,45 @@
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Index</th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
                     <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hidden sm:table-cell">Class</th>
-                    <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hidden md:table-cell">Program</th>
-                    <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Rep</th>
-                    <th scope="col" class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide w-16"><span class="sr-only">Open</span></th>
                 </tr>
             </thead>
             <tbody id="students-tbody" class="divide-y divide-gray-100">
                 @forelse($students as $s)
-                @include('partials.student-table-row', [
-                    'student' => $s,
-                    'serial' => $students->firstItem() + $loop->index,
-                    'detailUrl' => route('dashboard.students.show', $s),
-                    'showClassColumn' => true,
-                ])
+                    @php
+                        $serial = $students->firstItem() + $loop->index;
+                        $detailUrl = route('dashboard.students.show', $s);
+                        $isRep = $s->isClassRep();
+                    @endphp
+                    <tr
+                        data-student-row
+                        data-student-id="{{ $s->id }}"
+                        data-display-name="{{ e($s->getDisplayName() ?: '') }}"
+                        data-index="{{ e($s->index_number ?? '') }}"
+                        data-class="{{ e($s->schoolClass?->name ?? '') }}"
+                        data-program-label="{{ e($s->getProgramLabel() ?: '') }}"
+                        data-photo-url="{{ e($s->profileImageUrl() ?: '') }}"
+                        data-initials="{{ e($s->avatarInitials() ?: '') }}"
+                        data-is-rep="{{ $isRep ? '1' : '0' }}"
+                        data-detail-url="{{ $detailUrl }}"
+                        class="cursor-pointer hover:bg-primary/5 transition-colors">
+                        <td class="px-4 py-3 text-sm text-gray-500 tabular-nums w-14">{{ $serial }}</td>
+                        <td class="px-4 py-3 w-12">
+                            @if($s->profile_image)
+                                <img src="{{ $s->profileImageUrl() }}" alt="" class="h-9 w-9 rounded-full object-cover border border-gray-200 bg-gray-50" loading="lazy">
+                            @else
+                                <span class="inline-flex h-9 w-9 rounded-full bg-primary/10 text-primary items-center justify-center text-xs font-semibold">{{ $s->avatarInitials() }}</span>
+                            @endif
+                        </td>
+                        <td class="px-4 py-3 font-mono text-sm text-gray-800 whitespace-nowrap">{{ $s->index_number }}</td>
+                        <td class="px-4 py-3 text-sm text-gray-900">
+                            <span class="font-medium">{{ $s->getDisplayName() ?: '—' }}</span>
+                        </td>
+                        <td class="px-4 py-3 hidden sm:table-cell text-sm text-gray-600">{{ $s->schoolClass?->name ?? '—' }}</td>
+                    </tr>
                 @empty
-                <tr id="students-empty-initial">
-                    <td colspan="8" class="px-4 py-12 text-center text-gray-500 text-sm">No students yet. Add one above or import an Excel file.</td>
-                </tr>
+                    <tr id="students-empty-initial">
+                        <td colspan="5" class="px-4 py-12 text-center text-gray-500 text-sm">No students yet. Add one above or import an Excel file.</td>
+                    </tr>
                 @endforelse
             </tbody>
         </table>
@@ -153,6 +169,43 @@
     </div>
     @endif
 </div>
+
+{{-- Student detail modal --}}
+<div id="student-modal" class="fixed inset-0 z-50 hidden items-center justify-center px-4">
+    <div class="absolute inset-0 bg-black/40" data-modal-close></div>
+    <div class="relative bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md overflow-hidden">
+        <button type="button" data-modal-close
+                class="absolute top-3 right-3 h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 flex items-center justify-center">
+            <i class="fas fa-xmark"></i>
+        </button>
+        <div class="p-6 text-center border-b border-gray-100">
+            <div id="modal-photo-wrap" class="mx-auto mb-3 h-20 w-20 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold overflow-hidden">
+                <span id="modal-initials">—</span>
+            </div>
+            <p id="modal-name" class="text-lg font-semibold text-gray-900">—</p>
+            <p id="modal-index" class="text-sm font-mono text-gray-500 mt-0.5">—</p>
+            <span id="modal-rep-badge" class="hidden mt-2 inline-flex items-center gap-1 rounded-md bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">
+                <i class="fas fa-user-shield text-[10px]"></i> Class rep
+            </span>
+        </div>
+        <dl class="divide-y divide-gray-100 text-sm">
+            <div class="flex items-center justify-between gap-3 px-6 py-3">
+                <dt class="text-gray-500">Class</dt>
+                <dd id="modal-class" class="text-gray-900 font-medium text-right">—</dd>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-6 py-3">
+                <dt class="text-gray-500">Program</dt>
+                <dd id="modal-program" class="text-gray-900 font-medium text-right">—</dd>
+            </div>
+        </dl>
+        <div class="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+            <button type="button" data-modal-close class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
+            <a id="modal-open-full" href="#" class="rounded-lg bg-primary text-white px-4 py-2 text-sm font-semibold hover:bg-primary/90 inline-flex items-center gap-1.5">
+                <i class="fas fa-arrow-up-right-from-square text-xs"></i> Open full profile
+            </a>
+        </div>
+    </div>
+</div>
 @endsection
 
 @push('scripts')
@@ -164,46 +217,40 @@
     var empty = document.getElementById('students-empty');
     var searchInput = document.getElementById('student-search');
     var classSelect = document.getElementById('student-class');
-    var programSelect = document.getElementById('student-program');
 
     var page = {{ $students->hasMorePages() ? $students->currentPage() + 1 : 1 }};
     var hasMore = {{ $students->hasMorePages() ? 'true' : 'false' }};
     var loadingData = false;
     var searchTimeout = null;
     var nextSerial = {{ $students->isEmpty() ? 1 : ($students->lastItem() + 1) }};
+    var detailUrlTpl = '{{ route("dashboard.students.show", ["student" => "__ID__"]) }}';
 
     function esc(t) {
         return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function getProgramClass(programKey) {
-        if (!programKey) return 'bg-gray-100 text-gray-600';
-        if (programKey === 'ITN') return 'bg-blue-100 text-blue-700';
-        if (programKey === 'ITS') return 'bg-emerald-100 text-emerald-700';
-        if (programKey === 'ITD') return 'bg-violet-100 text-violet-700';
-        return 'bg-gray-100 text-gray-600';
-    }
-
     function renderRow(s, serial) {
-        var repCell = s.is_rep
-            ? '<span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Rep</span>'
-            : '<span class="text-gray-400 text-sm">—</span>';
-        var url = '{{ route("dashboard.students.show", ["student" => "__ID__"]) }}'.replace('__ID__', s.id);
-        var prog = esc(s.program_label || '—');
+        var url = detailUrlTpl.replace('__ID__', s.id);
         var photoCell = s.profile_image_url
             ? '<img src="' + esc(s.profile_image_url) + '" alt="" class="h-9 w-9 rounded-full object-cover border border-gray-200 bg-gray-50" loading="lazy">'
             : '<span class="inline-flex h-9 w-9 rounded-full bg-primary/10 text-primary items-center justify-center text-xs font-semibold">' + esc(s.avatar_initials || '—') + '</span>';
-        return '<tr class="hover:bg-gray-50/50 even:bg-gray-50/40">' +
-            '<td class="px-4 py-3 text-sm text-gray-500 tabular-nums align-top w-14">' + serial + '</td>' +
-            '<td class="px-4 py-3 align-top w-12">' + photoCell + '</td>' +
-            '<td class="px-4 py-3 font-mono text-sm text-gray-800 whitespace-nowrap align-top">' + esc(s.index_number) + '</td>' +
-            '<td class="px-4 py-3 min-w-0 align-top"><span class="font-medium text-gray-900">' + esc(s.display_name || '—') + '</span></td>' +
-            '<td class="px-4 py-3 hidden sm:table-cell align-top text-sm text-gray-600">' + esc(s.class_name || '—') + '</td>' +
-            '<td class="px-4 py-3 hidden md:table-cell align-top"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium ' + getProgramClass(s.program_key) + '">' + prog + '</span></td>' +
-            '<td class="px-4 py-3 align-top">' + repCell + '</td>' +
-            '<td class="px-4 py-3 text-right align-top w-16">' +
-                '<a href="' + url + '" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-600 hover:bg-primary/10 hover:border-primary/30 hover:text-primary transition-colors" title="View">' +
-                '<i class="fas fa-chevron-right text-sm"></i></a></td>' +
+        var attrs = ''
+            + ' data-student-row'
+            + ' data-student-id="' + esc(s.id) + '"'
+            + ' data-display-name="' + esc(s.display_name || '') + '"'
+            + ' data-index="' + esc(s.index_number || '') + '"'
+            + ' data-class="' + esc(s.class_name || '') + '"'
+            + ' data-program-label="' + esc(s.program_label || '') + '"'
+            + ' data-photo-url="' + esc(s.profile_image_url || '') + '"'
+            + ' data-initials="' + esc(s.avatar_initials || '') + '"'
+            + ' data-is-rep="' + (s.is_rep ? '1' : '0') + '"'
+            + ' data-detail-url="' + esc(url) + '"';
+        return '<tr' + attrs + ' class="cursor-pointer hover:bg-primary/5 transition-colors">' +
+            '<td class="px-4 py-3 text-sm text-gray-500 tabular-nums w-14">' + serial + '</td>' +
+            '<td class="px-4 py-3 w-12">' + photoCell + '</td>' +
+            '<td class="px-4 py-3 font-mono text-sm text-gray-800 whitespace-nowrap">' + esc(s.index_number) + '</td>' +
+            '<td class="px-4 py-3 text-sm text-gray-900"><span class="font-medium">' + esc(s.display_name || '—') + '</span></td>' +
+            '<td class="px-4 py-3 hidden sm:table-cell text-sm text-gray-600">' + esc(s.class_name || '—') + '</td>' +
             '</tr>';
     }
 
@@ -224,8 +271,7 @@
         var params = new URLSearchParams({
             page: page,
             search: searchInput?.value || '',
-            class_id: classSelect?.value || '',
-            program: programSelect?.value || ''
+            class_id: classSelect?.value || ''
         });
 
         fetch('{{ route("dashboard.students.index") }}?' + params, {
@@ -257,7 +303,6 @@
         searchTimeout = setTimeout(function() { fetchStudents(true); }, 300);
     });
     classSelect?.addEventListener('change', function() { fetchStudents(true); });
-    programSelect?.addEventListener('change', function() { fetchStudents(true); });
 
     container?.addEventListener('scroll', function() {
         if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
@@ -265,9 +310,50 @@
         }
     });
 
-    if (searchInput?.value?.trim() || classSelect?.value || programSelect?.value) {
+    if (searchInput?.value?.trim() || classSelect?.value) {
         fetchStudents(true);
     }
+
+    // --- Modal handling ---
+    var modal = document.getElementById('student-modal');
+    function openModalFromRow(row) {
+        if (!modal || !row) return;
+        document.getElementById('modal-name').textContent = row.dataset.displayName || '—';
+        document.getElementById('modal-index').textContent = row.dataset.index || '—';
+        document.getElementById('modal-class').textContent = row.dataset.class || '—';
+        document.getElementById('modal-program').textContent = row.dataset.programLabel || '—';
+        var photoWrap = document.getElementById('modal-photo-wrap');
+        var photoUrl = row.dataset.photoUrl || '';
+        if (photoUrl) {
+            photoWrap.innerHTML = '<img src="' + photoUrl + '" alt="" class="h-full w-full object-cover">';
+        } else {
+            photoWrap.innerHTML = '<span id="modal-initials">' + (row.dataset.initials || '—') + '</span>';
+        }
+        var rep = document.getElementById('modal-rep-badge');
+        if (row.dataset.isRep === '1') { rep.classList.remove('hidden'); }
+        else { rep.classList.add('hidden'); }
+        document.getElementById('modal-open-full').setAttribute('href', row.dataset.detailUrl || '#');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    function closeModal() {
+        if (!modal) return;
+        modal.classList.remove('flex');
+        modal.classList.add('hidden');
+    }
+    document.addEventListener('click', function (e) {
+        var row = e.target.closest && e.target.closest('[data-student-row]');
+        if (row && !e.target.closest('a, button, form')) {
+            openModalFromRow(row);
+            return;
+        }
+        if (e.target.matches && e.target.matches('[data-modal-close]')) {
+            closeModal();
+        }
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeModal();
+    });
 })();
 </script>
 @endpush

@@ -216,6 +216,9 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         // Course material upload + delete: reps only.
         Route::post('/materials', [CourseMaterialController::class, 'store'])->name('materials.store');
         Route::delete('/materials/{material}', [CourseMaterialController::class, 'destroy'])->name('materials.destroy');
+
+        // Rep bulk-imports a class roster (index numbers, optionally names).
+        Route::post('/rep/students/import', [ClassRepController::class, 'importStudents'])->name('rep.students.import');
         Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');
         Route::get('/live-sessions/{session}/close', [ClassRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
         Route::post('/live-sessions/{session}/close', [ClassRepController::class, 'closeSession'])->name('live-sessions.close');

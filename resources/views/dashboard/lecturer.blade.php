@@ -9,12 +9,6 @@
         now()->hour < 17 => 'Good afternoon',
         default => 'Good evening',
     };
-    $classChips = collect();
-    if ($lecturer->relationLoaded('schoolClasses') && $lecturer->schoolClasses->isNotEmpty()) {
-        $classChips = $lecturer->schoolClasses->pluck('name');
-    } elseif ($lecturer->schoolClass) {
-        $classChips = collect([$lecturer->schoolClass->name]);
-    }
     $today = $today ?? now();
     $todaySlots = $todaySlots ?? collect();
     $activeSessions = $activeSessions ?? collect();
@@ -28,16 +22,6 @@
             <p class="text-xs font-semibold uppercase tracking-wider text-sky-600">{{ $today->format('l, F j') }}</p>
             <h1 class="mt-1 text-2xl sm:text-3xl font-bold text-slate-900 leading-tight">{{ $greeting }}, {{ $lecturer->name }}</h1>
             <p class="mt-1 text-sm text-slate-500">Here's a quick look at your teaching today.</p>
-            @if($classChips->isNotEmpty())
-                <div class="mt-3 flex flex-wrap gap-1.5">
-                    @foreach($classChips as $chip)
-                        <span class="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                            <i class="fas fa-layer-group text-indigo-500 text-[10px]"></i>
-                            {{ $chip }}
-                        </span>
-                    @endforeach
-                </div>
-            @endif
         </div>
         <div class="flex flex-wrap items-start gap-2 shrink-0">
             <a href="{{ route('dashboard.teaching.attendance.index') }}"
@@ -62,11 +46,10 @@
 @endif
 
 {{-- Stats --}}
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+<div class="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
     @php
         $stats = [
             ['label' => 'Courses', 'value' => $courses->count(), 'icon' => 'fa-book', 'tone' => 'bg-sky-100 text-sky-700'],
-            ['label' => 'Classes', 'value' => $classGroups->count(), 'icon' => 'fa-users-rectangle', 'tone' => 'bg-indigo-100 text-indigo-700'],
             ['label' => 'Students', 'value' => number_format($totalStudents), 'icon' => 'fa-user-graduate', 'tone' => 'bg-amber-100 text-amber-700'],
             ['label' => 'Marks this week', 'value' => number_format($marksThisWeek), 'icon' => 'fa-check-double', 'tone' => 'bg-emerald-100 text-emerald-700'],
         ];
@@ -185,82 +168,44 @@
     @endif
 </section>
 
-{{-- Classes & courses --}}
-@if($classGroups->isEmpty() && $orphanCourses->isEmpty())
+{{-- My courses --}}
+@php
+    $allCourses = collect();
+    foreach ($classGroups as $group) {
+        foreach ($group['courses'] as $courseItem) {
+            $allCourses->push(['course' => $courseItem, 'schoolClass' => $group['class']]);
+        }
+    }
+    foreach ($orphanCourses as $courseItem) {
+        $allCourses->push(['course' => $courseItem, 'schoolClass' => null]);
+    }
+@endphp
+@if($allCourses->isEmpty())
     <div class="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
         <span class="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
             <i class="fas fa-book text-3xl"></i>
         </span>
-        <p class="text-slate-700 font-medium">No classes or courses yet</p>
-        <p class="text-slate-500 text-sm mt-1">Ask an administrator to assign you to classes and link your courses.</p>
+        <p class="text-slate-700 font-medium">No courses yet</p>
+        <p class="text-slate-500 text-sm mt-1">Ask an administrator to assign you to courses.</p>
     </div>
 @else
-    <div class="mb-3 flex items-end justify-between">
-        <div>
-            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-800">My teaching</h2>
-            <p class="text-[11px] text-slate-500">All your assigned classes and the courses you teach within each.</p>
-        </div>
-    </div>
-    <div class="space-y-5">
-        @foreach($classGroups as $group)
-            @php $schoolClass = $group['class']; $classCourses = $group['courses']; @endphp
-            <section class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/50">
-                    <div class="flex items-start gap-3 min-w-0">
-                        <span class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                            <i class="fas fa-layer-group"></i>
-                        </span>
-                        <div class="min-w-0">
-                            <p class="text-base font-semibold text-slate-900 leading-tight">{{ $schoolClass->name }}</p>
-                            <p class="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-1.5">
-                                <span>Level {{ $schoolClass->level ?? '—' }}</span>
-                                @if($schoolClass->faculty)<span class="text-slate-300">·</span><span>{{ $schoolClass->faculty->name }}</span>@endif
-                                <span class="text-slate-300">·</span>
-                                <span class="inline-flex items-center gap-1"><i class="fas fa-user-graduate text-[10px]"></i>{{ $schoolClass->students_count }}</span>
-                            </p>
-                        </div>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-1.5 shrink-0">
-                        <a href="{{ route('dashboard.classes.show', $schoolClass) }}"
-                           class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50">
-                            <i class="fas fa-upload text-sky-600 text-[11px]"></i>
-                            Roster
-                        </a>
-                        <a href="{{ route('dashboard.students.index', ['class_id' => $schoolClass->id]) }}"
-                           class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50">
-                            <i class="fas fa-user-graduate text-sky-600 text-[11px]"></i>
-                            Students
-                        </a>
-                    </div>
-                </header>
-
-                @if($classCourses->isEmpty())
-                    <div class="px-5 py-8 text-center text-sm text-slate-500">
-                        No courses linked to this class yet.
-                    </div>
-                @else
-                    <div class="divide-y divide-slate-100">
-                        @foreach($classCourses as $course)
-                            @include('dashboard.partials.lecturer-course-card', ['course' => $course, 'schoolClass' => $schoolClass])
-                        @endforeach
-                    </div>
-                @endif
-            </section>
-        @endforeach
-
-        @if($orphanCourses->isNotEmpty())
-            <section class="rounded-2xl border border-amber-200 bg-white overflow-hidden">
-                <header class="px-5 py-3.5 border-b border-amber-100 bg-amber-50/60">
-                    <p class="text-sm font-semibold text-amber-900">Courses outside assigned classes</p>
-                    <p class="text-[11px] text-amber-900/70 mt-0.5">These courses are assigned to you but not linked to any of your classes. Contact admin to align them.</p>
-                </header>
-                <div class="divide-y divide-slate-100">
-                    @foreach($orphanCourses as $course)
-                        @include('dashboard.partials.lecturer-course-card', ['course' => $course, 'schoolClass' => null])
-                    @endforeach
+    <section class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <header class="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-100">
+            <div class="flex items-center gap-2.5">
+                <span class="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
+                    <i class="fas fa-book text-sm"></i>
+                </span>
+                <div>
+                    <p class="text-sm font-semibold text-slate-900 leading-none">My courses</p>
+                    <p class="text-[11px] text-slate-500 mt-0.5">{{ $allCourses->count() }} course{{ $allCourses->count() === 1 ? '' : 's' }} assigned to you.</p>
                 </div>
-            </section>
-        @endif
-    </div>
+            </div>
+        </header>
+        <div class="divide-y divide-slate-100">
+            @foreach($allCourses as $row)
+                @include('dashboard.partials.lecturer-course-card', ['course' => $row['course'], 'schoolClass' => $row['schoolClass']])
+            @endforeach
+        </div>
+    </section>
 @endif
 @endsection
