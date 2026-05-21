@@ -199,82 +199,15 @@
             padding: 8px 12px 12px 12px;
             border-top: 1px solid #e7e5e4;
         }
-        /* Single centered "a-tenda" watermark rendered on every PDF page.
-           dompdf re-paints position: fixed elements on each new page, so
-           one watermark per page is all we need. The element is vertically
-           centered (top: 38%) so it sits in the visual middle of the page
-           rather than the bottom edge. Opacity stays low so the grid
-           underneath remains legible when printed. */
-        .wm {
-            position: fixed;
-            top: 38%;
-            left: 0;
-            right: 0;
-            width: 100%;
-            text-align: center;
-            transform: rotate(-30deg);
-            opacity: 0.08;
-            color: #0b3c98;
-            font-weight: bold;
-            font-size: 90px;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            z-index: 0;
-            pointer-events: none;
-        }
-        .wm-text {
-            display: inline-block;
-            vertical-align: middle;
-        }
-        .wm-logo {
-            display: inline-block;
-            vertical-align: middle;
-            width: 72px;
-            height: 72px;
-            margin-right: 20px;
-        }
-        /* Make sure the main sheet sits above the watermark layer. */
-        .sheet {
-            position: relative;
-            z-index: 1;
-            background: transparent;
-            page-break-after: avoid;
-        }
         /* Keep each student row intact across page breaks so we don't end up
-           with a trailing page that contains nothing but a half-row plus
-           the watermark. */
+           with a trailing page that contains nothing but a half-row. */
+        .sheet { page-break-after: avoid; }
         table.grid tbody tr { page-break-inside: avoid; }
         .table-wrap { page-break-after: avoid; }
         body { background: #ffffff; }
     </style>
 </head>
 <body>
-    @php
-        // Inline the brand mark as a data URI so dompdf doesn't have to hit
-        // the filesystem on every render. SVG keeps the file size negligible
-        // and stays crisp at any zoom.
-        $brandSvg = '<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0b3c98"/>
-      <stop offset="100%" stop-color="#1d4ed8"/>
-    </linearGradient>
-  </defs>
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#g)"/>
-  <path d="M21 35c0-8.8 5.7-14 13.2-14 2.9 0 5.6.8 7.8 2.3l-2.8 4.7c-1.3-.8-2.8-1.3-4.5-1.3-4.1 0-7 3-7 8s2.9 8 7 8c1.7 0 3.3-.5 4.6-1.4l2.8 4.7c-2.2 1.5-4.9 2.4-8 2.4-7.6 0-13.1-5.2-13.1-14.4z" fill="#fff"/>
-</svg>';
-        $brandDataUri = 'data:image/svg+xml;base64,'.base64_encode($brandSvg);
-    @endphp
-
-    {{-- Single diagonal brand watermark — dompdf repaints position: fixed
-         elements on every new page, so this one element ends up on every
-         content page automatically. Sits behind the sheet via z-index. --}}
-    <div class="wm">
-        <img src="{{ $brandDataUri }}" alt="" class="wm-logo">
-        <span class="wm-text">a-tenda</span>
-    </div>
-
     <div class="sheet">
         <div class="banner">
             <table class="banner-flex" cellspacing="0">
