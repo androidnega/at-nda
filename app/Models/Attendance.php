@@ -79,5 +79,35 @@ class Attendance extends Model
     {
         return $query->whereIn('status', ['present', 'late']);
     }
+
+    /**
+     * Hide attendance rows whose backing week has been cancelled or
+     * deleted (e.g. via an admin reset). A row should only contribute
+     * to user-facing counts when it points at an *active* attendance
+     * week — anything else is a relic of a reset/cancellation and must
+     * not inflate dashboards.
+     *
+     * Implementation notes:
+     * - When attendance_week_id is NULL we keep the row (some legacy
+     *   imports / offline syncs may not carry one yet).
+     * - Otherwise we require the referenced attendance_weeks row to
+     *   exist and not be cancelled. A correlated subquery is cheap and
+     *   plays nicely with the existing whereIn filters used elsewhere.
+     *
+     * @param  Builder<Attendance>  $query
+     * @return Builder<Attendance>
+     */
+    public function scopeActiveWeeksOnly(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q): void {
+            $q->whereNull('attendances.attendance_week_id')
+                ->orWhereExists(function ($sub) {
+                    $sub->select(\DB::raw(1))
+                        ->from('attendance_weeks')
+                        ->whereColumn('attendance_weeks.id', 'attendances.attendance_week_id')
+                        ->whereNull('attendance_weeks.cancelled_at');
+                });
+        });
+    }
 }
 

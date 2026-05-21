@@ -174,11 +174,19 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.profile');
         }
 
+        // Drop attendance rows whose backing week was cancelled or reset
+        // so the student's headline "marks present" matches what the rep,
+        // lecturer, and PDF views show.
         $totalPresent = Attendance::query()
             ->where('student_id', $student->id)
             ->countedAsPresent()
+            ->activeWeeksOnly()
             ->count();
-        $totalWeeks = (int) DB::table('attendances')->where('student_id', $student->id)->distinct()->count('attendance_week_id');
+        $totalWeeks = (int) Attendance::query()
+            ->where('student_id', $student->id)
+            ->activeWeeksOnly()
+            ->distinct()
+            ->count('attendance_week_id');
 
         $liveAttendanceSessions = $this->collectLiveAttendanceSessionsForStudent($student)
             ->filter(fn (array $row) => ! $row['already_marked'])

@@ -174,14 +174,20 @@ class StudentController extends Controller
 
         $coursesCount = count($effectiveCourseIds);
 
-        $presentQuery = $student->attendances()->newQuery();
+        // Don't count attendance rows that point at a cancelled or
+        // already-reset week — those still live in the DB for audit but
+        // shouldn't show up in the student's present/absent totals.
+        $presentQuery = $student->attendances()->activeWeeksOnly();
         if ($effectiveCourseIds !== []) {
             $presentQuery->whereIn('course_id', $effectiveCourseIds);
         }
         $presentCount = $presentQuery->count();
 
         $totalWeeks = $effectiveCourseIds !== []
-            ? \DB::table('attendance_weeks')->whereIn('course_id', $effectiveCourseIds)->count()
+            ? (int) \DB::table('attendance_weeks')
+                ->whereIn('course_id', $effectiveCourseIds)
+                ->whereNull('cancelled_at')
+                ->count()
             : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
 
@@ -199,6 +205,7 @@ class StudentController extends Controller
         }
 
         $recentAttendanceQuery = $student->attendances()
+            ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek'])
             ->latest('id')
             ->limit(15);

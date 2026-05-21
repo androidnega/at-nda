@@ -13,16 +13,24 @@ class AdminController extends Controller
     {
         $totalStudents = Student::count();
         $totalCourses = Course::count();
-        $attendanceToday = Attendance::whereDate('attendance_time', today())->count();
-        $totalAttendances = Attendance::count();
+        // Counts ignore attendance rows whose backing week was cancelled
+        // or already reset — those still live in the DB for audit but
+        // shouldn't inflate the headline dashboard numbers.
+        $attendanceToday = Attendance::query()
+            ->whereDate('attendance_time', today())
+            ->activeWeeksOnly()
+            ->count();
+        $totalAttendances = Attendance::query()->activeWeeksOnly()->count();
 
         $attendances = Attendance::with(['student', 'course'])
+            ->activeWeeksOnly()
             ->latest('attendance_time')
             ->paginate(20);
 
         // Last 7 days attendance trend
         $attendanceTrend = Attendance::selectRaw('DATE(attendance_time) as date, COUNT(*) as count')
             ->where('attendance_time', '>=', now()->subDays(6)->startOfDay())
+            ->activeWeeksOnly()
             ->groupBy('date')
             ->orderBy('date')
             ->pluck('count', 'date')
@@ -38,14 +46,18 @@ class AdminController extends Controller
             ]);
         }
 
-        // Attendance by course (top 5)
-        $attendanceByCourse = Course::withCount('attendances')
+        // Attendance by course (top 5) — count only marks on active weeks.
+        $attendanceByCourse = Course::withCount([
+                'attendances' => fn ($q) => $q->activeWeeksOnly(),
+            ])
             ->orderByDesc('attendances_count')
             ->limit(5)
             ->get();
 
-        // Top students by attendance count
-        $topStudents = Student::withCount('attendances')
+        // Top students by attendance count — same active-week filter.
+        $topStudents = Student::withCount([
+                'attendances' => fn ($q) => $q->activeWeeksOnly(),
+            ])
             ->orderByDesc('attendances_count')
             ->limit(5)
             ->get();
@@ -65,6 +77,7 @@ class AdminController extends Controller
     public function attendances(): View
     {
         $attendances = Attendance::with(['student', 'course'])
+            ->activeWeeksOnly()
             ->latest('attendance_time')
             ->paginate(30);
 

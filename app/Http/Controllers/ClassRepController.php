@@ -117,11 +117,15 @@ class ClassRepController extends Controller
         // later removed from the timetable.
         $courseIds = (clone RepCourseAccess::coursesQueryForRep($student))->pluck('id');
 
+        // All three dashboard counters skip attendance rows pointing at
+        // cancelled / reset weeks so the headline numbers match what the
+        // PDFs and per-course pages show.
         $totalAttendanceMarks = $courseIds->isEmpty()
             ? 0
             : Attendance::query()
                 ->whereIn('course_id', $courseIds)
                 ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
+                ->activeWeeksOnly()
                 ->count();
 
         $todayAttendanceMarks = $courseIds->isEmpty()
@@ -130,6 +134,7 @@ class ClassRepController extends Controller
                 ->whereIn('course_id', $courseIds)
                 ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
                 ->whereDate('attendance_time', today())
+                ->activeWeeksOnly()
                 ->count();
 
         $weekAttendanceMarks = $courseIds->isEmpty()
@@ -138,6 +143,7 @@ class ClassRepController extends Controller
                 ->whereIn('course_id', $courseIds)
                 ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
                 ->where('attendance_time', '>=', now()->subDays(7)->startOfDay())
+                ->activeWeeksOnly()
                 ->count();
 
         $todayCourses = $this->buildRepTodayCourses($student, $classIdsArr, $useClassTimetable);
@@ -645,14 +651,21 @@ class ClassRepController extends Controller
 
         $coursesCount = $coursesInClass->count();
 
+        // Counts must ignore attendances that point at a cancelled or
+        // already-reset week — those records linger for audit purposes
+        // but should never inflate the student's totals.
         $attendanceRecordsCount = $courseIds === []
             ? 0
-            : $student->attendances()->whereIn('course_id', $courseIds)->count();
+            : $student->attendances()
+                ->whereIn('course_id', $courseIds)
+                ->activeWeeksOnly()
+                ->count();
 
         $countsByCourseId = $coursesInClass->isNotEmpty()
             ? Attendance::query()
                 ->where('student_id', $student->id)
                 ->whereIn('course_id', $courseIds)
+                ->activeWeeksOnly()
                 ->selectRaw('course_id, COUNT(*) as cnt')
                 ->groupBy('course_id')
                 ->pluck('cnt', 'course_id')
@@ -668,12 +681,18 @@ class ClassRepController extends Controller
 
         $coursesWithMarks = collect($attendanceByCourse)->where('count', '>', 0)->count();
 
+        // Scheduled-week total also drops cancelled rows so the "weeks
+        // covered" stat lines up with the live attendance counts.
         $scheduledWeekRows = $courseIds !== []
-            ? (int) \DB::table('attendance_weeks')->whereIn('course_id', $courseIds)->count()
+            ? (int) \DB::table('attendance_weeks')
+                ->whereIn('course_id', $courseIds)
+                ->whereNull('cancelled_at')
+                ->count()
             : 0;
 
         $recentAttendancesQuery = Attendance::query()
             ->where('student_id', $student->id)
+            ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek'])
             ->latest('attendance_time')
             ->limit(15);

@@ -26,8 +26,11 @@ class StudentAttendanceHistoryBuilder
     {
         $this->pruneStaleRecentDuplicates($student);
 
+        // Skip rows whose backing week was cancelled or wiped during a
+        // reset so the student's history doesn't show ghost marks.
         $attendanceRows = Attendance::query()
             ->where('student_id', $student->id)
+            ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek', 'attendanceSession'])
             ->latest('attendance_time')
             ->get();
