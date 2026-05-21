@@ -109,7 +109,11 @@
                 <div class="border-t border-gray-100 p-3 bg-gray-50/50 space-y-3">
                     @if($week->isCancelled())
                         <p class="text-xs text-amber-900">
-                            This week was marked cancelled@if($week->cancelled_by) by <strong>{{ $week->cancelled_by }}</strong>@endif.
+                            This week was marked cancelled
+                            @if($week->cancelled_by)
+                                by <strong>{{ $week->cancelled_by }}</strong>
+                            @endif
+                            .
                             @if($week->cancellation_note)
                                 <br><span class="text-amber-800/80">"{{ $week->cancellation_note }}"</span>
                             @endif

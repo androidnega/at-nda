@@ -188,7 +188,11 @@
 
                     @if($week->isCancelled())
                         <p class="text-xs text-amber-900">
-                            This week was marked cancelled@if($week->cancelled_by) by <strong>{{ $week->cancelled_by }}</strong>@endif.
+                            This week was marked cancelled
+                            @if($week->cancelled_by)
+                                by <strong>{{ $week->cancelled_by }}</strong>
+                            @endif
+                            .
                             @if($week->cancellation_note)
                                 <br><span class="text-amber-800/80">"{{ $week->cancellation_note }}"</span>
                             @endif
@@ -201,22 +205,24 @@
                                 </button>
                             </form>
                         @endif
-                    @elseif($present->isEmpty())
-                        <p class="text-xs text-gray-500">No students marked attendance this week.</p>
                     @else
-                        <ul class="divide-y divide-gray-100 bg-white rounded-lg border border-gray-100 max-h-72 overflow-y-auto">
-                            @foreach($present->unique('student_id') as $a)
-                                <li class="px-3 py-2 flex items-center justify-between gap-2 text-xs">
-                                    <span class="min-w-0">
-                                        <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
-                                        @if($a->student)
-                                            <span class="ml-1 text-gray-600">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="text-gray-500 whitespace-nowrap">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
-                                </li>
-                            @endforeach
-                        </ul>
+                        @if($present->isEmpty())
+                            <p class="text-xs text-gray-500">No students marked attendance this week.</p>
+                        @else
+                            <ul class="divide-y divide-gray-100 bg-white rounded-lg border border-gray-100 max-h-72 overflow-y-auto">
+                                @foreach($present->unique('student_id') as $a)
+                                    <li class="px-3 py-2 flex items-center justify-between gap-2 text-xs">
+                                        <span class="min-w-0">
+                                            <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
+                                            @if($a->student)
+                                                <span class="ml-1 text-gray-600">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
+                                            @endif
+                                        </span>
+                                        <span class="text-gray-500 whitespace-nowrap">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
                     @endif
 
                     <div class="pt-2 border-t border-gray-100 flex flex-wrap items-center gap-2">
