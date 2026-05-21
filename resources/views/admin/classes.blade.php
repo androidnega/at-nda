@@ -117,6 +117,18 @@
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 text-primary text-sm font-medium">
                                 Level {{ $class->level ?? '—' }}
                             </span>
+                            @php
+                                $qualKey = $class->resolvedQualification();
+                                $qualLabel = $class->qualificationLabel();
+                                $qualBg = match ($qualKey) {
+                                    'hnd' => 'bg-emerald-100 text-emerald-800',
+                                    'diploma' => 'bg-amber-100 text-amber-800',
+                                    default => 'bg-indigo-100 text-indigo-800',
+                                };
+                            @endphp
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg {{ $qualBg }} text-xs font-semibold uppercase tracking-wide">
+                                {{ $qualLabel }}
+                            </span>
                             @if($class->semester)
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium">
                                     {{ $class->semester->display_label }}

@@ -17,17 +17,34 @@
             <h3 class="text-sm font-semibold text-gray-800 mb-3">Course Details</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
+                    <label for="qualification" class="block text-sm font-medium text-gray-700 mb-2">Qualification</label>
+                    @php $currentCourseQualification = old('qualification', $course?->qualification ?? ''); @endphp
+                    <select name="qualification" id="qualification" class="w-full sm:max-w-xs border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                        <option value="" {{ $currentCourseQualification === '' ? 'selected' : '' }}>All qualifications (general-ed / cross-listed)</option>
+                        @foreach(\App\Models\Course::QUALIFICATION_LABELS as $key => $label)
+                        <option value="{{ $key }}" {{ (string) $currentCourseQualification === (string) $key ? 'selected' : '' }}>{{ $label }} only</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1.5">Choose a level to restrict this course to HND, Diploma, or Degree cohorts. Leave on <strong>All qualifications</strong> for general-ed papers that any class can take.</p>
+                </div>
+                <div class="sm:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Classes</label>
                     @php $courseClassIds = collect(old('class_ids', $course ? $course->assignedClassIds() : []))->map(fn ($id) => (int) $id); @endphp
                     <div class="border-2 border-gray-200 rounded-xl p-3 max-h-56 overflow-y-auto">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2" id="course-class-list">
                             @forelse($classes ?? [] as $c)
-                            <label class="flex items-start gap-2 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+                            @php
+                                $classQualification = $c->qualification ?? 'degree';
+                                $qualificationLabel = \App\Models\SchoolClass::QUALIFICATION_LABELS[$classQualification] ?? 'Degree';
+                            @endphp
+                            <label data-class-qualification="{{ $classQualification }}"
+                                   class="course-class-row flex items-start gap-2 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer transition-opacity">
                                 <input type="checkbox" name="class_ids[]" value="{{ $c->id }}" {{ $courseClassIds->contains($c->id) ? 'checked' : '' }}
                                     class="mt-0.5 w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary">
                                 <span class="text-sm text-gray-800 leading-snug">
                                     <span class="font-medium">{{ $c->name }}</span>
                                     <span class="text-gray-500"> · L{{ $c->level ?? '—' }}</span>
+                                    <span class="inline-flex items-center px-1.5 py-0.5 ml-1 rounded bg-indigo-50 text-indigo-700 text-[10px] font-semibold uppercase tracking-wide">{{ $qualificationLabel }}</span>
                                 </span>
                             </label>
                             @empty
@@ -35,7 +52,7 @@
                             @endforelse
                         </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1.5">Select every class that takes this course. A lecturer may teach many classes; each student only marks attendance from their class roster.</p>
+                    <p class="text-xs text-gray-500 mt-1.5">Select every class that takes this course. When a qualification is chosen above, classes from other qualifications are dimmed and uncheckable.</p>
                     @error('class_ids')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
                 </div>
                 <div class="sm:col-span-2">
@@ -110,4 +127,30 @@
         <a href="{{ route('dashboard.courses.index') }}" class="bg-gray-200 text-gray-800 px-5 py-2.5 rounded-xl font-medium hover:bg-gray-300">Cancel</a>
     </div>
 </form>
+
+<script>
+(function () {
+    var qualSelect = document.getElementById('qualification');
+    var classList = document.getElementById('course-class-list');
+    if (!qualSelect || !classList) {
+        return;
+    }
+    function applyFilter() {
+        var picked = (qualSelect.value || '').toLowerCase();
+        classList.querySelectorAll('.course-class-row').forEach(function (row) {
+            var cls = (row.dataset.classQualification || 'degree').toLowerCase();
+            var matches = picked === '' || cls === picked;
+            row.classList.toggle('opacity-40', !matches);
+            row.classList.toggle('pointer-events-none', !matches);
+            var box = row.querySelector('input[type="checkbox"]');
+            if (box) {
+                box.disabled = !matches;
+                if (!matches) { box.checked = false; }
+            }
+        });
+    }
+    qualSelect.addEventListener('change', applyFilter);
+    applyFilter();
+})();
+</script>
 @endsection

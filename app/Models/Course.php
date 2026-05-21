@@ -14,6 +14,7 @@ class Course extends Model
     protected $fillable = [
         'course_name',
         'course_code',
+        'qualification',
         'class_id',
         'lecturer_id',
         'venue_id',
@@ -29,6 +30,29 @@ class Course extends Model
         'attendance_window_minutes',
         'next_week_number',
     ];
+
+    /**
+     * Programme qualifications a course can be tagged for. NULL means the
+     * course is generic and shows up for every qualification (handy for
+     * general-ed / cross-listed papers).
+     */
+    public const QUALIFICATIONS = ['hnd', 'diploma', 'degree'];
+
+    public const QUALIFICATION_LABELS = [
+        'hnd' => 'HND',
+        'diploma' => 'Diploma',
+        'degree' => 'Degree',
+    ];
+
+    public function qualificationLabel(): ?string
+    {
+        $value = strtolower(trim((string) ($this->qualification ?? '')));
+        if ($value === '' || ! in_array($value, self::QUALIFICATIONS, true)) {
+            return null;
+        }
+
+        return self::QUALIFICATION_LABELS[$value] ?? null;
+    }
 
     protected $casts = [
         'location_lat' => 'decimal:7',
@@ -214,6 +238,31 @@ class Course extends Model
             if (SchemaFeatures::hasCourseClassPivot()) {
                 $q->orWhereHas('schoolClasses', fn (Builder $sq) => $sq->whereIn('classes.id', $ids));
             }
+        });
+    }
+
+    /**
+     * Filter to courses appropriate for the given qualification. A course
+     * with a NULL qualification is treated as "applies to everyone".
+     * Passing null/blank disables the filter (used when the column is
+     * missing on older deploys).
+     *
+     * @param  Builder<Course>  $query
+     */
+    public function scopeForQualification(Builder $query, ?string $qualification): Builder
+    {
+        $qualification = strtolower(trim((string) $qualification));
+        if ($qualification === '') {
+            return $query;
+        }
+        if (! SchemaFeatures::hasCoursesQualification()) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($qualification): void {
+            $q->whereNull('courses.qualification')
+                ->orWhere('courses.qualification', '')
+                ->orWhere('courses.qualification', $qualification);
         });
     }
 

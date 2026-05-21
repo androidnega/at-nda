@@ -34,6 +34,7 @@ class CourseController extends Controller
         $validated = $request->validate([
             'course_name' => 'required|string|max:255',
             'course_code' => 'nullable|string|max:50',
+            'qualification' => 'nullable|in:'.implode(',', Course::QUALIFICATIONS),
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
             'attendance_window_minutes' => 'nullable|integer|min:1',
@@ -48,8 +49,20 @@ class CourseController extends Controller
                 $validated[$k] = null;
             }
         }
+        $validated['qualification'] = $this->normaliseQualification($validated['qualification'] ?? null);
+        if (! SchemaFeatures::hasCoursesQualification()) {
+            unset($validated['qualification']);
+        }
 
         $classIds = $this->mergeClassIds($validated);
+        if (! empty($validated['qualification'])) {
+            $classIds = $this->filterClassIdsByQualification($classIds, $validated['qualification']);
+            if ($classIds === []) {
+                return back()->withInput()->withErrors([
+                    'class_ids' => 'No selected class matches the chosen qualification.',
+                ]);
+            }
+        }
         $course = Course::create(collect($validated)->except(['class_ids', 'class_id'])->all());
         $course->syncAssignedClasses($classIds);
 
@@ -71,6 +84,7 @@ class CourseController extends Controller
         $rules = [
             'course_name' => 'required|string|max:255',
             'course_code' => 'nullable|string|max:50',
+            'qualification' => 'nullable|in:'.implode(',', Course::QUALIFICATIONS),
             'class_ids' => 'required|array|min:1',
             'class_ids.*' => 'integer|exists:classes,id',
         ];
@@ -92,8 +106,20 @@ class CourseController extends Controller
         } else {
             unset($validated['attendance_window_minutes']);
         }
+        $validated['qualification'] = $this->normaliseQualification($validated['qualification'] ?? null);
+        if (! SchemaFeatures::hasCoursesQualification()) {
+            unset($validated['qualification']);
+        }
 
         $classIds = $this->mergeClassIds($validated);
+        if (! empty($validated['qualification'])) {
+            $classIds = $this->filterClassIdsByQualification($classIds, $validated['qualification']);
+            if ($classIds === []) {
+                return back()->withInput()->withErrors([
+                    'class_ids' => 'No selected class matches the chosen qualification.',
+                ]);
+            }
+        }
         $course->update(collect($validated)->except(['class_ids', 'class_id'])->all());
         $course->syncAssignedClasses($classIds);
 
@@ -114,5 +140,44 @@ class CourseController extends Controller
     private function mergeClassIds(array $validated): array
     {
         return array_values(array_unique(array_filter(array_map('intval', $validated['class_ids'] ?? []))));
+    }
+
+    /**
+     * Normalise an inbound qualification value to one of the canonical
+     * keys (or null when the catalog applies to all qualifications).
+     */
+    private function normaliseQualification(?string $value): ?string
+    {
+        $value = strtolower(trim((string) $value));
+        if ($value === '' || ! in_array($value, Course::QUALIFICATIONS, true)) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Drop any class IDs whose qualification doesn't match the target. Used
+     * to prevent silently smuggling a DEGREE class onto an HND-only course
+     * (e.g. via a stale form submission).
+     *
+     * @param  list<int>  $classIds
+     * @return list<int>
+     */
+    private function filterClassIdsByQualification(array $classIds, string $qualification): array
+    {
+        if ($classIds === [] || ! SchemaFeatures::hasClassesQualification()) {
+            return $classIds;
+        }
+
+        return SchoolClass::query()
+            ->whereIn('id', $classIds)
+            ->where(function ($q) use ($qualification) {
+                $q->where('qualification', $qualification)
+                    ->orWhereNull('qualification');
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 }

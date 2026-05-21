@@ -59,17 +59,32 @@
                 value="{{ old('name', $schoolClass?->name) }}"
                 class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
         </div>
-        <div>
-            <label for="level" class="block text-sm font-medium text-gray-700 mb-2">Level</label>
-            <select name="level" id="level" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
-                @foreach([100, 200, 300, 400] as $l)
-                <option value="{{ $l }}" {{ (string) old('level', $schoolClass?->level) === (string) $l ? 'selected' : '' }}>Level {{ $l }}</option>
-                @endforeach
-            </select>
-            @if($schoolClass && ($next = $schoolClass->suggestedNextLevel()))
-                <p class="text-xs text-gray-500 mt-1.5">If this cohort has moved up, you can set level to <span class="font-medium text-gray-700">Level {{ $next }}</span>.</p>
-            @endif
-            @error('level')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label for="level" class="block text-sm font-medium text-gray-700 mb-2">Level</label>
+                <select name="level" id="level" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                    @foreach([100, 200, 300, 400] as $l)
+                    <option value="{{ $l }}" {{ (string) old('level', $schoolClass?->level) === (string) $l ? 'selected' : '' }}>Level {{ $l }}</option>
+                    @endforeach
+                </select>
+                @if($schoolClass && ($next = $schoolClass->suggestedNextLevel()))
+                    <p class="text-xs text-gray-500 mt-1.5">If this cohort has moved up, you can set level to <span class="font-medium text-gray-700">Level {{ $next }}</span>.</p>
+                @endif
+                @error('level')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+            </div>
+            <div>
+                <label for="qualification" class="block text-sm font-medium text-gray-700 mb-2">Qualification</label>
+                @php
+                    $currentQualification = old('qualification', $schoolClass?->qualification ?? 'degree');
+                @endphp
+                <select name="qualification" id="qualification" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+                    @foreach(\App\Models\SchoolClass::QUALIFICATION_LABELS as $key => $label)
+                    <option value="{{ $key }}" {{ (string) $currentQualification === (string) $key ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <p class="text-xs text-gray-500 mt-1.5">Determines which catalog of courses can be added to this class. Lecturers are shared across all qualifications.</p>
+                @error('qualification')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+            </div>
         </div>
         <div>
             <label for="semester_id" class="block text-sm font-medium text-gray-700 mb-2">Semester</label>

@@ -34,6 +34,22 @@
         </form>
     @endif
 
+    @php
+        $selectedQualKey = $selectedClass->resolvedQualification();
+        $selectedQualLabel = $selectedClass->qualificationLabel();
+        $selectedQualBg = match ($selectedQualKey) {
+            'hnd' => 'bg-emerald-100 text-emerald-800',
+            'diploma' => 'bg-amber-100 text-amber-800',
+            default => 'bg-indigo-100 text-indigo-800',
+        };
+    @endphp
+    <div class="bg-white border border-gray-100 rounded-xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+        <i class="fas fa-graduation-cap text-gray-400"></i>
+        <span><strong class="text-gray-900">{{ $selectedClass->name }}</strong> is an</span>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide {{ $selectedQualBg }}">{{ $selectedQualLabel }}</span>
+        <span>class — only courses tagged for this qualification (and general-ed courses) appear in the picker below.</span>
+    </div>
+
 
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {{-- Add slot form --}}

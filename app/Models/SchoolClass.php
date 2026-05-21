@@ -11,12 +11,44 @@ class SchoolClass extends Model
 {
     protected $table = 'classes';
 
-    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'semester_id', 'logo_path'];
+    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'qualification', 'semester_id', 'logo_path'];
 
     protected $casts = ['level' => 'integer'];
 
     /** Levels used in forms and progression (100 → 200 → …). */
     public const LEVELS = [100, 200, 300, 400];
+
+    /**
+     * Programme qualification a class belongs to. Courses are gated by this
+     * so a "DEGREE" course never appears in the timetable of an HND class.
+     * Lecturers are shared across qualifications — only courses split.
+     */
+    public const QUALIFICATIONS = ['hnd', 'diploma', 'degree'];
+
+    /** Display labels for each qualification. */
+    public const QUALIFICATION_LABELS = [
+        'hnd' => 'HND',
+        'diploma' => 'Diploma',
+        'degree' => 'Degree',
+    ];
+
+    /** Returns the canonical qualification, falling back to "degree". */
+    public function resolvedQualification(): string
+    {
+        $value = strtolower(trim((string) ($this->qualification ?? '')));
+        if ($value === '' || ! in_array($value, self::QUALIFICATIONS, true)) {
+            return 'degree';
+        }
+
+        return $value;
+    }
+
+    public function qualificationLabel(): string
+    {
+        $key = $this->resolvedQualification();
+
+        return self::QUALIFICATION_LABELS[$key] ?? 'Degree';
+    }
 
     public function university(): BelongsTo
     {

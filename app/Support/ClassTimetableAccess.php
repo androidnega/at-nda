@@ -113,6 +113,7 @@ final class ClassTimetableAccess
     {
         return Course::query()
             ->forManagedClasses([(int) $class->id])
+            ->forQualification($class->resolvedQualification())
             ->with(['lecturer', 'venueRelation', 'schoolClasses'])
             ->orderBy('course_name')
             ->get();

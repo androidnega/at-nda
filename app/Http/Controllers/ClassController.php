@@ -254,10 +254,15 @@ class ClassController extends Controller
             'department_id' => 'required|exists:departments,id',
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
+            'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
         ]);
+        $validated['qualification'] = $validated['qualification'] ?? 'degree';
         if ($redirect = $this->ensureHierarchy($validated)) {
             return $redirect;
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesQualification()) {
+            unset($validated['qualification']);
         }
         SchoolClass::create($validated);
 
@@ -287,10 +292,15 @@ class ClassController extends Controller
             'department_id' => 'required|exists:departments,id',
             'name' => 'required|string|max:255',
             'level' => 'required|in:100,200,300,400',
+            'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
         ]);
+        $validated['qualification'] = $validated['qualification'] ?? 'degree';
         if ($redirect = $this->ensureHierarchy($validated)) {
             return $redirect;
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesQualification()) {
+            unset($validated['qualification']);
         }
         $schoolClass->update($validated);
 

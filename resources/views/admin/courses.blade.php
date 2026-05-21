@@ -25,7 +25,24 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div class="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-                <h3 class="font-semibold text-gray-800">{{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}</h3>
+                <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold text-gray-800">{{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}</h3>
+                    @php
+                        $courseQualLabel = $course->qualificationLabel();
+                        $courseQualKey = strtolower(trim((string) ($course->qualification ?? '')));
+                        $courseQualBg = match ($courseQualKey) {
+                            'hnd' => 'bg-emerald-100 text-emerald-800',
+                            'diploma' => 'bg-amber-100 text-amber-800',
+                            'degree' => 'bg-indigo-100 text-indigo-800',
+                            default => 'bg-slate-100 text-slate-700',
+                        };
+                    @endphp
+                    @if($courseQualLabel)
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide {{ $courseQualBg }}">{{ $courseQualLabel }}</span>
+                    @else
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-600" title="No qualification filter — every class can take this course">All</span>
+                    @endif
+                </div>
                 @php $classNames = $course->relationLoaded('schoolClasses') && $course->schoolClasses->isNotEmpty()
                     ? $course->schoolClasses->pluck('name')->join(', ')
                     : ($course->schoolClass?->name); @endphp
