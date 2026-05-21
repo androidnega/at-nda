@@ -19,14 +19,38 @@ class AdminAttendanceWeekController extends Controller
     public function index(): View
     {
         $classes = SchoolClass::orderBy('name')->get();
-        $courses = Course::with('schoolClass')->orderBy('course_name')->get();
+        $courses = Course::with(['schoolClass', 'schoolClasses'])
+            ->orderBy('course_name')
+            ->get();
+
+        // Build a course → class IDs map for the client-side "filter courses by
+        // class" picker. Honours both the legacy class_id column and the
+        // course_class pivot table.
+        $courseClassMap = $courses->mapWithKeys(function (Course $c) {
+            $ids = collect();
+            if ($c->relationLoaded('schoolClasses') && $c->schoolClasses->isNotEmpty()) {
+                $ids = $ids->merge($c->schoolClasses->pluck('id'));
+            }
+            if (!empty($c->class_id)) {
+                $ids->push((int) $c->class_id);
+            }
+            return [
+                (int) $c->id => $ids
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->all(),
+            ];
+        });
+
         $stats = [
             'classes' => $classes->count(),
             'courses' => $courses->count(),
             'weekRows' => AttendanceWeek::count(),
         ];
 
-        return view('admin.attendance-weeks', compact('classes', 'courses', 'stats'));
+        return view('admin.attendance-weeks', compact('classes', 'courses', 'courseClassMap', 'stats'));
     }
 
     /**
@@ -61,14 +85,21 @@ class AdminAttendanceWeekController extends Controller
     public function resetCourse(Request $request): RedirectResponse
     {
         $validated = $request->validate([
+            'class_id' => 'required|exists:classes,id',
             'course_id' => 'required|exists:courses,id',
             'confirm' => 'required|accepted',
         ]);
 
+        $classId = (int) $validated['class_id'];
         $course = Course::findOrFail($validated['course_id']);
-        $this->purgeWeekDataForCourseIds([(int) $course->id], 'course');
+        $class = SchoolClass::findOrFail($classId);
 
-        return back()->with('success', 'Attendance weeks, sessions, and marks cleared for «' . $course->course_name . '». The next session will use Week 1 (per-course session index also restarts).');
+        $this->purgeWeekDataForCourseAndClass((int) $course->id, $classId);
+
+        return back()->with(
+            'success',
+            'Attendance cleared for «'.$course->course_name.'» in «'.$class->name.'». Next session for this class will start at Week 1.'
+        );
     }
 
     public function resetClass(Request $request): RedirectResponse
@@ -96,6 +127,64 @@ class AdminAttendanceWeekController extends Controller
         $this->purgeWeekDataForCourseIds($ids, 'all');
 
         return back()->with('success', 'All attendance weeks, sessions, and marks have been cleared. Each course’s next week is seeded to Week 1; session IDs may continue from the database unless this was a full wipe with no other sessions.');
+    }
+
+    /**
+     * Wipe a single class's slice of one course (weeks, sessions, marks).
+     * Other classes that share the same course keep their data.
+     */
+    private function purgeWeekDataForCourseAndClass(int $courseId, int $classId): void
+    {
+        DB::transaction(function () use ($courseId, $classId) {
+            $weekIds = AttendanceWeek::query()
+                ->where('course_id', $courseId)
+                ->where('class_id', $classId)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $sessionIds = $weekIds === []
+                ? []
+                : AttendanceSession::query()
+                    ->whereIn('attendance_week_id', $weekIds)
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+            // Delete attendance rows for this class+course (match by week_id when
+            // available, otherwise by the student's class_id). Cursor loop keeps
+            // model events firing for any downstream listeners.
+            $attendanceQuery = Attendance::query()
+                ->where('course_id', $courseId)
+                ->where(function ($q) use ($weekIds, $classId) {
+                    if ($weekIds !== []) {
+                        $q->whereIn('attendance_week_id', $weekIds);
+                    }
+                    $q->orWhereHas('student', fn ($sq) => $sq->where('class_id', $classId));
+                });
+
+            foreach ($attendanceQuery->cursor() as $a) {
+                $a->delete();
+            }
+
+            if ($sessionIds !== []) {
+                AttendanceSession::whereIn('id', $sessionIds)->delete();
+            }
+            if ($weekIds !== []) {
+                AttendanceWeek::whereIn('id', $weekIds)->delete();
+            }
+        });
+
+        // Only reseed the course's next_week_number when no other class still
+        // owns weeks for it — otherwise we'd renumber siblings unexpectedly.
+        $remainingWeeks = AttendanceWeek::where('course_id', $courseId)->count();
+        if ($remainingWeeks === 0) {
+            Course::where('id', $courseId)->update(['next_week_number' => 1]);
+        }
+
+        $this->resetAttendanceSessionsAutoIncrementIfEmpty();
+
+        AttendanceDataResetNotifier::notify([$courseId], 'course');
     }
 
     /**
