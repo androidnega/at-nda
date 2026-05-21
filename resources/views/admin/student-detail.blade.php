@@ -250,6 +250,21 @@
         <h2 class="font-semibold text-gray-900">Assign as class rep</h2>
         <p class="text-sm text-gray-500 mt-0.5">Rep role applies only to this student’s own class.</p>
     </div>
+    <div class="px-5 pt-5">
+        <div class="rounded-lg bg-gray-50 border border-gray-200 p-4 text-sm text-gray-700">
+            <p class="font-semibold text-gray-900 mb-2 flex items-center gap-1.5"><i class="fas fa-circle-info text-primary"></i> Role privileges</p>
+            <ul class="space-y-2">
+                <li class="flex items-start gap-2">
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold mt-0.5">REP</span>
+                    <span><strong>Class Rep</strong> — full control: builds the per-class timetable, opens and closes attendance sessions, uploads course outlines/materials, manages the class roster, edits cancelled weeks. Attendance is auto-marked when a session opens.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold mt-0.5">ASST</span>
+                    <span><strong>Assistant Rep</strong> — read/support access: views attendance and rosters for the class, can help moderate live sessions and download exports, but <em>cannot</em> open/close sessions or change the timetable. Attendance is also auto-marked when a session opens, so they don’t need to mark themselves in.</span>
+                </li>
+            </ul>
+        </div>
+    </div>
     <form method="POST" action="{{ route('dashboard.students.assign-rep', $student) }}" class="p-5 flex flex-wrap gap-4 items-end">
         @csrf
         <div class="min-w-[200px] flex-1">
@@ -266,8 +281,8 @@
         <div class="min-w-[140px]">
             <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
             <select id="role" name="role" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20">
-                <option value="rep">Class Rep</option>
-                <option value="assist">Assistant Rep</option>
+                <option value="rep">Class Rep — full control</option>
+                <option value="assist">Assistant Rep — read & support</option>
             </select>
         </div>
         <button type="submit" class="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary/90">Assign</button>

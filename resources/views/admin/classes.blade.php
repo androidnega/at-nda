@@ -45,7 +45,8 @@
 @php
     $totalClasses = $classes->count();
     $totalStudents = $classes->sum('students_count');
-    $totalCourses = $classes->sum('courses_count');
+    $totalCourses = $classes->sum(fn ($c) => (int) ($c->courses_count_all ?? 0));
+    $totalLecturers = $classes->sum(fn ($c) => (int) ($c->lecturers_count_all ?? 0));
 @endphp
 
 {{-- Summary cards --}}
@@ -75,6 +76,15 @@
         <div class="min-w-0">
             <p class="text-gray-500 text-sm font-medium">Courses</p>
             <p class="text-2xl font-bold text-gray-800">{{ $totalCourses }}</p>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
+        <span class="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
+            <i class="fas fa-chalkboard-teacher text-xl"></i>
+        </span>
+        <div class="min-w-0">
+            <p class="text-gray-500 text-sm font-medium">Lecturers</p>
+            <p class="text-2xl font-bold text-gray-800">{{ $totalLecturers }}</p>
         </div>
     </div>
 </div>
@@ -122,9 +132,16 @@
                             <p class="flex items-center gap-2"><i class="fas fa-building text-gray-400 w-4 text-center"></i> {{ $class->faculty?->name ?? '—' }}</p>
                             <p class="flex items-center gap-2"><i class="fas fa-sitemap text-gray-400 w-4 text-center"></i> {{ $class->department?->name ?? '—' }}</p>
                         </div>
-                        <div class="mt-4 flex items-center gap-4 text-xs text-gray-500">
-                            <span><i class="fas fa-book text-amber-500 mr-1"></i> {{ $class->courses_count }} courses</span>
-                            <span><i class="fas fa-user-graduate text-sky-500 mr-1"></i> {{ $class->students_count }} students</span>
+                        <div class="mt-4 flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+                            @php
+                                $coursesCount = (int) ($class->courses_count_all ?? $class->courses_count ?? 0);
+                                $lecturersCount = (int) ($class->lecturers_count_all ?? 0);
+                            @endphp
+                            <span title="Includes direct assignments and shared courses via the course_class pivot">
+                                <i class="fas fa-book text-amber-500 mr-1"></i> {{ $coursesCount }} {{ $coursesCount === 1 ? 'course' : 'courses' }}
+                            </span>
+                            <span><i class="fas fa-chalkboard-teacher text-indigo-500 mr-1"></i> {{ $lecturersCount }} {{ $lecturersCount === 1 ? 'lecturer' : 'lecturers' }}</span>
+                            <span><i class="fas fa-user-graduate text-sky-500 mr-1"></i> {{ $class->students_count }} {{ $class->students_count === 1 ? 'student' : 'students' }}</span>
                         </div>
                     </div>
                 </div>

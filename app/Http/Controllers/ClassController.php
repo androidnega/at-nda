@@ -12,6 +12,7 @@ use App\Models\Semester;
 use App\Models\University;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -22,13 +23,152 @@ class ClassController extends Controller
     public function index(): View
     {
         $classes = SchoolClass::with(['university', 'faculty', 'department', 'semester'])
-            ->withCount(['courses', 'students'])
+            ->withCount(['students'])
             ->orderBy('level')
             ->orderBy('name')
             ->get();
+
+        // A course can be linked to a class either via the legacy
+        // `courses.class_id` column or via the `course_class` pivot. The
+        // built-in withCount('courses') only sees the legacy column, so
+        // classes that have their courses attached purely through the pivot
+        // (the normal flow now that reps build per-class timetables) end
+        // up showing "0 courses" even when they're scheduled for many.
+        // Same story for lecturers via `class_lecturer`. Compute both
+        // counts manually so the dashboard reflects the live picture.
+        $classIds = $classes->pluck('id')->all();
+        $coursesByClass = collect();
+        $lecturersByClass = collect();
+        if ($classIds !== []) {
+            $coursesByClass = $this->countCoursesPerClass($classIds);
+            $lecturersByClass = $this->countLecturersPerClass($classIds);
+        }
+        foreach ($classes as $class) {
+            $cid = (int) $class->id;
+            $class->courses_count_all = (int) ($coursesByClass[$cid] ?? 0);
+            $class->lecturers_count_all = (int) ($lecturersByClass[$cid] ?? 0);
+        }
+
         $classesNeedingReview = $classes->filter(fn (SchoolClass $c) => $c->needsAcademicMetadataReview())->values();
 
         return view('admin.classes', compact('classes', 'classesNeedingReview'));
+    }
+
+    /**
+     * @param  list<int>  $classIds
+     * @return \Illuminate\Support\Collection<int, int>
+     */
+    private function countCoursesPerClass(array $classIds): \Illuminate\Support\Collection
+    {
+        $counts = collect();
+        // Legacy: courses.class_id directly references the class.
+        $legacy = \DB::table('courses')
+            ->whereIn('class_id', $classIds)
+            ->select('class_id', \DB::raw('id'))
+            ->get()
+            ->groupBy('class_id')
+            ->map(fn ($rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+        // Pivot: course_class assigns a course to one or many classes.
+        $pivot = collect();
+        if (\App\Support\SchemaFeatures::hasCourseClassPivot()) {
+            $pivot = \DB::table('course_class')
+                ->whereIn('class_id', $classIds)
+                ->get()
+                ->groupBy('class_id')
+                ->map(fn ($rows) => $rows->pluck('course_id')->map(fn ($id) => (int) $id)->all());
+        }
+
+        foreach ($classIds as $cid) {
+            $ids = collect($legacy[$cid] ?? [])->merge($pivot[$cid] ?? [])->unique()->values();
+            $counts[$cid] = $ids->count();
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param  list<int>  $classIds
+     * @return \Illuminate\Support\Collection<int, int>
+     */
+    private function countLecturersPerClass(array $classIds): \Illuminate\Support\Collection
+    {
+        $counts = collect();
+        // Direct: lecturers.class_id (one lecturer pinned to a single class).
+        $direct = \DB::table('lecturers')
+            ->whereIn('class_id', $classIds)
+            ->get()
+            ->groupBy('class_id')
+            ->map(fn ($rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+        // Pivot: class_lecturer (modern flow).
+        $pivot = collect();
+        if (\App\Support\SchemaFeatures::hasClassLecturerPivot()) {
+            $pivot = \DB::table('class_lecturer')
+                ->whereIn('class_id', $classIds)
+                ->get()
+                ->groupBy('class_id')
+                ->map(fn ($rows) => $rows->pluck('lecturer_id')->map(fn ($id) => (int) $id)->all());
+        }
+
+        // Implicit: any lecturer that teaches a course assigned to this class.
+        $coursesByClass = $this->countCoursesPerClass($classIds);
+        $implicitLecturerIds = collect();
+        // Reuse the lookups from above by querying the actual courses rows.
+        $courseLecturers = \DB::table('courses')
+            ->whereNotNull('lecturer_id')
+            ->where(function ($q) use ($classIds) {
+                $q->whereIn('class_id', $classIds);
+                if (\App\Support\SchemaFeatures::hasCourseClassPivot()) {
+                    $q->orWhereExists(function ($sub) use ($classIds) {
+                        $sub->select(\DB::raw(1))
+                            ->from('course_class')
+                            ->whereColumn('course_class.course_id', 'courses.id')
+                            ->whereIn('course_class.class_id', $classIds);
+                    });
+                }
+            })
+            ->select(['id', 'class_id', 'lecturer_id'])
+            ->get();
+
+        // Walk courses → resolve which class each course belongs to (both
+        // direct class_id and pivot) → bucket the lecturer.
+        $courseClassMap = collect();
+        if (\App\Support\SchemaFeatures::hasCourseClassPivot()) {
+            $courseIds = $courseLecturers->pluck('id')->unique()->values()->all();
+            if ($courseIds !== []) {
+                $courseClassMap = \DB::table('course_class')
+                    ->whereIn('course_id', $courseIds)
+                    ->whereIn('class_id', $classIds)
+                    ->get()
+                    ->groupBy('course_id')
+                    ->map(fn ($rows) => $rows->pluck('class_id')->map(fn ($id) => (int) $id)->all());
+            }
+        }
+        $implicit = collect();
+        foreach ($courseLecturers as $row) {
+            $cls = [];
+            if ($row->class_id && in_array((int) $row->class_id, $classIds, true)) {
+                $cls[] = (int) $row->class_id;
+            }
+            foreach ($courseClassMap[$row->id] ?? [] as $pcid) {
+                $cls[] = $pcid;
+            }
+            foreach (array_unique($cls) as $pcid) {
+                $implicit[$pcid] = collect($implicit[$pcid] ?? [])->push((int) $row->lecturer_id);
+            }
+        }
+
+        foreach ($classIds as $cid) {
+            $ids = collect($direct[$cid] ?? [])
+                ->merge($pivot[$cid] ?? [])
+                ->merge($implicit[$cid] ?? [])
+                ->unique()
+                ->values();
+            $counts[$cid] = $ids->count();
+        }
+
+        return $counts;
     }
 
     public function show(Request $request, SchoolClass $schoolClass): View

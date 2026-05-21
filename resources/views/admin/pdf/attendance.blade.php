@@ -368,16 +368,6 @@
             </table>
         </div>
 
-        @php
-            $repRolesByStudent = $repRolesByStudent ?? [];
-            $hasReps = !empty($repRolesByStudent);
-        @endphp
-        <p class="footer-note">
-            {{ config('app.name', 'Attendance') }} &mdash; weekly marks indicate recorded attendance for each teaching week.
-            @if($hasReps)
-                <span style="margin-left:10px;">Legend: <span class="rep-badge main">Rep</span> class rep &middot; <span class="rep-badge assist">Asst</span> assistant rep.</span>
-            @endif
-        </p>
     </div>
 </body>
 </html>

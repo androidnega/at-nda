@@ -94,16 +94,35 @@
     </div>
 @endif
 
-<div class="mb-4 flex flex-wrap gap-2 items-center">
-    <input type="text" id="student-search" placeholder="Search index or name..." value="{{ request('search') }}"
-        class="flex-1 min-w-[180px] max-w-xs border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
-    <select id="student-class" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 min-w-[120px]">
+{{-- Wrap the filters in a real <form> so Enter / blur falls back to a
+     plain GET request. That way, even if the inline AJAX layer breaks for
+     some reason (CSP, missing JSON header, etc.), super-admins can still
+     find a student by index number — the search becomes part of the URL
+     and the server returns the matching paginated list. --}}
+<form id="student-filter-form" method="GET" action="{{ route('dashboard.students.index') }}"
+      class="mb-4 flex flex-wrap gap-2 items-center">
+    <div class="relative flex-1 min-w-[200px] max-w-md">
+        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+        <input type="search" id="student-search" name="search" value="{{ request('search') }}"
+            placeholder="Search across {{ number_format($totalStudents ?? $students->total()) }} students by index or name…"
+            autocomplete="off"
+            class="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:ring-2 focus:ring-primary/20">
+    </div>
+    <select id="student-class" name="class_id" class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 min-w-[120px]">
         <option value="">All classes</option>
         @foreach($classes ?? [] as $c)
         <option value="{{ $c->id }}" {{ request('class_id') == $c->id ? 'selected' : '' }}>{{ $c->name }}</option>
         @endforeach
     </select>
-</div>
+    <button type="submit" class="inline-flex items-center gap-1.5 bg-primary text-white px-3.5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90">
+        <i class="fas fa-magnifying-glass text-[11px]"></i> Search
+    </button>
+    @if(request('search') || request('class_id'))
+        <a href="{{ route('dashboard.students.index') }}" class="text-xs text-gray-500 hover:text-gray-700 py-2 inline-flex items-center gap-1">
+            <i class="fas fa-times text-[10px]"></i> Clear
+        </a>
+    @endif
+</form>
 
 <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
     <div class="p-2 border-b border-gray-100 bg-gray-50/50">
@@ -298,6 +317,8 @@
         .finally(function() { loadingData = false; loading.classList.add('hidden'); });
     }
 
+    var form = document.getElementById('student-filter-form');
+
     searchInput?.addEventListener('input', function() {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(function() { fetchStudents(true); }, 300);
@@ -310,9 +331,14 @@
         }
     });
 
-    if (searchInput?.value?.trim() || classSelect?.value) {
-        fetchStudents(true);
-    }
+    // Pressing Enter submits the real form (GET) so the search lives in the URL.
+    // The keypress that produced this is allowed to propagate to the form, so
+    // we don't need to call form.submit() ourselves. The AJAX path above
+    // continues to work for "type-as-you-go" results without a reload.
+
+    // If the user landed on the page with a `search=` or `class_id=` query
+    // string, the server already rendered the matching rows. Do NOT re-fetch
+    // and replace them — that hides results when the JSON branch is down.
 
     // --- Modal handling ---
     var modal = document.getElementById('student-modal');
