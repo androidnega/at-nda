@@ -158,10 +158,17 @@
         <input type="hidden" id="qr_t" value="">
 
         @if($activeSession && in_array($sessionMode, ['qr', 'hybrid'], true))
-        <div id="session-code-fallback" class="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
-            <p class="text-sm font-semibold text-gray-800">Session code</p>
-            <p class="text-xs text-gray-600">If you can’t scan, enter the code from the lecturer’s screen.</p>
-            <label for="manual_session_code" class="block text-xs font-medium text-gray-600">Session code</label>
+        {{-- Manual session-code panel: hidden by default. Shown only when
+             the QR scanner fails (no camera, scan timeout, invalid code,
+             explicit "Can't scan?" link). Set by JS that listens for
+             scanner failures. --}}
+        <div id="session-code-fallback" class="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2 hidden" data-fallback-panel>
+            <p class="text-sm font-semibold text-gray-800">
+                <i class="fas fa-keyboard text-slate-500 mr-1"></i>
+                Can't scan? Enter the session code instead
+            </p>
+            <p class="text-xs text-gray-600">Ask the lecturer or rep to read out the code on screen.</p>
+            <label for="manual_session_code" class="sr-only">Session code</label>
             <input type="text" id="manual_session_code" autocomplete="off" inputmode="text"
                 class="w-full border border-gray-200 rounded-lg px-3 py-2.5 font-mono text-sm uppercase tracking-wide"
                 placeholder="e.g. CSC101-4821" maxlength="48">
@@ -170,6 +177,11 @@
                 Mark with session code
             </button>
         </div>
+        <button type="button" id="btn-show-session-code"
+                class="mt-3 w-full text-xs font-medium text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline"
+                onclick="(function(){var p=document.getElementById('session-code-fallback');if(p){p.classList.remove('hidden');this.classList.add('hidden');var i=document.getElementById('manual_session_code');if(i)i.focus();}}).call(this);">
+            Can't scan? Enter the session code manually
+        </button>
         @endif
     </div>
     @endif
@@ -445,6 +457,22 @@ function runAttendanceFlow() {
             el.classList.add('bg-green-100', 'text-green-800');
         } else {
             el.classList.add('bg-red-100', 'text-red-800');
+        }
+        // If we just surfaced an error and the cause looks QR / camera /
+        // scan related, automatically reveal the manual session-code panel
+        // so the student isn't stranded.
+        if (type !== 'success') {
+            var lower = String(message || '').toLowerCase();
+            var looksLikeQrFailure = lower.indexOf('qr') !== -1
+                || lower.indexOf('camera') !== -1
+                || lower.indexOf('scan') !== -1
+                || lower.indexOf('invalid') !== -1;
+            if (looksLikeQrFailure) {
+                var panel = document.getElementById('session-code-fallback');
+                if (panel) panel.classList.remove('hidden');
+                var toggle = document.getElementById('btn-show-session-code');
+                if (toggle) toggle.classList.add('hidden');
+            }
         }
     }
 

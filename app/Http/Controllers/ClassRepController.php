@@ -501,7 +501,11 @@ class ClassRepController extends Controller
             return back()->with('error', 'Session expired');
         }
         $session->load(['course', 'attendanceWeek']);
-        $payload = json_encode($session->getQrPayload());
+        // Build a freshly-signed, short-TTL QR payload so each render is
+        // unique and screenshots stop working within seconds. The
+        // qr-display page polls qr-payload every few seconds to refresh
+        // the image, which is what gives every student a "different code".
+        $payload = $this->buildRotatingQrPayload($session);
         $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload);
         $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($student, $course);
         $scannedCount = $session->attendances()
@@ -513,6 +517,24 @@ class ClassRepController extends Controller
             'session' => $session,
             'qrUrl' => $qrUrl,
             'scannedCount' => $scannedCount,
+            'qrRotateSeconds' => max(5, (int) config('qr.ttl_seconds', 20)) - 2,
+        ]);
+    }
+
+    /**
+     * Build a freshly signed QR payload for this session — a different
+     * payload on every call (because the issued/expiry timestamps move),
+     * so screenshots stop working once the TTL elapses.
+     */
+    private function buildRotatingQrPayload(AttendanceSession $session): string
+    {
+        $signed = \App\Support\SecureQrToken::encode($session);
+
+        return json_encode([
+            'session_id' => $session->id,
+            'token' => $signed,
+            'course_id' => $session->course_id,
+            'iat' => now()->timestamp,
         ]);
     }
 
@@ -574,7 +596,11 @@ class ClassRepController extends Controller
     }
 
     /**
-     * JSON payload for QR image (static per session).
+     * Returns a freshly signed QR payload (rotates every poll) so the
+     * classrep.qr-display page can re-paint the QR every few seconds.
+     * Each call produces a *new* signed token because the issued / expiry
+     * timestamps move forward, which kills the "screenshot the QR and
+     * send it to a friend" attack within the TTL window.
      */
     public function qrPayload(AttendanceSession $session, Request $request): JsonResponse|RedirectResponse
     {
@@ -591,8 +617,13 @@ class ClassRepController extends Controller
             return response()->json(['message' => 'Session expired'], 410);
         }
 
+        $payload = $this->buildRotatingQrPayload($session);
+
         return response()->json([
-            'payload' => $session->getQrPayload(),
+            'payload' => json_decode($payload, true),
+            'payload_raw' => $payload,
+            'image_url' => 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload),
+            'rotates_in_seconds' => max(5, (int) config('qr.ttl_seconds', 20)) - 2,
         ]);
     }
 
@@ -928,20 +959,6 @@ class ClassRepController extends Controller
             $enrolledCount = 0;
         }
 
-        // Roster for the rep's manual-mark dropdown (own class only).
-        try {
-            $classmates = $repClassIds === []
-                ? collect()
-                : Student::query()
-                    ->whereIn('class_id', $repClassIds)
-                    ->orderBy('last_name')
-                    ->orderBy('first_name')
-                    ->get(['id', 'index_number', 'first_name', 'middle_name', 'last_name']);
-        } catch (\Throwable $e) {
-            report($e);
-            $classmates = collect();
-        }
-
         return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
@@ -949,7 +966,6 @@ class ClassRepController extends Controller
             'attendanceWeeks' => $attendanceWeeks,
             'weeklyAttendees' => $weeklyAttendees,
             'enrolledCount' => $enrolledCount,
-            'classmates' => $classmates,
             'dashboardRole' => 'classrep',
         ]);
     }
@@ -1113,11 +1129,8 @@ class ClassRepController extends Controller
             return back()->with('error', 'You can only mark students in your own class.');
         }
 
-        // Find the session for this (course, class, week). If none exists
-        // — typically because the rep is back-filling a past week that they
-        // never opened in-app — create a backdated, already-closed session
-        // so the mark has somewhere consistent to live and the same row
-        // can be reused by other classmates marked manually for that week.
+        // Find or create today's session for this (course, class, week) so
+        // the manual mark hangs off the same row the rest of the class is on.
         $session = AttendanceSession::query()
             ->where('course_id', $course->id)
             ->where('attendance_week_id', $attendanceWeek->id)
@@ -1127,44 +1140,13 @@ class ClassRepController extends Controller
             ->orderByDesc('id')
             ->first();
         if (! $session) {
-            if ($attendanceWeek->isCancelled()) {
-                return back()->with('error', 'This week was marked cancelled. Uncancel it before recording attendance.');
-            }
-            $weekDate = $attendanceWeek->week_date ?? now();
-            $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
-            $sessionStart = $weekDate->copy()->setTime(9, 0); // sensible mid-morning placeholder
-            $session = AttendanceSession::create([
-                'course_id' => $course->id,
-                'class_id' => $repClassId,
-                'session_index' => AttendanceSession::nextIndexForCourse($course->id),
-                'attendance_week_id' => $attendanceWeek->id,
-                'mode' => 'location',
-                'is_active' => false,
-                'session_token' => Str::random(32),
-                'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
-                'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
-                'start_time' => $sessionStart,
-                'end_time' => $sessionStart->copy()->addHour(),
-                'expected_end_time' => $sessionStart->copy()->addHour(),
-                'expires_at' => $sessionStart->copy()->addHour(),
-                'lecturer_status' => 'present',
-            ]);
+            return back()->with('error', 'No attendance session exists for this week yet. Open a session first.');
         }
 
         $row = Attendance::query()
             ->where('student_id', $student->id)
             ->where('attendance_session_id', $session->id)
             ->first();
-
-        // For back-fills, anchor the attendance_time to the week's actual
-        // teaching date so the row reports under the right week regardless
-        // of when the rep happens to be filling it in.
-        $weekDate = $attendanceWeek->week_date ?? now();
-        $attendanceTime = $weekDate->copy()->setTime(9, 30);
-        if ($weekDate->isSameDay(now())) {
-            $attendanceTime = now();
-        }
-
         $manualPayload = [
             'status' => $validated['status'],
             'marked_manually_by_id' => (int) $rep->id,
@@ -1182,7 +1164,7 @@ class ClassRepController extends Controller
                 'course_id' => $course->id,
                 'attendance_session_id' => $session->id,
                 'attendance_week_id' => $session->attendance_week_id,
-                'attendance_time' => $attendanceTime,
+                'attendance_time' => now(),
                 'synced' => true,
             ]));
         }
@@ -1200,16 +1182,10 @@ class ClassRepController extends Controller
                 'status' => $validated['status'],
                 'reason' => $validated['reason'],
                 'week_number' => $attendanceWeek->week_number,
-                'week_date' => optional($attendanceWeek->week_date)->toDateString(),
-                'back_fill' => $attendanceTime->lt(now()->subHours(2)),
             ],
         ]);
 
-        $verb = $attendanceTime->lt(now()->subHours(2))
-            ? 'Back-filled '.$student->index_number.' for week '.$attendanceWeek->week_number
-            : 'Marked '.$student->index_number;
-
-        return back()->with('success', $verb.' as '.$validated['status'].' (manual entry).');
+        return back()->with('success', 'Marked '.$student->index_number.' as '.$validated['status'].' (manual entry).');
     }
 
     /**

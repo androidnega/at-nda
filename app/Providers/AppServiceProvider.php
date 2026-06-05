@@ -37,6 +37,12 @@ class AppServiceProvider extends ServiceProvider
         // delivery from the dashboard without redeploying .env.
         \App\Support\MailRuntimeConfig::applyOnce();
 
+        // Allow super-admins to switch the cache driver between database
+        // (default, safe on every shared host) and Redis (drops "resource
+        // exhausted" errors when many students mark simultaneously) from
+        // the same settings page.
+        \App\Support\RedisRuntimeConfig::applyOnce();
+
         RateLimiter::for('api-v1', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?? $request->ip());
         });

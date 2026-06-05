@@ -484,7 +484,12 @@ class Course extends Model
             if ($classAware) {
                 $maxQuery->where('class_id', $classId);
             }
-            $maxWeek = (int) ($maxQuery->max('week_number') ?? 0);
+            // Ignore cancelled weeks: an admin reset or a one-off "class
+            // cancelled" toggle effectively frees up that week number, so a
+            // fresh teaching session continues from the highest non-cancelled
+            // label instead of perpetually climbing into week 50+ when only
+            // four real classes have happened.
+            $maxWeek = (int) ($maxQuery->whereNull('cancelled_at')->max('week_number') ?? 0);
 
             // The course-wide next_week_number seed only applies when the rep has
             // never attended for this (course, class) pair, so a brand new cohort

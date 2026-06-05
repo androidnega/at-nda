@@ -236,19 +236,24 @@ class StudentDashboardController extends Controller
             ->count('course_id');
 
         // Today's marks (use the configured timezone so "today" matches
-        // what the student actually sees in their UI).
+        // what the student actually sees in their UI). Counts *distinct
+        // courses* the student was present in today: if a rep opens then
+        // closes and reopens the same class three times, the student is
+        // still credited for one course, not three.
         $todayCount = $baseAttendance()
             ->countedAsPresent()
             ->whereDate('attendance_time', now()->toDateString())
-            ->count();
+            ->distinct()
+            ->count('course_id');
 
-        // Marks since the start of the current ISO week (Monday → Sunday)
-        // so the value is meaningful even mid-week.
+        // Marks this ISO-week, also deduped per course so multiple session
+        // openings of the same class don't inflate the tile.
         $weekStart = now()->startOfWeek();
         $weekCount = $baseAttendance()
             ->countedAsPresent()
             ->where('attendance_time', '>=', $weekStart)
-            ->count();
+            ->distinct()
+            ->count(\Illuminate\Support\Facades\DB::raw('CONCAT(course_id, "|", DATE(attendance_time))'));
 
         // How many courses the student is enrolled in via their class —
         // gives them a denominator so "X / Y courses" makes sense.

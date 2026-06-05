@@ -325,6 +325,89 @@
         </div>
         @endif
 
+        @if(session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings())
+        <div class="space-y-3 pt-2 pb-1">
+            <h3 class="text-base font-semibold text-gray-800 flex items-center gap-2">
+                <i class="fas fa-bolt text-rose-500/80"></i>
+                Cache &amp; Redis (performance)
+            </h3>
+            <p class="text-xs text-gray-500 -mt-2">
+                On shared hosting many simultaneous attendance scans can exhaust connection / file-cache pools.
+                Switch the cache driver to Redis to clear the bottleneck. When Redis is unreachable the
+                system silently falls back to the database driver, so you never lose attendance.
+            </p>
+
+            <div class="p-4 rounded-xl border border-rose-100 bg-rose-50/30 space-y-3">
+                <div>
+                    <label for="cache_driver" class="font-medium text-gray-800 text-sm">Active cache driver</label>
+                    <select name="cache_driver" id="cache_driver" class="mt-1 w-full sm:w-72 border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                        @php $cacheDriver = old('cache_driver', $settings->cache_driver ?: 'database'); @endphp
+                        <option value="database" {{ $cacheDriver === 'database' ? 'selected' : '' }}>database — safe default, works everywhere</option>
+                        <option value="redis" {{ $cacheDriver === 'redis' ? 'selected' : '' }}>redis — fastest, recommended for &gt; 50 students</option>
+                        <option value="file" {{ $cacheDriver === 'file' ? 'selected' : '' }}>file</option>
+                        <option value="array" {{ $cacheDriver === 'array' ? 'selected' : '' }}>array — in-memory, single request only</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                        <label for="redis_host" class="font-medium text-gray-800 text-sm">Redis host</label>
+                        <input type="text" name="redis_host" id="redis_host"
+                            value="{{ old('redis_host', $settings->redis_host) }}"
+                            placeholder="127.0.0.1"
+                            class="mt-1 w-full border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                    </div>
+                    <div>
+                        <label for="redis_port" class="font-medium text-gray-800 text-sm">Port</label>
+                        <input type="number" name="redis_port" id="redis_port" min="1" max="65535"
+                            value="{{ old('redis_port', $settings->redis_port ?: 6379) }}"
+                            class="mt-1 w-full border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label for="redis_database" class="font-medium text-gray-800 text-sm">DB index</label>
+                        <input type="number" name="redis_database" id="redis_database" min="0" max="15"
+                            value="{{ old('redis_database', $settings->redis_database ?? 0) }}"
+                            class="mt-1 w-full border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="redis_prefix" class="font-medium text-gray-800 text-sm">Key prefix</label>
+                        <input type="text" name="redis_prefix" id="redis_prefix"
+                            value="{{ old('redis_prefix', $settings->redis_prefix) }}"
+                            placeholder="atenda:"
+                            class="mt-1 w-full border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="redis_password" class="font-medium text-gray-800 text-sm">Password (optional)</label>
+                    <input type="password" name="redis_password" id="redis_password" autocomplete="new-password"
+                        placeholder="{{ $settings->redis_password_encrypted ? '••••••••  (saved — leave blank to keep)' : 'leave blank if Redis has no auth' }}"
+                        class="mt-1 w-full border border-rose-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-rose-300 focus:border-rose-400 bg-white">
+                    @if($settings->redis_password_encrypted)
+                    <label class="mt-1.5 inline-flex items-center gap-2 text-[11px] text-rose-700/90">
+                        <input type="checkbox" name="clear_redis_password" value="1" class="w-3.5 h-3.5 rounded border-rose-300 text-rose-600 focus:ring-rose-400">
+                        Clear saved password on save
+                    </label>
+                    @endif
+                </div>
+
+                <div class="border-t border-rose-200/70 pt-3 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                    <button type="submit" name="redis_action" value="test"
+                        class="inline-flex items-center justify-center gap-1.5 bg-rose-700 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-rose-800 transition">
+                        <i class="fas fa-plug text-xs"></i> Save &amp; ping Redis
+                    </button>
+                </div>
+                <p class="text-[11px] text-rose-800/80">
+                    Tip: on cPanel-style hosting ask your provider for a Redis socket (host + port).
+                    On Render / Railway / fly.io paste the internal Redis URL parts here.
+                </p>
+            </div>
+        </div>
+        @endif
+
         <div class="pt-4 border-t border-gray-100">
             <button type="submit" name="mail_action" value="save" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
                 Save Settings

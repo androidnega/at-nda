@@ -39,6 +39,8 @@ final class SchemaFeatures
 
     private static ?bool $studentActiveSessions = null;
 
+    private static ?bool $redisSettings = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -132,5 +134,14 @@ final class SchemaFeatures
     public static function hasStudentActiveSessions(): bool
     {
         return self::$studentActiveSessions ??= Schema::hasTable('student_active_sessions');
+    }
+
+    public static function hasRedisSettings(): bool
+    {
+        return self::$redisSettings ??= (
+            Schema::hasTable('system_settings')
+            && Schema::hasColumn('system_settings', 'cache_driver')
+            && Schema::hasColumn('system_settings', 'redis_host')
+        );
     }
 }

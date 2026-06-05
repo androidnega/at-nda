@@ -60,6 +60,16 @@ class SettingsController extends Controller
             if (SystemSetting::hasAllowRepDeletionColumn()) {
                 $rules['allow_rep_attendance_deletion'] = 'nullable|boolean';
             }
+
+            if (\App\Support\SchemaFeatures::hasRedisSettings()) {
+                $rules['cache_driver'] = 'nullable|in:database,redis,file,array';
+                $rules['redis_host'] = 'nullable|string|max:255';
+                $rules['redis_port'] = 'nullable|integer|min:1|max:65535';
+                $rules['redis_database'] = 'nullable|integer|min:0|max:15';
+                $rules['redis_password'] = 'nullable|string|max:255';
+                $rules['redis_prefix'] = 'nullable|string|max:64';
+                $rules['redis_action'] = 'nullable|in:save,test';
+            }
         }
         $validated = $request->validate($rules);
         if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
@@ -107,6 +117,22 @@ class SettingsController extends Controller
 
         if ($request->session()->has('admin_id') && SystemSetting::hasAllowRepDeletionColumn()) {
             $payload['allow_rep_attendance_deletion'] = $request->boolean('allow_rep_attendance_deletion');
+        }
+
+        if ($request->session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings()) {
+            $payload['cache_driver'] = $this->stringOrNull($validated['cache_driver'] ?? null) ?? 'database';
+            $payload['redis_host'] = $this->stringOrNull($validated['redis_host'] ?? null);
+            $payload['redis_port'] = isset($validated['redis_port']) && $validated['redis_port'] !== ''
+                ? (int) $validated['redis_port'] : null;
+            $payload['redis_database'] = isset($validated['redis_database']) && $validated['redis_database'] !== ''
+                ? (int) $validated['redis_database'] : 0;
+            $payload['redis_prefix'] = $this->stringOrNull($validated['redis_prefix'] ?? null);
+            $newRedisPassword = $request->input('redis_password');
+            if (is_string($newRedisPassword) && trim($newRedisPassword) !== '') {
+                $payload['redis_password_encrypted'] = $newRedisPassword;
+            } elseif ($request->boolean('clear_redis_password')) {
+                $payload['redis_password_encrypted'] = null;
+            }
         }
 
         if ($request->session()->has('admin_id') && SystemSetting::hasMailColumns()) {
@@ -159,6 +185,19 @@ class SettingsController extends Controller
                     $messages[] = 'Test email sent to '.$validated['mail_test_to'].'.';
                 } else {
                     return back()->with('error', 'Settings saved, but test email failed: '.$err);
+                }
+            }
+
+            if (\App\Support\SchemaFeatures::hasRedisSettings()) {
+                \App\Support\RedisRuntimeConfig::reapply();
+
+                if (($validated['redis_action'] ?? 'save') === 'test') {
+                    $err = \App\Support\RedisRuntimeConfig::ping();
+                    if ($err === null) {
+                        $messages[] = 'Redis ping OK — caching is healthy.';
+                    } else {
+                        return back()->with('error', 'Settings saved, but Redis ping failed: '.$err);
+                    }
                 }
             }
         }

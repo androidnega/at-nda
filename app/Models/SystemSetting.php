@@ -35,6 +35,12 @@ class SystemSetting extends Model
         'mail_from_address',
         'mail_from_name',
         'allow_rep_attendance_deletion',
+        'cache_driver',
+        'redis_host',
+        'redis_port',
+        'redis_database',
+        'redis_password_encrypted',
+        'redis_prefix',
     ];
 
     protected $casts = [
@@ -52,6 +58,7 @@ class SystemSetting extends Model
         // Stored encrypted via APP_KEY so SMTP creds never sit in plaintext.
         'mail_password_encrypted' => 'encrypted',
         'allow_rep_attendance_deletion' => 'boolean',
+        'redis_password_encrypted' => 'encrypted',
     ];
 
     public static function hasMailColumns(): bool

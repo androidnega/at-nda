@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureAdminOrLecturer;
 use App\Http\Middleware\EnsureClassRep;
 use App\Http\Middleware\EnsureLecturer;
 use App\Http\Middleware\EnsureNotAdminOrLecturer;
+use App\Http\Middleware\ApiVersionHeaders;
 use App\Http\Middleware\EnsureSignedInAnybody;
 use App\Http\Middleware\EnsureStudentAuthenticated;
 use App\Http\Middleware\EnsureStudentSessionIntegrity;
@@ -56,7 +57,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'student.session.integrity' => EnsureStudentSessionIntegrity::class,
             'signed-in-anybody' => EnsureSignedInAnybody::class,
             'api.https' => ForceHttpsForApi::class,
+            'api.version' => ApiVersionHeaders::class,
             'no-store' => NoStoreCache::class,
+        ]);
+
+        // Stamp X-Api-Version / Sunset headers on every /api/* response so
+        // the mobile app can detect deprecation and react before v2 ships.
+        $middleware->api(append: [
+            ApiVersionHeaders::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

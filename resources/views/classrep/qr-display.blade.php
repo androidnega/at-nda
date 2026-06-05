@@ -33,9 +33,13 @@
                     <div class="relative rounded-xl bg-white p-5 sm:p-7 border border-slate-200">
                         <div class="flex justify-center">
                             <div class="rounded-lg bg-white p-2.5 sm:p-3 border border-slate-200">
-                                <img src="{{ $qrUrl }}" alt="Session QR code" width="288" height="288" class="w-full max-w-[min(16rem,70vw)] sm:max-w-[18rem] aspect-square object-contain select-none mx-auto" draggable="false">
+                                <img id="qr-rotating-image" src="{{ $qrUrl }}" alt="Session QR code" width="288" height="288" class="w-full max-w-[min(16rem,70vw)] sm:max-w-[18rem] aspect-square object-contain select-none mx-auto" draggable="false">
                             </div>
                         </div>
+                        <p class="mt-3 text-center text-[10px] uppercase tracking-wider text-emerald-700/70 font-semibold">
+                            <i class="fas fa-arrows-rotate text-emerald-600/70 mr-1"></i>
+                            Rotates every <span id="qr-rotate-window">{{ (int) ($qrRotateSeconds ?? 8) }}</span>s — each student sees a different code
+                        </p>
                         @if($session->session_code)
                         <p class="mt-4 text-center text-sm text-slate-700">
                             <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Session code (manual entry)</span>
@@ -108,9 +112,15 @@
 <script>
 (function() {
     var statsUrl = @json(route('dashboard.live-sessions.qr-stats', $session));
+    var payloadUrl = @json(route('dashboard.live-sessions.qr-payload', $session));
     var el = document.getElementById('qr-scanned-count');
-    if (!el) return;
-    function refresh() {
+    var qrImg = document.getElementById('qr-rotating-image');
+    var rotateWindowEl = document.getElementById('qr-rotate-window');
+    var rotateSeconds = parseInt({{ (int) ($qrRotateSeconds ?? 8) }}, 10);
+    if (!rotateSeconds || rotateSeconds < 5) rotateSeconds = 8;
+
+    function refreshStats() {
+        if (!el) return;
         fetch(statsUrl, {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             credentials: 'same-origin',
@@ -123,7 +133,31 @@
             })
             .catch(function() {});
     }
-    setInterval(refresh, 15000);
+    setInterval(refreshStats, 15000);
+
+    // Rotate the QR image every (TTL - 2)s so each student gets a fresh
+    // signed token. Screenshots stop validating once the previous token
+    // expires.
+    function refreshQr() {
+        if (!qrImg) return;
+        fetch(payloadUrl, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+            cache: 'no-store',
+        })
+            .then(function(r) { if (!r.ok) throw new Error('http_'+r.status); return r.json(); })
+            .then(function(d) {
+                if (d && typeof d.image_url === 'string') {
+                    qrImg.src = d.image_url;
+                }
+                if (rotateWindowEl && typeof d.rotates_in_seconds === 'number') {
+                    rotateWindowEl.textContent = String(d.rotates_in_seconds);
+                }
+            })
+            .catch(function() { /* keep last image on failure */ });
+    }
+    var iv = Math.max(5, rotateSeconds) * 1000;
+    setInterval(refreshQr, iv);
 })();
 </script>
 @endpush
