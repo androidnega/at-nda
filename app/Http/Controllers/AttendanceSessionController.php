@@ -68,36 +68,64 @@ class AttendanceSessionController extends Controller
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expiresAt = $course->computeSessionExpiresAt($duration, $primaryClassId);
         $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $primaryClassId);
-        $sessionModel = AttendanceSession::create([
-            'course_id' => $course->id,
-            'class_id' => $primaryClassId,
-            'session_index' => AttendanceSession::nextIndexForCourse($course->id),
-            'attendance_week_id' => $week->id,
-            'mode' => $validated['mode'],
-            'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
-            'is_active' => true,
-            'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
-            'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
-            'start_time' => now(),
-            'end_time' => $expiresAt,
-            'expires_at' => $expiresAt,
-            'location_lat' => $needsAnchor ? $lat : null,
-            'location_lng' => $needsAnchor ? $lng : null,
-            'attendance_range_m' => $needsAnchor ? $range : null,
-        ]);
+        [$sessionModel, $wasReopened] = AttendanceSession::openOrReopenForClass(
+            (int) $course->id,
+            $primaryClassId ? (int) $primaryClassId : null,
+            (int) $week->id,
+            [
+                'mode' => $validated['mode'],
+                'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
+                'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
+                'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
+                'start_time' => now(),
+                'end_time' => $expiresAt,
+                'expires_at' => $expiresAt,
+                'location_lat' => $needsAnchor ? $lat : null,
+                'location_lng' => $needsAnchor ? $lng : null,
+                'attendance_range_m' => $needsAnchor ? $range : null,
+            ]
+        );
 
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $primaryClassId);
 
         app(FcmNotificationService::class)->sendSessionStartedToClass($course, $primaryClassId);
 
+        \App\Services\AuditLogService::record(
+            $wasReopened ? \App\Services\AuditLogService::SESSION_REOPENED : \App\Services\AuditLogService::SESSION_OPENED,
+            [
+                'request' => $request,
+                'course_id' => (int) $course->id,
+                'class_id' => $primaryClassId ? (int) $primaryClassId : null,
+                'attendance_session_id' => (int) $sessionModel->id,
+                'subject_type' => 'attendance_session',
+                'subject_id' => (int) $sessionModel->id,
+                'payload' => [
+                    'week_number' => $week->week_number,
+                    'duration_minutes' => $duration,
+                    'mode' => $validated['mode'],
+                ],
+            ]
+        );
+
         $activeMinutes = max(1, (int) ceil(($expiresAt->getTimestamp() - now()->getTimestamp()) / 60));
 
-        return redirect()->route('dashboard.portal')->with('success', 'Session opened. Week ' . $week->week_number . '. Active for ~' . $activeMinutes . ' min.');
+        $verb = $wasReopened ? 'Session reopened' : 'Session opened';
+
+        return redirect()->route('dashboard.portal')->with('success', $verb.'. Week ' . $week->week_number . '. Active for ~' . $activeMinutes . ' min.');
     }
 
-    public function close(AttendanceSession $session): RedirectResponse
+    public function close(AttendanceSession $session, Request $request): RedirectResponse
     {
         $session->update(['is_active' => false]);
+
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::SESSION_CLOSED, [
+            'request' => $request,
+            'course_id' => (int) $session->course_id,
+            'class_id' => $session->class_id ? (int) $session->class_id : null,
+            'attendance_session_id' => (int) $session->id,
+            'subject_type' => 'attendance_session',
+            'subject_id' => (int) $session->id,
+        ]);
 
         return redirect()->route('dashboard.portal')->with('success', 'Session closed.');
     }

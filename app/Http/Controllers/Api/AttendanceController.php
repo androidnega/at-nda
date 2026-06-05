@@ -268,12 +268,13 @@ class AttendanceController extends Controller
         // collapses into a single insert. Pair with CACHE_STORE=redis on
         // production for cross-worker safety.
         $userAgent = mb_substr((string) $request->userAgent(), 0, 480);
+        $created = false;
 
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId, $userAgent) {
-                Attendance::firstOrCreate(
+            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId, $userAgent, &$created) {
+                $row = Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
                         'attendance_session_id' => $session->id,
@@ -292,8 +293,21 @@ class AttendanceController extends Controller
                         'user_agent' => $userAgent,
                     ]
                 );
+                $created = $row->wasRecentlyCreated;
             }
         );
+
+        if ($created) {
+            \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_CREATED, [
+                'request' => $request,
+                'course_id' => (int) $course->id,
+                'class_id' => $session->class_id ? (int) $session->class_id : null,
+                'attendance_session_id' => (int) $session->id,
+                'subject_type' => 'student',
+                'subject_id' => (int) $student->id,
+                'payload' => ['channel' => 'api'],
+            ]);
+        }
 
         $presentCount = Attendance::where('attendance_session_id', $session->id)
             ->where('status', 'present')

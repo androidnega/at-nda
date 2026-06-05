@@ -26,6 +26,13 @@ class Attendance extends Model
                 && array_key_exists('user_agent', $attendance->getAttributes())) {
                 unset($attendance->attributes['user_agent']);
             }
+            if (! \App\Support\SchemaFeatures::hasAttendancesManualMark()) {
+                foreach (['marked_manually_by_id', 'manual_reason', 'marked_manually_at'] as $col) {
+                    if (array_key_exists($col, $attendance->getAttributes())) {
+                        unset($attendance->attributes[$col]);
+                    }
+                }
+            }
         });
     }
 
@@ -77,6 +84,9 @@ class Attendance extends Model
         'device_ip',
         'device_id',
         'user_agent',
+        'marked_manually_by_id',
+        'manual_reason',
+        'marked_manually_at',
     ];
 
     public function attendanceWeek(): BelongsTo
@@ -91,7 +101,22 @@ class Attendance extends Model
         'synced' => 'boolean',
         'lat' => 'decimal:7',
         'lng' => 'decimal:7',
+        'marked_manually_at' => 'datetime',
     ];
+
+    /**
+     * True when this row was inserted by a class rep on a student's behalf
+     * via the manual-mark flow (rather than the student themselves).
+     */
+    public function isManuallyMarked(): bool
+    {
+        return ! empty($this->marked_manually_by_id);
+    }
+
+    public function markedManuallyBy(): BelongsTo
+    {
+        return $this->belongsTo(Student::class, 'marked_manually_by_id');
+    }
 
     public function student(): BelongsTo
     {

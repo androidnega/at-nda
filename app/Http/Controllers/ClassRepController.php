@@ -353,28 +353,28 @@ class ClassRepController extends Controller
             : null;
         $sessionVenueId = $overrideVenueId ?? ($snapshot['venue_id'] ?? $course->venue_id);
 
-        $sessionModel = AttendanceSession::create([
-            'course_id' => $course->id,
-            'class_id' => $repClassId,
-            'session_index' => AttendanceSession::nextIndexForCourse($course->id),
-            'attendance_week_id' => $week->id,
-            'mode' => $validated['mode'],
-            'attendance_mode' => $attendanceMode,
-            'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
-            'is_active' => true,
-            'checkout_enabled' => false,
-            'session_token' => Str::random(32),
-            'lecturer_id' => $sessionLecturerId,
-            'venue_id' => $sessionVenueId,
-            'start_time' => now(),
-            'end_time' => $expiresAt,
-            'expected_end_time' => $expectedEnd,
-            'expires_at' => $expiresAt,
-            'lecturer_status' => $validated['lecturer_status'],
-            'location_lat' => $needsAnchor ? $lat : null,
-            'location_lng' => $needsAnchor ? $lng : null,
-            'attendance_range_m' => $needsAnchor ? $range : null,
-        ]);
+        [$sessionModel, $wasReopened] = AttendanceSession::openOrReopenForClass(
+            (int) $course->id,
+            $repClassId ? (int) $repClassId : null,
+            (int) $week->id,
+            [
+                'mode' => $validated['mode'],
+                'attendance_mode' => $attendanceMode,
+                'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
+                'checkout_enabled' => false,
+                'session_token' => Str::random(32),
+                'lecturer_id' => $sessionLecturerId,
+                'venue_id' => $sessionVenueId,
+                'start_time' => now(),
+                'end_time' => $expiresAt,
+                'expected_end_time' => $expectedEnd,
+                'expires_at' => $expiresAt,
+                'lecturer_status' => $validated['lecturer_status'],
+                'location_lat' => $needsAnchor ? $lat : null,
+                'location_lng' => $needsAnchor ? $lng : null,
+                'attendance_range_m' => $needsAnchor ? $range : null,
+            ]
+        );
 
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
@@ -383,11 +383,30 @@ class ClassRepController extends Controller
         $presentCount = Attendance::where('attendance_session_id', $sessionModel->id)
             ->where('status', 'present')
             ->count();
-        event(new SessionLiveEvent($sessionModel->fresh(['course']), 'session_opened', ['present_count' => $presentCount]));
+        event(new SessionLiveEvent($sessionModel->fresh(['course']), $wasReopened ? 'session_reopened' : 'session_opened', ['present_count' => $presentCount]));
+
+        \App\Services\AuditLogService::record(
+            $wasReopened ? \App\Services\AuditLogService::SESSION_REOPENED : \App\Services\AuditLogService::SESSION_OPENED,
+            [
+                'request' => $request,
+                'course_id' => (int) $course->id,
+                'class_id' => $repClassId ? (int) $repClassId : null,
+                'attendance_session_id' => (int) $sessionModel->id,
+                'subject_type' => 'attendance_session',
+                'subject_id' => (int) $sessionModel->id,
+                'payload' => [
+                    'week_number' => $week->week_number,
+                    'duration_minutes' => $duration,
+                    'mode' => $validated['mode'],
+                    'venue_override' => $overrideVenueId,
+                ],
+            ]
+        );
 
         $activeMinutes = max(1, (int) ceil(($expectedEnd->getTimestamp() - now()->getTimestamp()) / 60));
 
-        $msg = 'Session opened. Week '.$week->week_number.'. Active for ~'.$activeMinutes.' min.';
+        $verb = $wasReopened ? 'Session reopened' : 'Session opened';
+        $msg = $verb.'. Week '.$week->week_number.'. Active for ~'.$activeMinutes.' min.';
         if ($overrideVenueId !== null) {
             $venueName = optional(\App\Models\Venue::find($overrideVenueId))->name;
             if ($venueName) {
@@ -450,6 +469,19 @@ class ClassRepController extends Controller
             ->where('status', 'present')
             ->count();
         event(new SessionLiveEvent($session, 'session_closed', ['present_count' => $presentCount]));
+
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::SESSION_CLOSED, [
+            'request' => $request,
+            'course_id' => (int) $session->course_id,
+            'class_id' => $session->class_id ? (int) $session->class_id : null,
+            'attendance_session_id' => (int) $session->id,
+            'subject_type' => 'attendance_session',
+            'subject_id' => (int) $session->id,
+            'payload' => [
+                'present_count' => $presentCount,
+                'mode' => $session->isCheckInCheckoutMode() ? 'check_in_checkout' : 'instant',
+            ],
+        ]);
 
         return back()->with('success', $session->isCheckInCheckoutMode()
             ? 'Class ended. Checkout is now enabled.'
@@ -896,6 +928,20 @@ class ClassRepController extends Controller
             $enrolledCount = 0;
         }
 
+        // Roster for the rep's manual-mark dropdown (own class only).
+        try {
+            $classmates = $repClassIds === []
+                ? collect()
+                : Student::query()
+                    ->whereIn('class_id', $repClassIds)
+                    ->orderBy('last_name')
+                    ->orderBy('first_name')
+                    ->get(['id', 'index_number', 'first_name', 'middle_name', 'last_name']);
+        } catch (\Throwable $e) {
+            report($e);
+            $classmates = collect();
+        }
+
         return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
@@ -903,6 +949,7 @@ class ClassRepController extends Controller
             'attendanceWeeks' => $attendanceWeeks,
             'weeklyAttendees' => $weeklyAttendees,
             'enrolledCount' => $enrolledCount,
+            'classmates' => $classmates,
             'dashboardRole' => 'classrep',
         ]);
     }
@@ -1035,6 +1082,144 @@ class ClassRepController extends Controller
             'success',
             'Week '.$oldNumber.' renamed to Week '.$newNumber.' for this course.'
         );
+    }
+
+    /**
+     * Rep manually marks attendance for one student, with a required reason
+     * (e.g. "phone broke down", "marked late after lecturer confirmed").
+     */
+    public function manualMarkAttendance(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only manage attendance for your class courses.');
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'student_id' => 'required|integer|exists:students,id',
+            'status' => 'required|in:present,late,absent',
+            'reason' => 'required|string|min:3|max:500',
+        ]);
+
+        $repClassId = $this->resolveRepClassId($rep, $course);
+        $student = Student::find((int) $validated['student_id']);
+        if (! $student || (int) $student->class_id !== (int) $repClassId) {
+            return back()->with('error', 'You can only mark students in your own class.');
+        }
+
+        // Find or create today's session for this (course, class, week) so
+        // the manual mark hangs off the same row the rest of the class is on.
+        $session = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->where('attendance_week_id', $attendanceWeek->id)
+            ->when(\App\Support\SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
+                $q->where('class_id', $repClassId);
+            })
+            ->orderByDesc('id')
+            ->first();
+        if (! $session) {
+            return back()->with('error', 'No attendance session exists for this week yet. Open a session first.');
+        }
+
+        $row = Attendance::query()
+            ->where('student_id', $student->id)
+            ->where('attendance_session_id', $session->id)
+            ->first();
+        $manualPayload = [
+            'status' => $validated['status'],
+            'marked_manually_by_id' => (int) $rep->id,
+            'manual_reason' => $validated['reason'],
+            'marked_manually_at' => now(),
+            'device_ip' => (string) $request->ip(),
+            'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
+        ];
+
+        if ($row) {
+            $row->update($manualPayload);
+        } else {
+            $row = Attendance::create(array_merge($manualPayload, [
+                'student_id' => $student->id,
+                'course_id' => $course->id,
+                'attendance_session_id' => $session->id,
+                'attendance_week_id' => $session->attendance_week_id,
+                'attendance_time' => now(),
+                'synced' => true,
+            ]));
+        }
+
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_MANUAL, [
+            'request' => $request,
+            'course_id' => (int) $course->id,
+            'class_id' => $repClassId ? (int) $repClassId : null,
+            'attendance_session_id' => (int) $session->id,
+            'subject_type' => 'attendance',
+            'subject_id' => (int) $row->id,
+            'payload' => [
+                'student_id' => (int) $student->id,
+                'index_number' => $student->index_number,
+                'status' => $validated['status'],
+                'reason' => $validated['reason'],
+                'week_number' => $attendanceWeek->week_number,
+            ],
+        ]);
+
+        return back()->with('success', 'Marked '.$student->index_number.' as '.$validated['status'].' (manual entry).');
+    }
+
+    /**
+     * Delete one attendance row. Gated by the super-admin toggle
+     * `allow_rep_attendance_deletion`; logs the full deletion event so
+     * disputes can be replayed later.
+     */
+    public function deleteAttendance(Request $request, Attendance $attendance): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! SystemSetting::repsCanDeleteAttendance()) {
+            return back()->with('error', 'Attendance deletion is currently disabled by the super admin.');
+        }
+
+        $course = Course::find($attendance->course_id);
+        if (! $course || ! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only delete attendance for your class courses.');
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|min:3|max:500',
+        ]);
+
+        $snapshot = [
+            'attendance_id' => (int) $attendance->id,
+            'student_id' => (int) $attendance->student_id,
+            'course_id' => (int) $attendance->course_id,
+            'session_id' => (int) $attendance->attendance_session_id,
+            'week_id' => $attendance->attendance_week_id ? (int) $attendance->attendance_week_id : null,
+            'status' => $attendance->status,
+            'attendance_time' => $attendance->attendance_time?->toIso8601String(),
+        ];
+
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_DELETED, [
+            'request' => $request,
+            'course_id' => (int) $attendance->course_id,
+            'class_id' => $this->resolveRepClassId($rep, $course),
+            'attendance_session_id' => (int) $attendance->attendance_session_id,
+            'subject_type' => 'attendance',
+            'subject_id' => (int) $attendance->id,
+            'payload' => array_merge($snapshot, ['reason' => $validated['reason']]),
+        ]);
+
+        $attendance->delete();
+
+        return back()->with('success', 'Attendance record deleted and logged.');
     }
 
     /**

@@ -9,6 +9,7 @@ use App\Http\Middleware\EnsureLecturer;
 use App\Http\Middleware\EnsureNotAdminOrLecturer;
 use App\Http\Middleware\EnsureSignedInAnybody;
 use App\Http\Middleware\EnsureStudentAuthenticated;
+use App\Http\Middleware\EnsureStudentSessionIntegrity;
 use App\Http\Middleware\ForceHttpsForApi;
 use App\Http\Middleware\NoStoreCache;
 use Illuminate\Auth\AuthenticationException;
@@ -52,6 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'lecturer' => EnsureLecturer::class,
             'student.attendance' => EnsureNotAdminOrLecturer::class,
             'student.auth' => EnsureStudentAuthenticated::class,
+            'student.session.integrity' => EnsureStudentSessionIntegrity::class,
             'signed-in-anybody' => EnsureSignedInAnybody::class,
             'api.https' => ForceHttpsForApi::class,
             'no-store' => NoStoreCache::class,

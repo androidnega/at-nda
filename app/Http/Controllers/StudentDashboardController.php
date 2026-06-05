@@ -50,7 +50,16 @@ class StudentDashboardController extends Controller
 
                 return redirect()->route('student.set-password');
             }
+            $request->session()->regenerate();
             session(['student_id' => $student->id, 'student_index' => $student->index_number]);
+            app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
+            \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+                'request' => $request,
+                'subject_type' => 'student',
+                'subject_id' => $student->id,
+                'class_id' => $student->class_id,
+                'payload' => ['index_number' => $student->index_number, 'first_login' => true],
+            ]);
 
             return $this->redirectAfterStudentAuth($student);
         }
@@ -105,7 +114,19 @@ class StudentDashboardController extends Controller
         }
 
         $request->session()->forget('pending_password_login_index');
+        // Rotate the underlying session id on login so prior tokens for this
+        // browser can't be replayed.
+        $request->session()->regenerate();
         session(['student_id' => $student->id, 'student_index' => $student->index_number]);
+
+        app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+            'request' => $request,
+            'subject_type' => 'student',
+            'subject_id' => $student->id,
+            'class_id' => $student->class_id,
+            'payload' => ['index_number' => $student->index_number],
+        ]);
 
         return $this->redirectAfterStudentAuth($student);
     }
@@ -141,6 +162,15 @@ class StudentDashboardController extends Controller
                         ?? 'Sign out is unavailable while a class is in session.'
                 );
             }
+        }
+
+        if ($studentId) {
+            \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGOUT, [
+                'request' => $request,
+                'subject_type' => 'student',
+                'subject_id' => (int) $studentId,
+            ]);
+            app(\App\Services\StudentSessionGuardService::class)->revoke((int) $studentId, $request);
         }
 
         $request->session()->forget([
@@ -828,7 +858,16 @@ class StudentDashboardController extends Controller
         $student->update(['password' => Hash::make($validated['password'])]);
 
         $request->session()->forget('pending_set_password_index');
+        $request->session()->regenerate();
         session(['student_id' => $student->id, 'student_index' => $student->index_number]);
+        app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+            'request' => $request,
+            'subject_type' => 'student',
+            'subject_id' => $student->id,
+            'class_id' => $student->class_id,
+            'payload' => ['index_number' => $student->index_number, 'first_login' => true, 'via' => 'set_password'],
+        ]);
 
         return $this->redirectAfterStudentAuth($student)->with('success', 'You’re all set. Welcome to a-tenda!');
     }

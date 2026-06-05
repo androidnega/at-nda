@@ -212,16 +212,73 @@
                             <ul class="divide-y divide-gray-100 bg-white rounded-lg border border-gray-100 max-h-72 overflow-y-auto">
                                 @foreach($present->unique('student_id') as $a)
                                     <li class="px-3 py-2 flex items-center justify-between gap-2 text-xs">
-                                        <span class="min-w-0">
+                                        <span class="min-w-0 flex-1">
                                             <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
                                             @if($a->student)
                                                 <span class="ml-1 text-gray-600">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
                                             @endif
+                                            @if(method_exists($a, 'isManuallyMarked') && $a->isManuallyMarked())
+                                                <span class="ml-1 inline-flex items-center gap-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                                                      title="{{ $a->manual_reason }}">
+                                                    <i class="fas fa-user-pen text-[8px]"></i> Manual
+                                                </span>
+                                            @endif
                                         </span>
-                                        <span class="text-gray-500 whitespace-nowrap">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
+                                        <span class="text-gray-500 whitespace-nowrap shrink-0">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
+                                        @if(\App\Models\SystemSetting::repsCanDeleteAttendance() && \Illuminate\Support\Facades\Route::has('dashboard.class-attendance.delete'))
+                                            <form method="post" action="{{ route('dashboard.class-attendance.delete', $a) }}" class="shrink-0"
+                                                  onsubmit="return promptAttendanceDeleteReason(this);"
+                                                  onclick="event.stopPropagation();">
+                                                @csrf
+                                                @method('DELETE')
+                                                <input type="hidden" name="reason" value="">
+                                                <button type="submit" title="Delete this attendance row"
+                                                        class="inline-flex items-center justify-center w-6 h-6 rounded-md text-red-500/80 hover:bg-red-50 hover:text-red-700">
+                                                    <i class="fas fa-xmark text-[10px]"></i>
+                                                </button>
+                                            </form>
+                                        @endif
                                     </li>
                                 @endforeach
                             </ul>
+                        @endif
+
+                        {{-- Manual mark: lets the rep record attendance for a student who couldn't mark themselves. --}}
+                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.manual-mark') && !empty($classmates ?? null))
+                            <details class="rounded-lg border border-indigo-100 bg-indigo-50/40">
+                                <summary class="cursor-pointer list-none px-3 py-2 text-[11px] font-semibold text-indigo-900 flex items-center gap-2"
+                                         onclick="event.stopPropagation();">
+                                    <i class="fas fa-user-pen text-[10px]"></i> Manually mark a student for week {{ $week->week_number }}
+                                </summary>
+                                <form action="{{ route('dashboard.class-attendance.manual-mark', [$course, $week]) }}" method="post"
+                                      class="p-3 space-y-2"
+                                      onclick="event.stopPropagation();"
+                                      onsubmit="return confirm('Manually mark this student? This is logged for audit.');">
+                                    @csrf
+                                    <div class="flex flex-col sm:flex-row gap-2">
+                                        <select name="student_id" required
+                                                class="flex-1 text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
+                                            <option value="">Pick a student…</option>
+                                            @foreach($classmates as $cm)
+                                                <option value="{{ $cm->id }}">{{ $cm->index_number }} — {{ trim(($cm->last_name ?? '').' '.($cm->first_name ?? '')) }}</option>
+                                            @endforeach
+                                        </select>
+                                        <select name="status" required
+                                                class="text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
+                                            <option value="present">Present</option>
+                                            <option value="late">Late</option>
+                                            <option value="absent">Absent</option>
+                                        </select>
+                                    </div>
+                                    <input type="text" name="reason" required minlength="3" maxlength="500"
+                                           placeholder="Reason (required, e.g. phone died, lecturer confirmed)"
+                                           class="w-full text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
+                                    <button type="submit"
+                                            class="inline-flex items-center gap-1 rounded-md bg-indigo-700 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-indigo-800">
+                                        <i class="fas fa-check"></i> Save manual mark
+                                    </button>
+                                </form>
+                            </details>
                         @endif
                     @endif
 
@@ -313,13 +370,29 @@
 (function () {
     const form = document.getElementById('attendance-filters-form');
     const search = document.getElementById('attendance-search');
-    if (!form || !search) return;
-    let t;
-    search.addEventListener('input', function () {
-        clearTimeout(t);
-        t = setTimeout(function () { form.requestSubmit(); }, 350);
-    });
+    if (form && search) {
+        let t;
+        search.addEventListener('input', function () {
+            clearTimeout(t);
+            t = setTimeout(function () { form.requestSubmit(); }, 350);
+        });
+    }
 })();
+
+// Prompt the rep for a deletion reason and stash it into the hidden
+// `reason` field before submitting. Returns false to cancel if blank.
+window.promptAttendanceDeleteReason = function (formEl) {
+    const reason = window.prompt('Why are you deleting this attendance record?\nThis is logged for audit and cannot be undone.', '');
+    if (reason === null) return false;
+    const trimmed = reason.trim();
+    if (trimmed.length < 3) {
+        alert('Please provide a reason (at least 3 characters).');
+        return false;
+    }
+    const hidden = formEl.querySelector('input[name="reason"]');
+    if (hidden) hidden.value = trimmed;
+    return true;
+};
 </script>
 @endpush
 @endsection

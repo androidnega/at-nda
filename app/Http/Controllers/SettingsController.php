@@ -56,6 +56,10 @@ class SettingsController extends Controller
                 $rules['mail_action'] = 'nullable|in:save,test';
                 $rules['mail_test_to'] = 'nullable|email|max:255';
             }
+
+            if (SystemSetting::hasAllowRepDeletionColumn()) {
+                $rules['allow_rep_attendance_deletion'] = 'nullable|boolean';
+            }
         }
         $validated = $request->validate($rules);
         if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
@@ -99,6 +103,10 @@ class SettingsController extends Controller
             }
             $payload['attendance_mode'] = $mode;
             $payload['instant_mode_type'] = $instant;
+        }
+
+        if ($request->session()->has('admin_id') && SystemSetting::hasAllowRepDeletionColumn()) {
+            $payload['allow_rep_attendance_deletion'] = $request->boolean('allow_rep_attendance_deletion');
         }
 
         if ($request->session()->has('admin_id') && SystemSetting::hasMailColumns()) {

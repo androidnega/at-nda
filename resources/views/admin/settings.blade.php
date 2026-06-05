@@ -133,6 +133,21 @@
             </label>
             @endif
 
+            @if(session()->has('admin_id') && \App\Models\SystemSetting::hasAllowRepDeletionColumn())
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-red-100 bg-red-50/40 hover:bg-red-50/60 transition cursor-pointer">
+                <div>
+                    <span class="font-medium text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-trash-can text-red-500/80 text-sm"></i>
+                        Allow class reps to delete attendance
+                    </span>
+                    <p class="text-sm text-gray-500 mt-0.5">When OFF, only super admins can delete attendance. Every rep deletion is logged with the deleted row + reason.</p>
+                </div>
+                <input type="hidden" name="allow_rep_attendance_deletion" value="0">
+                <input type="checkbox" name="allow_rep_attendance_deletion" value="1" {{ ($settings->allow_rep_attendance_deletion ?? false) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500">
+            </label>
+            @endif
+
             <div class="p-4 rounded-xl border border-gray-100">
                 <label for="face_match_threshold" class="font-medium text-gray-800 block mb-1">Face Match Threshold</label>
                 <p class="text-sm text-gray-500 mb-2">Lower = stricter match (default 0.5). Range: 0.2–1.0</p>

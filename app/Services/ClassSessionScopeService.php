@@ -16,8 +16,13 @@ class ClassSessionScopeService
 {
     /**
      * Deactivate active sessions for a class (optionally limited to one course).
-     * Sessions that had nobody marked are deleted outright so the student
-     * history doesn't list a "missed class" for each open/close cycle.
+     *
+     * Today's empty sessions on the same logical (course, class, week, day)
+     * meeting are kept around as `is_active=false` so a reopen can reactivate
+     * them in place (no duplicate row, no lost roster). Empty sessions from
+     * *prior* days are still deleted, since those are zombies from open/close
+     * mistakes on a different day and would otherwise pollute the student's
+     * "missed class" list.
      */
     public static function deactivateActiveSessionsForClass(?int $classId, ?int $courseId = null): void
     {
@@ -33,29 +38,29 @@ class ClassSessionScopeService
 
         AttendanceSessionClassScope::applyForClass($query, (int) $classId);
 
-        // Pull the rows so we can split "had attendance" from "empty" and
-        // act on each set differently. The set is small (at most a handful
-        // of active sessions per class at any moment).
         $sessions = (clone $query)->get();
         if ($sessions->isEmpty()) {
             return;
         }
 
-        $emptyIds = [];
+        $today = now()->toDateString();
+        $emptyOldIds = [];
         $keepIds = [];
         foreach ($sessions as $s) {
             $hasAttendance = Attendance::query()
                 ->where('attendance_session_id', $s->id)
                 ->exists();
-            if ($hasAttendance) {
+            $isToday = $s->start_time && $s->start_time->toDateString() === $today;
+
+            if ($hasAttendance || $isToday) {
                 $keepIds[] = (int) $s->id;
             } else {
-                $emptyIds[] = (int) $s->id;
+                $emptyOldIds[] = (int) $s->id;
             }
         }
 
-        if ($emptyIds !== []) {
-            AttendanceSession::query()->whereIn('id', $emptyIds)->delete();
+        if ($emptyOldIds !== []) {
+            AttendanceSession::query()->whereIn('id', $emptyOldIds)->delete();
         }
         if ($keepIds !== []) {
             AttendanceSession::query()

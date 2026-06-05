@@ -87,6 +87,66 @@ class AttendanceSession extends Model
     }
 
     /**
+     * Reopen the existing session for this (course, class, week, date)
+     * tuple if one already exists, or create a new one. Never produces a
+     * duplicate session for the same logical class meeting, so previously
+     * marked students stay marked when a rep closes + reopens.
+     *
+     * Returns [$session, $wasReopened]. Caller is responsible for
+     * auto-marking reps, broadcasting, etc.
+     *
+     * @param  array<string,mixed>  $attrs
+     * @return array{0: self, 1: bool}
+     */
+    public static function openOrReopenForClass(
+        int $courseId,
+        ?int $classId,
+        int $attendanceWeekId,
+        array $attrs
+    ): array {
+        // Pick the most recent session whose week + class + course match
+        // *and* whose start_time falls on today's date. Two sessions in the
+        // same week but on different real days are still distinct meetings.
+        $today = now()->toDateString();
+
+        $query = self::query()
+            ->where('course_id', $courseId)
+            ->where('attendance_week_id', $attendanceWeekId)
+            ->whereDate('start_time', $today)
+            ->orderByDesc('id');
+
+        if ($classId !== null && $classId > 0 && \App\Support\SchemaFeatures::hasAttendanceSessionsClassId()) {
+            $query->where('class_id', $classId);
+        }
+
+        $existing = $query->first();
+
+        // Strip immutable attributes the caller might pass.
+        $attrs['is_active'] = true;
+        $attrs['course_id'] = $courseId;
+        if ($classId !== null && \App\Support\SchemaFeatures::hasAttendanceSessionsClassId()) {
+            $attrs['class_id'] = $classId;
+        }
+        $attrs['attendance_week_id'] = $attendanceWeekId;
+
+        if ($existing) {
+            $update = $attrs;
+            // Preserve the original session_token so QR codes & links the
+            // students bookmarked keep working. Same for session_index.
+            unset($update['session_token'], $update['session_index'], $update['start_time']);
+            // Refresh expiry / lecturer status / venue / mode for the new
+            // window the rep just chose.
+            $existing->update($update);
+
+            return [$existing->fresh(), true];
+        }
+
+        $attrs['session_index'] = $attrs['session_index'] ?? self::nextIndexForCourse($courseId);
+
+        return [self::create($attrs), false];
+    }
+
+    /**
      * Human-readable join code (e.g. CSC101-4821) for manual entry and QR payload.
      */
     public static function generateUniqueSessionCodeForCourse(Course $course): string

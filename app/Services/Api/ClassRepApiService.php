@@ -400,28 +400,28 @@ class ClassRepApiService
 
         $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
 
-        $sessionModel = AttendanceSession::create([
-            'course_id' => $course->id,
-            'class_id' => $repClassId,
-            'session_index' => AttendanceSession::nextIndexForCourse($course->id),
-            'attendance_week_id' => $week->id,
-            'mode' => $validated['mode'],
-            'attendance_mode' => $globalAttendanceMode,
-            'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
-            'is_active' => true,
-            'checkout_enabled' => false,
-            'session_token' => Str::random(32),
-            'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
-            'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
-            'start_time' => now(),
-            'end_time' => $expiresAt,
-            'expected_end_time' => $expectedEnd,
-            'expires_at' => $expiresAt,
-            'lecturer_status' => $validated['lecturer_status'],
-            'location_lat' => $needsAnchor ? $lat : null,
-            'location_lng' => $needsAnchor ? $lng : null,
-            'attendance_range_m' => $needsAnchor ? $range : null,
-        ]);
+        [$sessionModel, $wasReopened] = AttendanceSession::openOrReopenForClass(
+            (int) $course->id,
+            $repClassId ? (int) $repClassId : null,
+            (int) $week->id,
+            [
+                'mode' => $validated['mode'],
+                'attendance_mode' => $globalAttendanceMode,
+                'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
+                'checkout_enabled' => false,
+                'session_token' => Str::random(32),
+                'lecturer_id' => $snapshot['lecturer_id'] ?? $course->lecturer_id,
+                'venue_id' => $snapshot['venue_id'] ?? $course->venue_id,
+                'start_time' => now(),
+                'end_time' => $expiresAt,
+                'expected_end_time' => $expectedEnd,
+                'expires_at' => $expiresAt,
+                'lecturer_status' => $validated['lecturer_status'],
+                'location_lat' => $needsAnchor ? $lat : null,
+                'location_lng' => $needsAnchor ? $lng : null,
+                'attendance_range_m' => $needsAnchor ? $range : null,
+            ]
+        );
 
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
@@ -430,7 +430,24 @@ class ClassRepApiService
         $presentCount = Attendance::where('attendance_session_id', $sessionModel->id)
             ->where('status', 'present')
             ->count();
-        event(new SessionLiveEvent($sessionModel->fresh(['course']), 'session_opened', ['present_count' => $presentCount]));
+        event(new SessionLiveEvent($sessionModel->fresh(['course']), $wasReopened ? 'session_reopened' : 'session_opened', ['present_count' => $presentCount]));
+
+        \App\Services\AuditLogService::record(
+            $wasReopened ? \App\Services\AuditLogService::SESSION_REOPENED : \App\Services\AuditLogService::SESSION_OPENED,
+            [
+                'course_id' => (int) $course->id,
+                'class_id' => $repClassId ? (int) $repClassId : null,
+                'attendance_session_id' => (int) $sessionModel->id,
+                'subject_type' => 'attendance_session',
+                'subject_id' => (int) $sessionModel->id,
+                'payload' => [
+                    'week_number' => $week->week_number,
+                    'duration_minutes' => $duration,
+                    'mode' => $validated['mode'],
+                    'channel' => 'api',
+                ],
+            ]
+        );
 
         $sessionModel->refresh();
         $sessionModel->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);

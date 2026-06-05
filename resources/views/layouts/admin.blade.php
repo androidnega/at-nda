@@ -117,6 +117,12 @@
                     <i class="fas fa-cog w-5 text-center"></i>
                     <span>Settings</span>
                 </a>
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.audit-logs.index'))
+                <a href="{{ route('dashboard.audit-logs.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.audit-logs.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fas fa-shield-halved w-5 text-center"></i>
+                    <span>Audit logs</span>
+                </a>
+                @endif
                 @endif
             </nav>
         </div>

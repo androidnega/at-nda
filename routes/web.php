@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminAttendanceWeekController;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendancePdfController;
@@ -119,7 +120,7 @@ Route::get('/media/universities/{university}/logo', [UniversityLogoController::c
 | Web-only student attendance (Blade + fetch). Canonical paths under /web/attendance.
 | Flutter/mobile continues to use /api/* only — unchanged here.
 */
-Route::middleware(['student.attendance', 'no-store'])->prefix('web/attendance')->name('web.attendance.')->group(function () {
+Route::middleware(['student.attendance', 'student.session.integrity', 'no-store'])->prefix('web/attendance')->name('web.attendance.')->group(function () {
     Route::post('verify', [AttendanceController::class, 'verify'])->name('verify');
     Route::post('mark', [AttendanceController::class, 'mark'])->name('mark');
     Route::post('sync', [AttendanceController::class, 'sync'])->name('sync');
@@ -153,7 +154,7 @@ Route::middleware('no-store')->group(function () {
     Route::post('/student/password/verify', [StudentPasswordResetController::class, 'confirm'])->name('student.password.confirm');
 });
 
-Route::middleware(['student.auth', 'no-store'])->group(function () {
+Route::middleware(['student.auth', 'student.session.integrity', 'no-store'])->group(function () {
     Route::get('/student/attendance-web', [StudentDashboardController::class, 'attendanceWebEntry'])->name('student.attendance.web');
     Route::get('/student/attendance-history', [StudentDashboardController::class, 'attendanceHistory'])->name('student.attendance.history');
     Route::get('/student/onboarding', [StudentDashboardController::class, 'onboardingForm'])->name('student.onboarding');
@@ -224,6 +225,12 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
+        // Rep manually marks a student attendance with a reason.
+        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/manual-mark', [ClassRepController::class, 'manualMarkAttendance'])->name('class-attendance.manual-mark');
+        // Rep deletes a single attendance row (only when super admin has enabled it).
+        Route::delete('/class-attendance/{attendance}', [ClassRepController::class, 'deleteAttendance'])->name('class-attendance.delete');
+        // Read-only audit log scoped to courses / classes this rep manages.
+        Route::get('/class-attendance/audit-logs', [AuditLogController::class, 'repIndex'])->name('class-attendance.audit-logs');
 
         // Rep bulk-imports a class roster (index numbers, optionally names).
         Route::post('/rep/students/import', [ClassRepController::class, 'importStudents'])->name('rep.students.import');
@@ -301,6 +308,7 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         });
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+        Route::middleware('admin.only')->get('/audit-logs', [AuditLogController::class, 'adminIndex'])->name('audit-logs.index');
         Route::middleware('admin.only')->prefix('api/mobile-app')->name('api.mobile-app.')->group(function () {
             Route::get('dashboard-themes', [MobileDashboardThemeController::class, 'show'])->name('dashboard-themes.show');
             Route::match(['put', 'patch'], 'dashboard-themes', [MobileDashboardThemeController::class, 'update'])->name('dashboard-themes.update');

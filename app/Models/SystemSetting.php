@@ -34,6 +34,7 @@ class SystemSetting extends Model
         'mail_password_encrypted',
         'mail_from_address',
         'mail_from_name',
+        'allow_rep_attendance_deletion',
     ];
 
     protected $casts = [
@@ -50,11 +51,29 @@ class SystemSetting extends Model
         'mail_enabled' => 'boolean',
         // Stored encrypted via APP_KEY so SMTP creds never sit in plaintext.
         'mail_password_encrypted' => 'encrypted',
+        'allow_rep_attendance_deletion' => 'boolean',
     ];
 
     public static function hasMailColumns(): bool
     {
         return \App\Support\SchemaFeatures::hasMailSettings();
+    }
+
+    public static function hasAllowRepDeletionColumn(): bool
+    {
+        return \App\Support\SchemaFeatures::hasAllowRepDeletionSetting();
+    }
+
+    public static function repsCanDeleteAttendance(): bool
+    {
+        if (! self::hasAllowRepDeletionColumn()) {
+            return false;
+        }
+        try {
+            return (bool) (self::get()->allow_rep_attendance_deletion ?? false);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     public const ATTENDANCE_MODE_INSTANT = 'instant';
