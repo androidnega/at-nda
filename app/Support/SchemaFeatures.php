@@ -17,6 +17,8 @@ final class SchemaFeatures
 
     private static ?bool $attendanceWeeksClassId = null;
 
+    private static ?bool $attendanceSessionsClassId = null;
+
     private static ?bool $classesQualification = null;
 
     private static ?bool $coursesQualification = null;
@@ -40,6 +42,13 @@ final class SchemaFeatures
     {
         return self::$attendanceWeeksClassId ??= (
             Schema::hasTable('attendance_weeks') && Schema::hasColumn('attendance_weeks', 'class_id')
+        );
+    }
+
+    public static function hasAttendanceSessionsClassId(): bool
+    {
+        return self::$attendanceSessionsClassId ??= (
+            Schema::hasTable('attendance_sessions') && Schema::hasColumn('attendance_sessions', 'class_id')
         );
     }
 

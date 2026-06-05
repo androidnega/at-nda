@@ -13,6 +13,7 @@ class AttendanceSession extends Model
 {
     protected $fillable = [
         'course_id',
+        'class_id',
         'session_index',
         'attendance_week_id',
         'mode',
@@ -36,6 +37,7 @@ class AttendanceSession extends Model
         'session_code',
     ];
 
+
     public function attendanceWeek(): BelongsTo
     {
         return $this->belongsTo(AttendanceWeek::class);
@@ -56,6 +58,11 @@ class AttendanceSession extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function schoolClass(): BelongsTo
+    {
+        return $this->belongsTo(SchoolClass::class, 'class_id');
     }
 
     /**
@@ -131,12 +138,17 @@ class AttendanceSession extends Model
      * Resolve the session used for marking: current active session, or token/id match.
      * Class reps may mark on a recently ended session (see {@see canBeMarkedByClassRep}).
      */
-    public static function resolveForMarking(Course $course, ?string $sessionToken, ?int $sessionId, bool $isClassRep): ?self
-    {
+    public static function resolveForMarking(
+        Course $course,
+        ?string $sessionToken,
+        ?int $sessionId,
+        bool $isClassRep,
+        ?int $studentClassId = null,
+    ): ?self {
         $session = null;
 
         if ($sessionId !== null && $sessionId > 0) {
-            $session = static::query()->with('course')->find($sessionId);
+            $session = static::query()->with(['course', 'attendanceWeek'])->find($sessionId);
             if (! $session || (int) $session->course_id !== (int) $course->id) {
                 return null;
             }
@@ -146,10 +158,15 @@ class AttendanceSession extends Model
                 return null;
             }
         } else {
-            $session = $course->activeSession();
+            $session = $course->activeSessionForClass($studentClassId);
         }
 
         if (! $session) {
+            return null;
+        }
+
+        if ($studentClassId !== null && $studentClassId > 0
+            && ! \App\Support\AttendanceSessionClassScope::sessionBelongsToClass($session, $studentClassId)) {
             return null;
         }
 
@@ -410,6 +427,17 @@ class AttendanceSession extends Model
 
     protected static function booted(): void
     {
+        // Drop the optional class_id attribute on older deploys before the
+        // 2026_05_21_160000_add_class_id_to_attendance_sessions_table
+        // migration has run, so create()/update() never fail with
+        // "unknown column 'class_id'".
+        static::saving(function (self $session): void {
+            if (! \App\Support\SchemaFeatures::hasAttendanceSessionsClassId()
+                && array_key_exists('class_id', $session->getAttributes())) {
+                unset($session->attributes['class_id']);
+            }
+        });
+
         static::creating(function (AttendanceSession $session) {
             if (empty($session->session_token)) {
                 $session->session_token = Str::random(32);

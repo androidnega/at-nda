@@ -176,10 +176,22 @@ class StudentDashboardController extends Controller
 
         // Drop attendance rows whose backing week was cancelled or reset
         // so the student's headline numbers match what the rep, lecturer,
-        // and PDF views show.
-        $baseAttendance = fn () => Attendance::query()
-            ->where('student_id', $student->id)
-            ->activeWeeksOnly();
+        // and PDF views show. Also restrict to sessions that were opened
+        // for THIS student's class — historical reps were sometimes auto
+        // marked into other classes' sessions and those rows must not be
+        // counted against this student's totals.
+        $baseAttendance = function () use ($student) {
+            $q = Attendance::query()
+                ->where('student_id', $student->id)
+                ->activeWeeksOnly();
+            if ($student->class_id) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                    $q,
+                    [(int) $student->class_id]
+                );
+            }
+            return $q;
+        };
 
         $totalPresent = $baseAttendance()
             ->countedAsPresent()
@@ -322,12 +334,19 @@ class StudentDashboardController extends Controller
         // Flag which of today's slots the student has already been
         // marked present for, so the UI can label them as done.
         $courseIds = $rows->pluck('course.id')->filter()->unique()->values()->all();
-        $presentToday = Attendance::query()
+        $presentTodayQuery = Attendance::query()
             ->where('student_id', $student->id)
             ->activeWeeksOnly()
             ->countedAsPresent()
             ->whereDate('attendance_time', now()->toDateString())
-            ->whereIn('course_id', $courseIds)
+            ->whereIn('course_id', $courseIds);
+        if ($student->class_id) {
+            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                $presentTodayQuery,
+                [(int) $student->class_id]
+            );
+        }
+        $presentToday = $presentTodayQuery
             ->pluck('course_id')
             ->map(fn ($id) => (int) $id)
             ->flip();
@@ -383,31 +402,45 @@ class StudentDashboardController extends Controller
 
         // Hide attendance rows whose backing week has been cancelled or
         // wiped during an admin reset — those still live in the DB for
-        // audit, but shouldn't surface as "missed class" entries.
-        $attendances = Attendance::where('student_id', $student->id)
+        // audit, but shouldn't surface as "missed class" entries. Also
+        // exclude marks tied to sessions opened for another class
+        // (legacy rep auto-mark across all assigned classes).
+        $applyClassScope = function ($q) use ($student) {
+            if ($student->class_id) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                    $q,
+                    [(int) $student->class_id]
+                );
+            }
+        };
+
+        $attendancesQuery = Attendance::where('student_id', $student->id)
             ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek'])
             ->orderByDesc('attendance_time')
-            ->limit(50)
-            ->get();
+            ->limit(50);
+        $applyClassScope($attendancesQuery);
+        $attendances = $attendancesQuery->get();
 
-        $byCourse = Attendance::where('student_id', $student->id)
+        $byCourseQuery = Attendance::where('student_id', $student->id)
             ->countedAsPresent()
             ->activeWeeksOnly()
             ->join('courses', 'attendances.course_id', '=', 'courses.id')
             ->select('courses.course_name', 'courses.course_code', DB::raw('COUNT(*) as count'))
-            ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
-            ->get();
+            ->groupBy('courses.id', 'courses.course_name', 'courses.course_code');
+        $applyClassScope($byCourseQuery);
+        $byCourse = $byCourseQuery->get();
 
-        $byWeek = Attendance::where('student_id', $student->id)
+        $byWeekQuery = Attendance::where('student_id', $student->id)
             ->countedAsPresent()
             ->activeWeeksOnly()
             ->join('attendance_weeks', 'attendances.attendance_week_id', '=', 'attendance_weeks.id')
             ->whereNull('attendance_weeks.cancelled_at')
             ->select('attendance_weeks.week_number', DB::raw('COUNT(*) as count'))
             ->groupBy('attendance_weeks.week_number')
-            ->orderBy('attendance_weeks.week_number')
-            ->get();
+            ->orderBy('attendance_weeks.week_number');
+        $applyClassScope($byWeekQuery);
+        $byWeek = $byWeekQuery->get();
 
         return view('student.attendance-history', compact(
             'student',
@@ -609,16 +642,17 @@ class StudentDashboardController extends Controller
             return collect();
         }
 
-        return AttendanceSession::query()
+        $query = AttendanceSession::query()
             ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
+            ->activeWithinTimeWindow()
             ->where(function ($q) {
                 $q->whereNull('attendance_week_id')
                     ->orWhereHas('attendanceWeek', fn ($w) => $w->whereNull('cancelled_at'));
-            })
+            });
+
+        \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $student->class_id);
+
+        return $query
             ->with(['course.lecturer', 'course.venueRelation', 'attendanceWeek'])
             ->orderBy('expires_at')
             ->get()

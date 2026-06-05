@@ -167,8 +167,9 @@ class ClassRepApiService
             $role = $cr?->role ?? 'rep';
             $canOpen = $cr?->isMainRep() ?? false;
 
+            $repClassId = $this->resolveRepClassId($student, $course);
             $activeSession = null;
-            foreach ($course->attendanceSessions as $s) {
+            foreach ($course->activeSessionsForClass($repClassId) as $s) {
                 if ($s->is_active && $s->isValid()) {
                     $activeSession = $s;
                     break;
@@ -401,6 +402,7 @@ class ClassRepApiService
 
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
+            'class_id' => $repClassId,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
             'mode' => $validated['mode'],
@@ -421,9 +423,9 @@ class ClassRepApiService
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
 
-        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
-        app(FcmNotificationService::class)->sendSessionStartedToClass($course);
+        app(FcmNotificationService::class)->sendSessionStartedToClass($course, $repClassId);
 
         $presentCount = Attendance::where('attendance_session_id', $sessionModel->id)
             ->where('status', 'present')

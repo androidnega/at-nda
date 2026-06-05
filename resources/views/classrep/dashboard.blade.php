@@ -224,7 +224,7 @@
             <div class="p-3 space-y-3 max-h-[min(70vh,32rem)] overflow-y-auto">
                 @php $hasActive = false; @endphp
                 @foreach($courses as $item)
-                    @php $course = $item->course; $activeSession = $course->activeSession(); @endphp
+                    @php $course = $item->course; $activeSession = $item->active_session ?? null; @endphp
                     @if($activeSession)
                         @php $hasActive = true; $expiresIso = $activeSession->expires_at?->toIso8601String(); @endphp
                         <div

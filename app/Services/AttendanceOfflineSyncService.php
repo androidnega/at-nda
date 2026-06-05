@@ -57,7 +57,8 @@ class AttendanceOfflineSyncService
                 $course,
                 isset($record['session_token']) ? (string) $record['session_token'] : null,
                 null,
-                $isRep
+                $isRep,
+                $student->class_id ? (int) $student->class_id : null,
             );
             if (! $session) {
                 $failed++;

@@ -66,11 +66,11 @@ class SessionController extends Controller
                         'message' => 'Course not found',
                     ], 404);
                 }
-                if ($classIdFilter && $course->class_id !== (int) $classIdFilter) {
+                if ($classIdFilter && ! $course->isAssignedToClass((int) $classIdFilter)) {
                     return response()->json($this->sessionsListPayload(collect(), $student, $missedExtras));
                 }
 
-                $sessions = $course->activeSessions();
+                $sessions = $course->activeSessionsForClass($classIdFilter ? (int) $classIdFilter : null);
                 foreach ($sessions as $s) {
                     $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
                 }
@@ -87,9 +87,10 @@ class SessionController extends Controller
             }
 
             $query = AttendanceSession::with(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek'])
-                ->activeWithinTimeWindow();
+                ->activeWithinTimeWindow()
+                ->whereHas('course', fn ($q) => $q->forManagedClasses([(int) $classIdFilter]));
 
-            $query->whereHas('course', fn ($q) => $q->where('class_id', $classIdFilter));
+            \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $classIdFilter);
 
             $sessions = $query->latest('id')->get();
 

@@ -312,6 +312,11 @@ class Course extends Model
         return $this->activeSessions()->first();
     }
 
+    public function activeSessionForClass(?int $classId): ?AttendanceSession
+    {
+        return $this->activeSessionsForClass($classId)->first();
+    }
+
     /**
      * All attendance sessions for this course that are currently active (time window + is_active).
      *
@@ -319,11 +324,25 @@ class Course extends Model
      */
     public function activeSessions(): \Illuminate\Database\Eloquent\Collection
     {
-        return $this->attendanceSessions()
+        return $this->activeSessionsForClass(null);
+    }
+
+    /**
+     * Active sessions for one class cohort (required when the course is shared across classes).
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, AttendanceSession>
+     */
+    public function activeSessionsForClass(?int $classId): \Illuminate\Database\Eloquent\Collection
+    {
+        $query = $this->attendanceSessions()
             ->with(['attendanceWeek', 'course.lecturer', 'course.venueRelation', 'lecturer', 'venue'])
-            ->activeWithinTimeWindow()
-            ->latest('id')
-            ->get();
+            ->activeWithinTimeWindow();
+
+        if ($classId !== null && $classId > 0) {
+            \App\Support\AttendanceSessionClassScope::applyForClass($query, $classId);
+        }
+
+        return $query->latest('id')->get();
     }
 
     public function hasSchedule(): bool
@@ -357,33 +376,11 @@ class Course extends Model
     }
 
     /**
-     * Reps may open attendance anytime. On the course's scheduled weekday, expiry is capped
-     * at the timetable end time so the live session does not run past the official slot.
-     * On other days (or after that day's slot has ended), the full requested duration applies.
+     * Session length is exactly what the rep chose (duration_minutes); timetable does not shorten it.
      */
     public function computeSessionExpiresAt(int $durationMinutes, ?int $classId = null): \Carbon\Carbon
     {
-        $candidate = now()->addMinutes(max(1, $durationMinutes));
-        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($this, $classId);
-        if ($snapshot === null) {
-            return $candidate;
-        }
-        $todayName = now()->format('l');
-        if (strcasecmp(trim((string) $snapshot['day_of_week']), $todayName) !== 0) {
-            return $candidate;
-        }
-        try {
-            $slotEnd = now()->copy()->setTimeFromTimeString(
-                \Carbon\Carbon::parse($snapshot['end_time'])->format('H:i:s')
-            );
-        } catch (\Throwable $e) {
-            return $candidate;
-        }
-        if ($slotEnd->isPast()) {
-            return $candidate;
-        }
-
-        return $candidate->lessThanOrEqualTo($slotEnd) ? $candidate : $slotEnd;
+        return now()->addMinutes(max(1, $durationMinutes));
     }
 
     public function getScheduleLabel(): string

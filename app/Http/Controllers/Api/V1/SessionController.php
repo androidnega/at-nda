@@ -42,8 +42,11 @@ class SessionController extends Controller
             $query = AttendanceSession::query()
                 ->with(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek'])
                 ->activeWithinTimeWindow()
-                ->whereHas('course', fn ($q) => $q->where('class_id', $auth->class_id))
-                ->latest('id');
+                ->whereHas('course', fn ($q) => $q->forManagedClasses([(int) $auth->class_id]));
+
+            \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $auth->class_id);
+
+            $query->latest('id');
 
             if ($courseId) {
                 $query->where('course_id', (int) $courseId);
@@ -116,7 +119,7 @@ class SessionController extends Controller
                 if (! $course) {
                     return ApiEnvelope::errorResponse('Course not found', 404);
                 }
-                if ($classIdFilter && $course->class_id !== (int) $classIdFilter) {
+                if ($classIdFilter && ! $course->isAssignedToClass((int) $classIdFilter)) {
                     $body = array_merge([
                         'sessions' => ActiveSessionResource::collection(collect()),
                     ], $missedExtras);
@@ -124,7 +127,7 @@ class SessionController extends Controller
                     return response()->json(ApiEnvelope::success($body, 'Sessions fetched'));
                 }
 
-                $sessions = $course->activeSessions();
+                $sessions = $course->activeSessionsForClass($classIdFilter ? (int) $classIdFilter : null);
                 foreach ($sessions as $s) {
                     $s->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
                 }
@@ -146,7 +149,8 @@ class SessionController extends Controller
                 ->activeWithinTimeWindow();
 
             if ($classIdFilter) {
-                $query->whereHas('course', fn ($q) => $q->where('class_id', $classIdFilter));
+                $query->whereHas('course', fn ($q) => $q->forManagedClasses([(int) $classIdFilter]));
+                \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $classIdFilter);
             }
 
             $sessions = $query->latest('id')->get();

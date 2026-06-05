@@ -59,7 +59,8 @@ class AttendanceSessionController extends Controller
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
         ClassSessionScopeService::deactivateActiveSessionsForClass(
-            $course->class_id ? (int) $course->class_id : null
+            $primaryClassId ? (int) $primaryClassId : null,
+            (int) $course->id
         );
 
         $week = $course->createOrGetAttendanceWeekForToday($primaryClassId);
@@ -69,6 +70,7 @@ class AttendanceSessionController extends Controller
         $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $primaryClassId);
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
+            'class_id' => $primaryClassId,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
             'mode' => $validated['mode'],
@@ -84,9 +86,9 @@ class AttendanceSessionController extends Controller
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
 
-        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $primaryClassId);
 
-        app(FcmNotificationService::class)->sendSessionStartedToClass($course);
+        app(FcmNotificationService::class)->sendSessionStartedToClass($course, $primaryClassId);
 
         $activeMinutes = max(1, (int) ceil(($expiresAt->getTimestamp() - now()->getTimestamp()) / 60));
 

@@ -144,7 +144,7 @@ final class RepCourseAccess
     public static function deactivateSessionsForCourse(Student $rep, Course $course): void
     {
         foreach (self::scopedClassIdsForCourse($rep, $course) as $classId) {
-            ClassSessionScopeService::deactivateActiveSessionsForClass($classId);
+            ClassSessionScopeService::deactivateActiveSessionsForClass($classId, (int) $course->id);
         }
     }
 }

@@ -12,7 +12,7 @@ class FcmNotificationService
     /**
      * Notify all students in the course's class that a session is active (legacy HTTP API).
      */
-    public function sendSessionStartedToClass(Course $course): void
+    public function sendSessionStartedToClass(Course $course, ?int $classId = null): void
     {
         $key = config('services.fcm.server_key');
         if (empty($key)) {
@@ -21,7 +21,9 @@ class FcmNotificationService
             return;
         }
 
-        $classIds = $course->assignedClassIds();
+        $classIds = $classId !== null && $classId > 0
+            ? [(int) $classId]
+            : $course->assignedClassIds();
         if ($classIds === []) {
             return;
         }

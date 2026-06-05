@@ -20,7 +20,9 @@ class AttendanceController extends Controller
 {
     public function form(Course $course, Request $request): View
     {
-        $activeSession = $course->activeSession();
+        $activeSession = $loggedInStudent?->class_id
+            ? $course->activeSessionForClass((int) $loggedInStudent->class_id)
+            : null;
         $settings = SystemSetting::get();
         $loggedInStudent = null;
         if ($request->session()->has('student_id')) {
@@ -113,7 +115,8 @@ class AttendanceController extends Controller
             $course,
             $validated['session_token'] ?? null,
             $sessionId > 0 ? $sessionId : null,
-            $isClassRep
+            $isClassRep,
+            $student->class_id ? (int) $student->class_id : null,
         );
         if (! $session) {
             return response()->json(['verified' => false, 'message' => 'Session closed or expired'], 422);
@@ -233,13 +236,17 @@ class AttendanceController extends Controller
             if (! $session || ! $session->isValid()) {
                 return response()->json(['success' => false, 'message' => 'Invalid or expired session code'], 422);
             }
+            if ($student->class_id && ! \App\Support\AttendanceSessionClassScope::sessionBelongsToClass($session, (int) $student->class_id)) {
+                return response()->json(['success' => false, 'message' => 'This session is not for your class'], 403);
+            }
         } else {
             $sessionId = isset($validated['session_id']) ? (int) $validated['session_id'] : null;
             $session = AttendanceSession::resolveForMarking(
                 $course,
                 $validated['session_token'] ?? null,
                 $sessionId > 0 ? $sessionId : null,
-                $isClassRep
+                $isClassRep,
+                $student->class_id ? (int) $student->class_id : null,
             );
         }
 

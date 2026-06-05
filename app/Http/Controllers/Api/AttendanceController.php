@@ -696,7 +696,13 @@ class AttendanceController extends Controller
         if ($course) {
             $isRep = $student->isClassRepForCourse((int) $course->id);
 
-            return AttendanceSession::resolveForMarking($course, $sessionToken, null, $isRep);
+            return AttendanceSession::resolveForMarking(
+                $course,
+                $sessionToken,
+                null,
+                $isRep,
+                $student->class_id ? (int) $student->class_id : null,
+            );
         }
 
         return null;

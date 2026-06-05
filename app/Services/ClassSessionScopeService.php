@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\ClassRep;
 use App\Models\Course;
+use App\Support\AttendanceSessionClassScope;
 
 /**
  * Shared rules when opening an attendance session: one active session per class scope
@@ -14,32 +15,41 @@ use App\Models\Course;
 class ClassSessionScopeService
 {
     /**
-     * Deactivate all active sessions for any course belonging to this class.
+     * Deactivate active sessions for a class (optionally limited to one course).
      */
-    public static function deactivateActiveSessionsForClass(?int $classId): void
+    public static function deactivateActiveSessionsForClass(?int $classId, ?int $courseId = null): void
     {
         if (! $classId) {
             return;
         }
 
-        AttendanceSession::query()
-            ->where('is_active', true)
-            ->whereHas('course', fn ($q) => $q->forClass((int) $classId))
-            ->update(['is_active' => false]);
+        $query = AttendanceSession::query()->where('is_active', true);
+
+        if ($courseId !== null && $courseId > 0) {
+            $query->where('course_id', $courseId);
+        }
+
+        AttendanceSessionClassScope::applyForClass($query, (int) $classId);
+
+        $query->update(['is_active' => false]);
     }
 
     /**
-     * Insert present attendance for every class rep in this class (idempotent).
+     * Insert present attendance for class reps in the opening class only (idempotent).
      */
-    public static function autoMarkClassRepsForSession(AttendanceSession $session, Course $course): void
+    public static function autoMarkClassRepsForSession(AttendanceSession $session, Course $course, ?int $classId = null): void
     {
-        $classIds = $course->assignedClassIds();
-        if ($classIds === []) {
+        $classId = $classId ?? (int) ($session->class_id ?? 0);
+        if ($classId <= 0) {
+            $session->loadMissing('attendanceWeek');
+            $classId = (int) ($session->attendanceWeek?->class_id ?? 0);
+        }
+        if ($classId <= 0) {
             return;
         }
 
         $repIds = ClassRep::query()
-            ->whereIn('class_id', $classIds)
+            ->where('class_id', $classId)
             ->pluck('student_id')
             ->unique()
             ->values();

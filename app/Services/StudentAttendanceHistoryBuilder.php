@@ -27,13 +27,21 @@ class StudentAttendanceHistoryBuilder
         $this->pruneStaleRecentDuplicates($student);
 
         // Skip rows whose backing week was cancelled or wiped during a
-        // reset so the student's history doesn't show ghost marks.
-        $attendanceRows = Attendance::query()
+        // reset so the student's history doesn't show ghost marks. Also
+        // exclude attendance whose session was opened for another class
+        // (legacy rep auto-mark spilling across shared courses).
+        $attendanceQuery = Attendance::query()
             ->where('student_id', $student->id)
             ->activeWeeksOnly()
             ->with(['course', 'attendanceWeek', 'attendanceSession'])
-            ->latest('attendance_time')
-            ->get();
+            ->latest('attendance_time');
+        if ($student->class_id) {
+            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                $attendanceQuery,
+                [(int) $student->class_id]
+            );
+        }
+        $attendanceRows = $attendanceQuery->get();
 
         $history = collect();
 
@@ -167,10 +175,12 @@ class StudentAttendanceHistoryBuilder
         // would pollute the student's history with classes that no longer
         // exist. Sessions whose attendance_week_id is null are also dropped
         // (legacy / debug rows that can't be tied back to a real week).
-        $sessions = AttendanceSession::query()
+        $sessionsBaseQuery = AttendanceSession::query()
             ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
             ->whereNotNull('attendance_week_id')
-            ->whereHas('attendanceWeek', fn ($q) => $q->whereNull('cancelled_at'))
+            ->whereHas('attendanceWeek', fn ($q) => $q->whereNull('cancelled_at'));
+        \App\Support\AttendanceSessionClassScope::applyForClass($sessionsBaseQuery, (int) $student->class_id);
+        $sessions = $sessionsBaseQuery
             ->where(function ($q) use ($attendedSessionIds) {
                 $q->ended()
                     ->orWhere(function ($q2) {

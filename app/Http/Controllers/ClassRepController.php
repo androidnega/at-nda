@@ -120,31 +120,26 @@ class ClassRepController extends Controller
         // All three dashboard counters skip attendance rows pointing at
         // cancelled / reset weeks so the headline numbers match what the
         // PDFs and per-course pages show.
-        $totalAttendanceMarks = $courseIds->isEmpty()
-            ? 0
+        $marksBase = $courseIds->isEmpty()
+            ? null
             : Attendance::query()
                 ->whereIn('course_id', $courseIds)
                 ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
-                ->activeWeeksOnly()
-                ->count();
+                ->activeWeeksOnly();
 
-        $todayAttendanceMarks = $courseIds->isEmpty()
-            ? 0
-            : Attendance::query()
-                ->whereIn('course_id', $courseIds)
-                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
-                ->whereDate('attendance_time', today())
-                ->activeWeeksOnly()
-                ->count();
+        if ($marksBase !== null) {
+            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
+        }
 
-        $weekAttendanceMarks = $courseIds->isEmpty()
+        $totalAttendanceMarks = $marksBase === null ? 0 : (clone $marksBase)->count();
+
+        $todayAttendanceMarks = $marksBase === null
             ? 0
-            : Attendance::query()
-                ->whereIn('course_id', $courseIds)
-                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
-                ->where('attendance_time', '>=', now()->subDays(7)->startOfDay())
-                ->activeWeeksOnly()
-                ->count();
+            : (clone $marksBase)->whereDate('attendance_time', today())->count();
+
+        $weekAttendanceMarks = $marksBase === null
+            ? 0
+            : (clone $marksBase)->where('attendance_time', '>=', now()->subDays(7)->startOfDay())->count();
 
         $todayCourses = $this->buildRepTodayCourses($student, $classIdsArr, $useClassTimetable);
 
@@ -200,7 +195,7 @@ class ClassRepController extends Controller
                         'course_name' => $course?->course_name ?? '—',
                         'course_code' => $course?->course_code,
                         'schedule_label' => implode(' · ', $scheduleParts),
-                        'has_active_session' => $course?->activeSession() !== null,
+                        'has_active_session' => $course?->activeSessionForClass((int) $slot->class_id) !== null,
                     ];
                 })->values();
             }
@@ -219,7 +214,7 @@ class ClassRepController extends Controller
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code,
                 'schedule_label' => $c->getScheduleLabel(),
-                'has_active_session' => $c->activeSession() !== null,
+                'has_active_session' => $c->activeSessionForClass($this->resolveRepClassId($student, $c)) !== null,
             ]);
     }
 
@@ -237,11 +232,18 @@ class ClassRepController extends Controller
             ])
             ->orderBy('course_name')
             ->get()
-            ->map(fn ($c) => (object) [
-                'course' => $c,
-                'role' => RepCourseAccess::classRepForCourse($student, $c)?->role ?? 'rep',
-                'canOpenSession' => $this->requireMainRep($student, $c->id),
-            ]);
+            ->map(function (Course $c) use ($student) {
+                $repClassId = $this->resolveRepClassId($student, $c);
+                return (object) [
+                    'course' => $c,
+                    'class_id' => $repClassId,
+                    'role' => RepCourseAccess::classRepForCourse($student, $c)?->role ?? 'rep',
+                    'canOpenSession' => $this->requireMainRep($student, $c->id),
+                    'active_session' => $repClassId
+                        ? $c->activeSessionForClass($repClassId)
+                        : null,
+                ];
+            });
 
         $settings = SystemSetting::get();
         $attendanceMode = SystemSetting::hasAttendanceModeColumns()
@@ -353,6 +355,7 @@ class ClassRepController extends Controller
 
         $sessionModel = AttendanceSession::create([
             'course_id' => $course->id,
+            'class_id' => $repClassId,
             'session_index' => AttendanceSession::nextIndexForCourse($course->id),
             'attendance_week_id' => $week->id,
             'mode' => $validated['mode'],
@@ -373,9 +376,9 @@ class ClassRepController extends Controller
             'attendance_range_m' => $needsAnchor ? $range : null,
         ]);
 
-        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course);
+        ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
-        app(FcmNotificationService::class)->sendSessionStartedToClass($course);
+        app(FcmNotificationService::class)->sendSessionStartedToClass($course, $repClassId);
 
         $presentCount = Attendance::where('attendance_session_id', $sessionModel->id)
             ->where('status', 'present')
@@ -654,22 +657,30 @@ class ClassRepController extends Controller
         // Counts must ignore attendances that point at a cancelled or
         // already-reset week — those records linger for audit purposes
         // but should never inflate the student's totals.
-        $attendanceRecordsCount = $courseIds === []
-            ? 0
-            : $student->attendances()
+        $attendanceRecordsCount = 0;
+        if ($courseIds !== []) {
+            $arQuery = $student->attendances()
                 ->whereIn('course_id', $courseIds)
-                ->activeWeeksOnly()
-                ->count();
+                ->activeWeeksOnly();
+            if ($allowedClassIds !== []) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($arQuery, $allowedClassIds);
+            }
+            $attendanceRecordsCount = (int) $arQuery->count();
+        }
 
-        $countsByCourseId = $coursesInClass->isNotEmpty()
-            ? Attendance::query()
+        $countsByCourseId = collect();
+        if ($coursesInClass->isNotEmpty()) {
+            $countsQuery = Attendance::query()
                 ->where('student_id', $student->id)
                 ->whereIn('course_id', $courseIds)
                 ->activeWeeksOnly()
                 ->selectRaw('course_id, COUNT(*) as cnt')
-                ->groupBy('course_id')
-                ->pluck('cnt', 'course_id')
-            : collect();
+                ->groupBy('course_id');
+            if ($allowedClassIds !== []) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($countsQuery, $allowedClassIds);
+            }
+            $countsByCourseId = $countsQuery->pluck('cnt', 'course_id');
+        }
 
         $attendanceByCourse = [];
         foreach ($coursesInClass as $course) {
@@ -699,7 +710,14 @@ class ClassRepController extends Controller
         if ($courseIds === []) {
             $recentAttendances = collect();
         } else {
-            $recentAttendances = $recentAttendancesQuery->whereIn('course_id', $courseIds)->get();
+            $recentAttendancesQuery->whereIn('course_id', $courseIds);
+            if ($allowedClassIds !== []) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                    $recentAttendancesQuery,
+                    $allowedClassIds
+                );
+            }
+            $recentAttendances = $recentAttendancesQuery->get();
         }
 
         $isRepStudent = $student->classReps->isNotEmpty();
