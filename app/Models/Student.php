@@ -22,9 +22,10 @@ class Student extends Model implements AuthenticatableContract
     use AuthenticatableTrait;
     use HasApiTokens;
 
-    protected $fillable = ['index_number', 'first_name', 'middle_name', 'last_name', 'profile_image', 'phone_number', 'password', 'department_id', 'class_id', 'bound_ip'];
+    protected $fillable = ['index_number', 'first_name', 'middle_name', 'last_name', 'email', 'profile_image', 'phone_number', 'password', 'department_id', 'class_id', 'bound_ip'];
 
     protected $hidden = ['password'];
+
 
     public function department(): BelongsTo
     {
@@ -83,6 +84,16 @@ class Student extends Model implements AuthenticatableContract
 
     protected static function booted(): void
     {
+        // Strip the optional `email` attribute on older deploys before the
+        // 2026_06_05_121000_add_email_to_students_table migration has run, so
+        // create()/update() never fail with "unknown column 'email'".
+        static::saving(function (Student $student): void {
+            if (! \App\Support\SchemaFeatures::hasStudentsEmail()
+                && array_key_exists('email', $student->getAttributes())) {
+                unset($student->attributes['email']);
+            }
+        });
+
         static::creating(function (Student $student) {
             // Index-only self-registration: clear profile until onboarding.
             // Imports and admin roster entry pass names — keep them.

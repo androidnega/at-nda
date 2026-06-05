@@ -64,6 +64,18 @@
                     class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
                 @error('phone_number')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
+            @if(\App\Support\SchemaFeatures::hasStudentsEmail())
+            <div>
+                <label for="email" class="block text-sm font-medium text-slate-700 mb-2">
+                    Email <span class="text-slate-400 font-normal">(used for password reset)</span>
+                </label>
+                <input type="email" id="email" name="email" value="{{ old('email', $student->email) }}" inputmode="email" autocomplete="email"
+                    placeholder="you@example.com"
+                    class="w-full border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                <p class="text-xs text-slate-500 mt-1">We only use this to email reset codes if you forget your password.</p>
+                @error('email')<p class="text-red-500 text-sm mt-1">{{ $message }}</p>@enderror
+            </div>
+            @endif
             @include('partials.student-profile-camera', [
                 'prefix' => 'profile_edit',
                 'required' => !$student->profile_image,

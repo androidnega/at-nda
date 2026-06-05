@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\SystemSetting;
+use App\Services\StudentPasswordResetService;
 use App\Support\AuthHeroImage;
+use App\Support\MailRuntimeConfig;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -41,6 +43,19 @@ class SettingsController extends Controller
             $rules['enforce_student_logout_lock'] = 'nullable|boolean';
             $rules['auth_hero_image'] = 'nullable|image|mimes:jpeg,jpg,png,webp|max:8192';
             $rules['remove_auth_hero_image'] = 'nullable|boolean';
+
+            if (SystemSetting::hasMailColumns()) {
+                $rules['mail_enabled'] = 'nullable|boolean';
+                $rules['mail_host'] = 'nullable|string|max:255';
+                $rules['mail_port'] = 'nullable|integer|min:1|max:65535';
+                $rules['mail_encryption'] = 'nullable|in:tls,ssl,starttls,';
+                $rules['mail_username'] = 'nullable|string|max:255';
+                $rules['mail_password'] = 'nullable|string|max:255';
+                $rules['mail_from_address'] = 'nullable|email|max:255';
+                $rules['mail_from_name'] = 'nullable|string|max:120';
+                $rules['mail_action'] = 'nullable|in:save,test';
+                $rules['mail_test_to'] = 'nullable|email|max:255';
+            }
         }
         $validated = $request->validate($rules);
         if (($validated['attendance_mode'] ?? null) === SystemSetting::ATTENDANCE_MODE_CHECKIN_CHECKOUT) {
@@ -86,6 +101,24 @@ class SettingsController extends Controller
             $payload['instant_mode_type'] = $instant;
         }
 
+        if ($request->session()->has('admin_id') && SystemSetting::hasMailColumns()) {
+            $payload['mail_enabled'] = $request->boolean('mail_enabled');
+            $payload['mail_host'] = $this->stringOrNull($validated['mail_host'] ?? null);
+            $payload['mail_port'] = isset($validated['mail_port']) && $validated['mail_port'] !== ''
+                ? (int) $validated['mail_port'] : null;
+            $payload['mail_encryption'] = $this->stringOrNull($validated['mail_encryption'] ?? null);
+            $payload['mail_username'] = $this->stringOrNull($validated['mail_username'] ?? null);
+            $newPassword = $request->input('mail_password');
+            if (is_string($newPassword) && trim($newPassword) !== '') {
+                $payload['mail_password_encrypted'] = $newPassword;
+            }
+            $payload['mail_from_address'] = $this->stringOrNull($validated['mail_from_address'] ?? null);
+            if ($payload['mail_from_address'] !== null) {
+                $payload['mail_from_address'] = mb_strtolower($payload['mail_from_address']);
+            }
+            $payload['mail_from_name'] = $this->stringOrNull($validated['mail_from_name'] ?? null);
+        }
+
         $settings->update($payload);
         Cache::forget('api_v1_settings');
 
@@ -102,8 +135,36 @@ class SettingsController extends Controller
                 }
                 $messages[] = 'Login hero image updated (compressed to max 500 KB).';
             }
+
+            // Always re-apply mailer config so the next test or reset email
+            // uses the values the admin just saved.
+            if (SystemSetting::hasMailColumns()) {
+                MailRuntimeConfig::reapply();
+            }
+
+            // Optional: send a test email right after save.
+            if (SystemSetting::hasMailColumns()
+                && ($validated['mail_action'] ?? 'save') === 'test'
+                && trim((string) ($validated['mail_test_to'] ?? '')) !== '') {
+                $err = app(StudentPasswordResetService::class)->sendTestEmail($validated['mail_test_to']);
+                if ($err === null) {
+                    $messages[] = 'Test email sent to '.$validated['mail_test_to'].'.';
+                } else {
+                    return back()->with('error', 'Settings saved, but test email failed: '.$err);
+                }
+            }
         }
 
         return back()->with('success', implode(' ', $messages));
+    }
+
+    private function stringOrNull(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

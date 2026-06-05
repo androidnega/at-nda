@@ -29,6 +29,7 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentDashboardController;
 use App\Http\Controllers\StudentImageController;
 use App\Http\Controllers\StudentOnboardingController;
+use App\Http\Controllers\StudentPasswordResetController;
 use App\Http\Controllers\UniversityController;
 use App\Http\Controllers\VenueController;
 use App\Models\AttendanceSession;
@@ -143,6 +144,13 @@ Route::middleware('no-store')->group(function () {
     Route::get('/student/set-password', [StudentDashboardController::class, 'setPasswordForm'])->name('student.set-password');
     Route::post('/student/set-password', [StudentDashboardController::class, 'setPassword'])->name('student.set-password.post');
     Route::post('/student/logout', [StudentDashboardController::class, 'logout'])->name('student.logout');
+
+    // Forgot password by email — students enter their index number, get a
+    // 6-digit code in their inbox, then set a new password.
+    Route::get('/student/password/forgot', [StudentPasswordResetController::class, 'requestForm'])->name('student.password.request.form');
+    Route::post('/student/password/forgot', [StudentPasswordResetController::class, 'sendCode'])->name('student.password.request.send');
+    Route::get('/student/password/verify', [StudentPasswordResetController::class, 'verifyForm'])->name('student.password.verify.form');
+    Route::post('/student/password/verify', [StudentPasswordResetController::class, 'confirm'])->name('student.password.confirm');
 });
 
 Route::middleware(['student.auth', 'no-store'])->group(function () {

@@ -242,6 +242,7 @@ class AttendanceController extends Controller
                 'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
                 'device_ip' => $deviceIp,
                 'device_id' => $deviceId,
+                'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
             ]);
 
             return response()->json([
@@ -266,10 +267,12 @@ class AttendanceController extends Controller
         // — or two workers handling the retry payload from a flaky phone —
         // collapses into a single insert. Pair with CACHE_STORE=redis on
         // production for cross-worker safety.
+        $userAgent = mb_substr((string) $request->userAgent(), 0, 480);
+
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId) {
+            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId, $userAgent) {
                 Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
@@ -286,6 +289,7 @@ class AttendanceController extends Controller
                         'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
                         'device_ip' => $deviceIp,
                         'device_id' => $deviceId,
+                        'user_agent' => $userAgent,
                     ]
                 );
             }

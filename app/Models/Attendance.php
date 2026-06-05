@@ -17,6 +17,47 @@ class Attendance extends Model
                 'deleted_at' => now(),
             ]);
         });
+
+        // Strip optional columns before insert/update if the running database
+        // hasn't been migrated yet. Keeps older deploys from blowing up with
+        // "unknown column 'user_agent'" the moment we deploy this change.
+        static::saving(function (Attendance $attendance): void {
+            if (! \App\Support\SchemaFeatures::hasAttendancesUserAgent()
+                && array_key_exists('user_agent', $attendance->getAttributes())) {
+                unset($attendance->attributes['user_agent']);
+            }
+        });
+    }
+
+    /**
+     * Best-effort short label for the device used to mark this row. Falls
+     * back to the raw user-agent so reps always see *something* useful.
+     */
+    public function deviceLabel(): string
+    {
+        $ua = (string) ($this->user_agent ?? '');
+        if ($ua === '') {
+            return '—';
+        }
+
+        // Heuristic device fingerprint – good enough for "Android / iPhone / Mac".
+        $patterns = [
+            '/iPhone|iPod/' => 'iPhone',
+            '/iPad/' => 'iPad',
+            '/Android/' => 'Android phone',
+            '/Windows Phone/' => 'Windows Phone',
+            '/Macintosh|Mac OS X/' => 'Mac',
+            '/Windows NT/' => 'Windows PC',
+            '/Linux/' => 'Linux',
+            '/CrOS/' => 'Chromebook',
+        ];
+        foreach ($patterns as $regex => $label) {
+            if (preg_match($regex, $ua) === 1) {
+                return $label;
+            }
+        }
+
+        return mb_substr($ua, 0, 60);
     }
 
     protected $fillable = [
@@ -35,6 +76,7 @@ class Attendance extends Model
         'qr_code',
         'device_ip',
         'device_id',
+        'user_agent',
     ];
 
     public function attendanceWeek(): BelongsTo

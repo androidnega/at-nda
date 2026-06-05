@@ -23,6 +23,14 @@ final class SchemaFeatures
 
     private static ?bool $coursesQualification = null;
 
+    private static ?bool $attendancesUserAgent = null;
+
+    private static ?bool $studentsEmail = null;
+
+    private static ?bool $mailSettings = null;
+
+    private static ?bool $passwordResetCodes = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -64,5 +72,33 @@ final class SchemaFeatures
         return self::$coursesQualification ??= (
             Schema::hasTable('courses') && Schema::hasColumn('courses', 'qualification')
         );
+    }
+
+    public static function hasAttendancesUserAgent(): bool
+    {
+        return self::$attendancesUserAgent ??= (
+            Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'user_agent')
+        );
+    }
+
+    public static function hasStudentsEmail(): bool
+    {
+        return self::$studentsEmail ??= (
+            Schema::hasTable('students') && Schema::hasColumn('students', 'email')
+        );
+    }
+
+    public static function hasMailSettings(): bool
+    {
+        return self::$mailSettings ??= (
+            Schema::hasTable('system_settings')
+            && Schema::hasColumn('system_settings', 'mail_host')
+            && Schema::hasColumn('system_settings', 'mail_password_encrypted')
+        );
+    }
+
+    public static function hasPasswordResetCodes(): bool
+    {
+        return self::$passwordResetCodes ??= Schema::hasTable('password_reset_codes');
     }
 }

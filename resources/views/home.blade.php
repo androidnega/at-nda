@@ -37,5 +37,13 @@
             Continue
         </button>
     </form>
+
+    @if(\Illuminate\Support\Facades\Route::has('student.password.request.form'))
+    <div class="mt-4 text-center">
+        <a href="{{ route('student.password.request.form') }}" class="text-xs text-gray-600 hover:text-gray-900 transition font-medium">
+            Forgot password?
+        </a>
+    </div>
+    @endif
 </x-auth-signin-layout>
 @endsection

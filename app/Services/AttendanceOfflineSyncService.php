@@ -129,7 +129,7 @@ class AttendanceOfflineSyncService
                 ->exists();
 
             if (! $existing) {
-                Attendance::create([
+                $payload = [
                     'student_id' => $student->id,
                     'course_id' => $course->id,
                     'attendance_session_id' => $session->id,
@@ -137,7 +137,15 @@ class AttendanceOfflineSyncService
                     'attendance_time' => $attendanceTime,
                     'status' => 'present',
                     'synced' => true,
-                ]);
+                ];
+                $req = function_exists('request') ? request() : null;
+                $ip = $req?->ip();
+                $ua = $req?->userAgent();
+                if (! empty($ip)) {
+                    $payload['device_ip'] = (string) $ip;
+                }
+                $payload['user_agent'] = mb_substr((string) ($ua ?: 'offline-sync'), 0, 480);
+                Attendance::create($payload);
                 $synced++;
                 $sessionsToNotify[$session->id] = $session;
             }

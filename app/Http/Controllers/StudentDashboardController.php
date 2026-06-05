@@ -715,7 +715,7 @@ class StudentDashboardController extends Controller
         $settings = SystemSetting::get();
         $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
 
-        $validated = $request->validate([
+        $rules = [
             'first_name' => 'required|string|max:255',
             'middle_name' => 'nullable|string|max:255',
             'last_name' => 'required|string|max:255',
@@ -725,7 +725,11 @@ class StudentDashboardController extends Controller
             'profile_photo' => ($requirePhoto && !$student->profile_image)
                 ? ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
                 : ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-        ]);
+        ];
+        if (\App\Support\SchemaFeatures::hasStudentsEmail()) {
+            $rules['email'] = 'nullable|email|max:255';
+        }
+        $validated = $request->validate($rules);
 
         $department = \App\Models\Department::find($validated['department_id']);
         if ($department && $department->faculty_id != $validated['faculty_id']) {
@@ -743,12 +747,17 @@ class StudentDashboardController extends Controller
         }
 
         $middle = $validated['middle_name'] ?? null;
-        $student->fill([
+        $payload = [
             'first_name' => $validated['first_name'],
             'middle_name' => ($middle !== null && trim((string) $middle) !== '') ? trim((string) $middle) : null,
             'last_name' => $validated['last_name'],
             'department_id' => $validated['department_id'],
-        ]);
+        ];
+        if (\App\Support\SchemaFeatures::hasStudentsEmail() && array_key_exists('email', $validated)) {
+            $email = $validated['email'] !== null ? trim((string) $validated['email']) : '';
+            $payload['email'] = $email !== '' ? mb_strtolower($email) : null;
+        }
+        $student->fill($payload);
         $student->save();
 
         return redirect()->route('dashboard.dashboard')->with('success', 'Profile updated');

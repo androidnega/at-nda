@@ -26,6 +26,14 @@ class SystemSetting extends Model
         'attendance_mode',
         'instant_mode_type',
         'auth_hero_image_path',
+        'mail_enabled',
+        'mail_host',
+        'mail_port',
+        'mail_encryption',
+        'mail_username',
+        'mail_password_encrypted',
+        'mail_from_address',
+        'mail_from_name',
     ];
 
     protected $casts = [
@@ -39,7 +47,15 @@ class SystemSetting extends Model
         'face_match_threshold' => 'float',
         'last_attendance_reset_at' => 'datetime',
         'dynamic_ui' => 'array',
+        'mail_enabled' => 'boolean',
+        // Stored encrypted via APP_KEY so SMTP creds never sit in plaintext.
+        'mail_password_encrypted' => 'encrypted',
     ];
+
+    public static function hasMailColumns(): bool
+    {
+        return \App\Support\SchemaFeatures::hasMailSettings();
+    }
 
     public const ATTENDANCE_MODE_INSTANT = 'instant';
     public const ATTENDANCE_MODE_CHECKIN_CHECKOUT = 'checkin_checkout';

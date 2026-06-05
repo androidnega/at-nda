@@ -215,20 +215,46 @@
     </div>
     <ul class="divide-y divide-gray-100">
         @forelse($recentAttendances as $att)
-        <li class="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
-            <div class="min-w-0">
-                <span class="font-medium text-gray-900">{{ $att->course?->course_name ?? 'Course' }}</span>
-                @if($att->attendanceWeek)
-                    <span class="text-gray-500"> · Week {{ $att->attendanceWeek->week_number }}</span>
-                    @if($att->attendanceWeek->week_date)
-                        <span class="text-gray-400">({{ $att->attendanceWeek->week_date->format('M j, Y') }})</span>
+        @php
+            $device = $att->deviceLabel();
+            $ip = trim((string) ($att->device_ip ?? ''));
+            $hasGeo = !is_null($att->lat) && !is_null($att->lng);
+        @endphp
+        <li class="px-3 py-2.5 text-xs">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                <div class="min-w-0">
+                    <span class="font-medium text-gray-900">{{ $att->course?->course_name ?? 'Course' }}</span>
+                    @if($att->attendanceWeek)
+                        <span class="text-gray-500"> · Week {{ $att->attendanceWeek->week_number }}</span>
+                        @if($att->attendanceWeek->week_date)
+                            <span class="text-gray-400">({{ $att->attendanceWeek->week_date->format('M j, Y') }})</span>
+                        @endif
                     @endif
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 shrink-0">
+                    <span class="tabular-nums">{{ $att->attendance_time?->format('M j, Y g:i A') ?? '—' }}</span>
+                    <span class="inline-flex items-center rounded px-1.5 py-0.5 font-medium bg-gray-100 text-gray-700">{{ ucfirst((string) ($att->status ?? 'present')) }}</span>
+                </div>
+            </div>
+            @if($device !== '—' || $ip !== '' || $hasGeo)
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-gray-500">
+                @if($device !== '—')
+                <span class="inline-flex items-center gap-1" title="{{ $att->user_agent }}">
+                    <i class="fas fa-mobile-screen text-gray-400 text-[10px]"></i>{{ $device }}
+                </span>
+                @endif
+                @if($ip !== '')
+                <span class="inline-flex items-center gap-1 font-mono">
+                    <i class="fas fa-network-wired text-gray-400 text-[10px]"></i>{{ $ip }}
+                </span>
+                @endif
+                @if($hasGeo)
+                <span class="inline-flex items-center gap-1 font-mono" title="Latitude / longitude when marked">
+                    <i class="fas fa-location-dot text-gray-400 text-[10px]"></i>{{ number_format((float) $att->lat, 5) }}, {{ number_format((float) $att->lng, 5) }}
+                </span>
                 @endif
             </div>
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 shrink-0">
-                <span class="tabular-nums">{{ $att->attendance_time?->format('M j, Y g:i A') ?? '—' }}</span>
-                <span class="inline-flex items-center rounded px-1.5 py-0.5 font-medium bg-gray-100 text-gray-700">{{ ucfirst((string) ($att->status ?? 'present')) }}</span>
-            </div>
+            @endif
         </li>
         @empty
         <li class="px-3 py-8 text-center text-gray-500">No attendance marks yet.</li>

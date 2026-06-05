@@ -349,6 +349,8 @@ class AttendanceController extends Controller
                     'check_in_time' => $now,
                     'status' => $status,
                     'synced' => true,
+                    'device_ip' => (string) $request->ip(),
+                    'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
                 ]);
 
                 return response()->json([
@@ -416,10 +418,13 @@ class AttendanceController extends Controller
         // moment the duplicate-key fence + lock keep us to a single insert
         // per (session, student) pair. Use CACHE_STORE=redis on production
         // so all PHP workers share the same lock.
+        $deviceIp = (string) $request->ip();
+        $userAgent = mb_substr((string) $request->userAgent(), 0, 480);
+
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session) {
+            function () use ($student, $course, $session, $deviceIp, $userAgent) {
                 Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
@@ -431,6 +436,8 @@ class AttendanceController extends Controller
                         'attendance_time' => now(),
                         'status' => 'present',
                         'synced' => true,
+                        'device_ip' => $deviceIp,
+                        'user_agent' => $userAgent,
                     ]
                 );
             }

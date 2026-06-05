@@ -37,6 +37,13 @@
         </button>
     </form>
 
-    <a href="{{ route('student.login.cancel') }}" class="mt-4 block text-center text-xs text-gray-500 hover:text-gray-800 transition">Use a different student ID</a>
+    <div class="mt-4 flex flex-col items-center gap-2">
+        @if(\Illuminate\Support\Facades\Route::has('student.password.request.form'))
+        <a href="{{ route('student.password.request.form') }}" class="text-xs text-gray-600 hover:text-gray-900 transition font-medium">
+            Forgot password?
+        </a>
+        @endif
+        <a href="{{ route('student.login.cancel') }}" class="text-xs text-gray-500 hover:text-gray-800 transition">Use a different student ID</a>
+    </div>
 </x-auth-signin-layout>
 @endsection

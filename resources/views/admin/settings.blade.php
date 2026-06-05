@@ -216,8 +216,102 @@
         </div>
         @endif
 
+        @if(session()->has('admin_id') && \App\Models\SystemSetting::hasMailColumns())
+        <div class="space-y-4 pt-2 border-t border-gray-100">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-envelope text-primary/80"></i>
+                    Email (SMTP) for password resets
+                </h2>
+                <p class="text-sm text-gray-500 mt-1">Set up an outbound SMTP mailbox so students can reset their password by email. Credentials are encrypted before storage.</p>
+            </div>
+
+            <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
+                <div>
+                    <span class="font-medium text-gray-800">Enable email delivery</span>
+                    <p class="text-sm text-gray-500 mt-0.5">Turn on after the SMTP fields below are filled and tested.</p>
+                </div>
+                <input type="hidden" name="mail_enabled" value="0">
+                <input type="checkbox" name="mail_enabled" value="1" {{ ($settings->mail_enabled ?? false) ? 'checked' : '' }}
+                    class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+            </label>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="sm:col-span-2 p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_host" class="font-medium text-gray-800 text-sm">SMTP host</label>
+                    <input type="text" name="mail_host" id="mail_host" value="{{ old('mail_host', $settings->mail_host) }}"
+                        placeholder="smtp.gmail.com / smtp-relay.brevo.com"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_port" class="font-medium text-gray-800 text-sm">Port</label>
+                    <input type="number" name="mail_port" id="mail_port" value="{{ old('mail_port', $settings->mail_port) }}"
+                        min="1" max="65535" placeholder="587"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_encryption" class="font-medium text-gray-800 text-sm">Encryption</label>
+                    <select name="mail_encryption" id="mail_encryption"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary bg-white">
+                        <option value="" {{ (string) ($settings->mail_encryption ?? '') === '' ? 'selected' : '' }}>None</option>
+                        <option value="tls" {{ ($settings->mail_encryption ?? '') === 'tls' ? 'selected' : '' }}>STARTTLS (port 587)</option>
+                        <option value="ssl" {{ ($settings->mail_encryption ?? '') === 'ssl' ? 'selected' : '' }}>SSL (port 465)</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-2 p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_username" class="font-medium text-gray-800 text-sm">Username</label>
+                    <input type="text" name="mail_username" id="mail_username" value="{{ old('mail_username', $settings->mail_username) }}"
+                        autocomplete="off"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_password" class="font-medium text-gray-800 text-sm">
+                        Password
+                        @if(filled($settings->mail_password_encrypted ?? null))
+                            <span class="ml-2 inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">
+                                <i class="fas fa-check"></i> stored
+                            </span>
+                        @endif
+                    </label>
+                    <input type="password" name="mail_password" id="mail_password"
+                        placeholder="{{ filled($settings->mail_password_encrypted ?? null) ? 'Leave blank to keep current' : 'app password / api key' }}"
+                        autocomplete="new-password"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="sm:col-span-2 p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_from_address" class="font-medium text-gray-800 text-sm">From address</label>
+                    <input type="email" name="mail_from_address" id="mail_from_address" value="{{ old('mail_from_address', $settings->mail_from_address) }}"
+                        placeholder="no-reply@example.com"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="p-4 rounded-xl border border-gray-100 space-y-1.5">
+                    <label for="mail_from_name" class="font-medium text-gray-800 text-sm">From name</label>
+                    <input type="text" name="mail_from_name" id="mail_from_name" value="{{ old('mail_from_name', $settings->mail_from_name) }}"
+                        placeholder="{{ config('app.name') }}"
+                        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary">
+                </div>
+            </div>
+
+            <div class="p-4 rounded-xl border border-amber-100 bg-amber-50/60">
+                <label for="mail_test_to" class="block text-sm font-medium text-amber-900 mb-1.5">
+                    <i class="fas fa-paper-plane text-amber-700/80 mr-1"></i> Send a test message
+                </label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="email" name="mail_test_to" id="mail_test_to" value="{{ old('mail_test_to') }}"
+                        placeholder="you@example.com"
+                        class="flex-1 border border-amber-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-300 focus:border-amber-400 bg-white">
+                    <button type="submit" name="mail_action" value="test"
+                        class="inline-flex items-center justify-center gap-1.5 bg-amber-700 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-800 transition">
+                        <i class="fas fa-flask text-xs"></i> Save &amp; test
+                    </button>
+                </div>
+                <p class="text-[11px] text-amber-800/80 mt-1.5">Saves your changes first, then attempts to deliver one short test email.</p>
+            </div>
+        </div>
+        @endif
+
         <div class="pt-4 border-t border-gray-100">
-            <button type="submit" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
+            <button type="submit" name="mail_action" value="save" class="bg-primary text-white px-6 py-3 rounded-xl font-medium hover:bg-primary/90">
                 Save Settings
             </button>
         </div>

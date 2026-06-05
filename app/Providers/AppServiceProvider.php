@@ -32,6 +32,11 @@ class AppServiceProvider extends ServiceProvider
             URL::forceScheme('https');
         }
 
+        // Override config('mail') with the admin-configured SMTP credentials
+        // stored in `system_settings`, so super-admins can manage email
+        // delivery from the dashboard without redeploying .env.
+        \App\Support\MailRuntimeConfig::applyOnce();
+
         RateLimiter::for('api-v1', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?? $request->ip());
         });
