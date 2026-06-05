@@ -199,6 +199,51 @@
             padding: 8px 12px 12px 12px;
             border-top: 1px solid #e7e5e4;
         }
+        .weeks-summary {
+            font-size: 10px;
+            color: #44403c;
+            margin: 0 0 8px 0;
+        }
+        .weeks-summary strong {
+            color: #1c1917;
+        }
+        .cancelled-block {
+            margin-top: 14px;
+            padding: 8px 10px;
+            border: 1px solid #fcd34d;
+            background: #fffbeb;
+            border-radius: 4px;
+        }
+        .cancelled-block h3 {
+            font-size: 10px;
+            font-weight: bold;
+            color: #92400e;
+            margin: 0 0 5px 0;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .cancelled-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .cancelled-list li {
+            font-size: 9px;
+            color: #422006;
+            padding: 3px 0;
+            border-top: 1px dotted #fde68a;
+        }
+        .cancelled-list li:first-child {
+            border-top: 0;
+        }
+        .cancelled-list .cw-label {
+            font-weight: bold;
+            color: #78350f;
+        }
+        .cancelled-list .cw-reason {
+            color: #4b3104;
+            font-style: italic;
+        }
         /* Keep each student row intact across page breaks so we don't end up
            with a trailing page that contains nothing but a half-row. */
         .sheet { page-break-after: avoid; }
@@ -251,6 +296,14 @@
                 <td class="value">{{ now()->format('M d, Y H:i') }}</td>
             </tr>
         </table>
+
+        <p class="weeks-summary">
+            Classes held: <strong>{{ $weeks->reject(fn($w) => $w->isCancelled())->count() }}</strong>
+            @if($weeks->filter(fn($w) => $w->isCancelled())->isNotEmpty())
+                · Cancelled: <strong>{{ $weeks->filter(fn($w) => $w->isCancelled())->count() }}</strong>
+            @endif
+            · Total weeks shown: <strong>{{ $weeks->count() }}</strong>
+        </p>
 
         <div class="table-wrap">
             <table class="grid">
@@ -306,6 +359,30 @@
                 </tbody>
             </table>
         </div>
+
+        @if(!empty($cancelledWeeks) && $cancelledWeeks->isNotEmpty())
+            <div class="cancelled-block">
+                <h3>Cancelled weeks</h3>
+                <ul class="cancelled-list">
+                    @foreach($cancelledWeeks as $cw)
+                        <li>
+                            <span class="cw-label">Week {{ $cw->week_number }}@if($cw->week_date) ({{ $cw->week_date->format('M j, Y') }})@endif:</span>
+                            @if($cw->cancellation_note)
+                                <span class="cw-reason">"{{ $cw->cancellation_note }}"</span>
+                            @else
+                                <span class="cw-reason">No reason recorded.</span>
+                            @endif
+                            @if($cw->cancelled_by)
+                                — by {{ $cw->cancelled_by }}
+                            @endif
+                            @if($cw->cancelled_at)
+                                <span style="color:#a16207;">· {{ $cw->cancelled_at->format('M j, Y') }}</span>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
     </div>
 </body>

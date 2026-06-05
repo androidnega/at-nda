@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\AttendanceSession;
 use App\Models\AttendanceWeek;
 use App\Models\ClassRep;
 use App\Models\Course;
@@ -18,12 +19,15 @@ use Illuminate\Support\Facades\Storage;
 class AttendancePdfController extends Controller
 {
     /**
-     * PDF preview for the whole semester (every teaching week in one grid).
+     * PDF preview for the whole semester. Only weeks that *actually*
+     * happened (had an attendance session) or were explicitly cancelled
+     * are shown — empty weeks the system pre-generated but never used are
+     * skipped so the grid doesn't lie about the number of classes held.
      */
     public function export(Request $request, Course $course): Response
     {
         $this->authorizePdfExport($request, $course);
-        $weeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+        $weeks = $this->materialWeeksForCourse($course, $request);
         return $this->renderPdf($request, $course, $weeks, 'all');
     }
 
@@ -131,6 +135,10 @@ class AttendancePdfController extends Controller
         // contacts are at a glance.
         $repRolesByStudent = $this->repRolesForStudents($students);
 
+        // Cancelled-week summary printed below the grid so lecturers can
+        // see *why* a column is marked CANCELLED without hovering tooltips.
+        $cancelledWeeks = $weeks->filter(fn (AttendanceWeek $w) => $w->isCancelled())->values();
+
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
             'courseTitle' => $courseTitle,
@@ -142,11 +150,71 @@ class AttendancePdfController extends Controller
             'classLogoDataUri' => $classLogoDataUri,
             'venueDisplay' => $venueDisplay,
             'weeks' => $weeks,
+            'cancelledWeeks' => $cancelledWeeks,
             'attendanceByStudent' => $attendanceByStudent,
             'repRolesByStudent' => $repRolesByStudent,
         ]);
 
         return $pdf->stream('attendance-'.\Str::slug($course->course_name).'-'.$slugSuffix.'.pdf', ['Attachment' => false]);
+    }
+
+    /**
+     * Return the weeks that should actually appear on the PDF grid: those
+     * that had at least one attendance session opened (= a class was held
+     * or attempted) plus any week that was explicitly cancelled (so the
+     * lecturer sees the gap and the reason). Empty unused weeks the
+     * scheduler may have pre-generated are dropped from the export.
+     *
+     * Scoped to the rep's class when a class-rep is logged in, so reps
+     * see only the weeks their own class actually had.
+     */
+    private function materialWeeksForCourse(Course $course, Request $request): Collection
+    {
+        $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
+
+        // Rep view: restrict to the rep's own class's weeks.
+        $studentId = $request->session()->get('student_id');
+        if ($studentId
+            && ! $request->session()->has('admin_id')
+            && ! $request->session()->has('lecturer_id')
+        ) {
+            $rep = Student::find($studentId);
+            if ($rep) {
+                $classIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+                if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId() && $classIds !== []) {
+                    $weeksQuery->where(function ($q) use ($classIds) {
+                        $q->whereIn('class_id', $classIds)->orWhereNull('class_id');
+                    });
+                }
+            }
+        }
+
+        $allWeeks = $weeksQuery->get();
+        if ($allWeeks->isEmpty()) {
+            return $allWeeks;
+        }
+
+        // Pull every week id that has at least one session for this course.
+        // We accept any session (not just is_active) because a closed
+        // session means the class still ran. We deliberately *don't*
+        // require attendance rows — a held class with nobody marked is
+        // still a held class.
+        $usedWeekIds = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->whereIn('attendance_week_id', $allWeeks->pluck('id'))
+            ->pluck('attendance_week_id')
+            ->map(fn ($v) => (int) $v)
+            ->unique()
+            ->flip();
+
+        return $allWeeks->filter(function (AttendanceWeek $w) use ($usedWeekIds) {
+            // Cancelled weeks always show so the reason is visible.
+            if ($w->isCancelled()) {
+                return true;
+            }
+
+            return $usedWeekIds->has((int) $w->id);
+        })->values();
     }
 
     /**
