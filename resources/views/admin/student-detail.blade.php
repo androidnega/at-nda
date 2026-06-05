@@ -228,15 +228,48 @@
                     <th class="px-4 py-3">Week</th>
                     <th class="px-4 py-3">Time</th>
                     <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">Location</th>
+                    <th class="px-4 py-3">Device / IP</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
                 @foreach($recentAttendance as $a)
+                @php
+                    $hasGeo = !is_null($a->lat) && !is_null($a->lng);
+                    $device = method_exists($a, 'deviceLabel') ? $a->deviceLabel() : '—';
+                    $ip = trim((string) ($a->device_ip ?? ''));
+                    $mapUrl = $hasGeo
+                        ? 'https://www.google.com/maps?q='.urlencode(number_format((float) $a->lat, 6).','.number_format((float) $a->lng, 6))
+                        : null;
+                @endphp
                 <tr class="hover:bg-gray-50/80">
                     <td class="px-4 py-3 text-gray-900">{{ $a->course?->course_name ?? '—' }}</td>
                     <td class="px-4 py-3 tabular-nums text-gray-700">W{{ $a->attendanceWeek?->week_number ?? '—' }}</td>
                     <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ $a->attendance_time?->format('Y-m-d H:i') ?? '—' }}</td>
                     <td class="px-4 py-3"><span class="text-gray-800">{{ $a->status ?? '—' }}</span></td>
+                    <td class="px-4 py-3 text-xs">
+                        @if($hasGeo)
+                            <a href="{{ $mapUrl }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-mono text-blue-700 hover:text-blue-900">
+                                <i class="fas fa-location-dot text-blue-500/80 text-[10px]"></i>
+                                {{ number_format((float) $a->lat, 5) }}, {{ number_format((float) $a->lng, 5) }}
+                            </a>
+                        @else
+                            <span class="text-gray-400">—</span>
+                        @endif
+                    </td>
+                    <td class="px-4 py-3 text-xs">
+                        <div class="flex flex-col gap-0.5">
+                            @if($device !== '—')
+                                <span class="text-gray-700" title="{{ $a->user_agent }}"><i class="fas fa-mobile-screen text-gray-400 text-[10px] mr-1"></i>{{ $device }}</span>
+                            @endif
+                            @if(filled($ip))
+                                <span class="font-mono text-gray-500"><i class="fas fa-network-wired text-gray-400 text-[10px] mr-1"></i>{{ $ip }}</span>
+                            @endif
+                            @if($device === '—' && !filled($ip))
+                                <span class="text-gray-400">—</span>
+                            @endif
+                        </div>
+                    </td>
                 </tr>
                 @endforeach
             </tbody>

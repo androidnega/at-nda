@@ -203,18 +203,11 @@
             </div>
             <p id="modal-name" class="text-lg font-semibold text-gray-900">—</p>
             <p id="modal-index" class="text-sm font-mono text-gray-500 mt-0.5">—</p>
-            <span id="modal-rep-badge" class="hidden mt-2 inline-flex items-center gap-1 rounded-md bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">
-                <i class="fas fa-user-shield text-[10px]"></i> Class rep
-            </span>
         </div>
         <dl class="divide-y divide-gray-100 text-sm">
             <div class="flex items-center justify-between gap-3 px-6 py-3">
                 <dt class="text-gray-500">Class</dt>
                 <dd id="modal-class" class="text-gray-900 font-medium text-right">—</dd>
-            </div>
-            <div class="flex items-center justify-between gap-3 px-6 py-3">
-                <dt class="text-gray-500">Program</dt>
-                <dd id="modal-program" class="text-gray-900 font-medium text-right">—</dd>
             </div>
         </dl>
         <div class="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -347,7 +340,6 @@
         document.getElementById('modal-name').textContent = row.dataset.displayName || '—';
         document.getElementById('modal-index').textContent = row.dataset.index || '—';
         document.getElementById('modal-class').textContent = row.dataset.class || '—';
-        document.getElementById('modal-program').textContent = row.dataset.programLabel || '—';
         var photoWrap = document.getElementById('modal-photo-wrap');
         var photoUrl = row.dataset.photoUrl || '';
         if (photoUrl) {
@@ -355,9 +347,6 @@
         } else {
             photoWrap.innerHTML = '<span id="modal-initials">' + (row.dataset.initials || '—') + '</span>';
         }
-        var rep = document.getElementById('modal-rep-badge');
-        if (row.dataset.isRep === '1') { rep.classList.remove('hidden'); }
-        else { rep.classList.add('hidden'); }
         document.getElementById('modal-open-full').setAttribute('href', row.dataset.detailUrl || '#');
         modal.classList.remove('hidden');
         modal.classList.add('flex');

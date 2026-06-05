@@ -108,44 +108,15 @@
         </div>
         <div class="divide-y divide-slate-100">
             @forelse($attendances as $a)
-            @php
-                $hasGeo = !is_null($a->lat) && !is_null($a->lng);
-                $hasDevice = (method_exists($a, 'deviceLabel') && $a->deviceLabel() !== '—') || filled($a->device_ip);
-            @endphp
-            <div class="p-4">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                        <p class="font-medium text-slate-900 text-sm">{{ $a->course?->course_name ?? '—' }}</p>
-                        <p class="text-xs text-slate-500 mt-0.5">Week {{ $a->attendanceWeek?->week_number ?? '—' }} · {{ $a->attendance_time?->format('M d, Y H:i') ?? '—' }}</p>
-                    </div>
-                    @if(\App\Models\Attendance::countsAsPresent($a->status))
-                    <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
-                    @else
-                    <span class="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">Absent</span>
-                    @endif
+            <div class="p-4 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="font-medium text-slate-900 text-sm">{{ $a->course?->course_name ?? '—' }}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">Week {{ $a->attendanceWeek?->week_number ?? '—' }} · {{ $a->attendance_time?->format('M d, Y H:i') ?? '—' }}</p>
                 </div>
-                @if($hasGeo || $hasDevice)
-                <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-slate-500">
-                    @if($hasGeo)
-                        @php $mapUrl = 'https://www.google.com/maps?q='.urlencode(number_format((float) $a->lat, 6).','.number_format((float) $a->lng, 6)); @endphp
-                        <a href="{{ $mapUrl }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-mono text-slate-600 hover:text-slate-900">
-                            <i class="fas fa-location-dot text-slate-400 text-[10px]"></i>
-                            {{ number_format((float) $a->lat, 5) }}, {{ number_format((float) $a->lng, 5) }}
-                        </a>
-                    @endif
-                    @if(method_exists($a, 'deviceLabel') && $a->deviceLabel() !== '—')
-                        <span class="inline-flex items-center gap-1" title="{{ $a->user_agent }}">
-                            <i class="fas fa-mobile-screen text-slate-400 text-[10px]"></i>
-                            {{ $a->deviceLabel() }}
-                        </span>
-                    @endif
-                    @if(filled($a->device_ip))
-                        <span class="inline-flex items-center gap-1 font-mono">
-                            <i class="fas fa-network-wired text-slate-400 text-[10px]"></i>
-                            {{ $a->device_ip }}
-                        </span>
-                    @endif
-                </div>
+                @if(\App\Models\Attendance::countsAsPresent($a->status))
+                <span class="shrink-0 px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-xs font-semibold">Present</span>
+                @else
+                <span class="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">Absent</span>
                 @endif
             </div>
             @empty

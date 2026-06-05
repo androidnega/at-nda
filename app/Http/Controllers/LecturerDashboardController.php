@@ -56,22 +56,34 @@ class LecturerDashboardController extends Controller
 
         $totalStudents = (int) $assignedClasses->sum('students_count');
 
-        $marksThisWeek = empty($courseIds) ? 0 : Attendance::query()
-            ->whereIn('course_id', $courseIds)
-            ->where('attendance_time', '>=', now()->startOfWeek())
-            ->count();
-
-        $activeSessions = empty($courseIds)
-            ? collect()
-            : AttendanceSession::query()
+        // Strict per-tenant isolation: a lecturer must only see marks /
+        // sessions opened for the classes they are assigned to. When a
+        // course is shared across multiple classes (e.g. one course taught
+        // to two cohorts), without this filter the dashboard tile would
+        // sum the other cohort's marks too.
+        $marksThisWeek = empty($courseIds) || empty($classIdsArr) ? 0 : (function () use ($courseIds, $classIdsArr) {
+            $q = Attendance::query()
                 ->whereIn('course_id', $courseIds)
-                ->where('is_active', true)
-                ->where(function ($q) {
-                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                })
-                ->with(['course'])
-                ->latest('id')
-                ->get();
+                ->whereHas('student', fn ($s) => $s->whereIn('class_id', $classIdsArr))
+                ->where('attendance_time', '>=', now()->startOfWeek());
+            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($q, $classIdsArr);
+
+            return $q->count();
+        })();
+
+        $activeSessions = empty($courseIds) || empty($classIdsArr)
+            ? collect()
+            : (function () use ($courseIds, $classIdsArr) {
+                $q = AttendanceSession::query()
+                    ->whereIn('course_id', $courseIds)
+                    ->where('is_active', true)
+                    ->where(function ($q) {
+                        $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    });
+                \App\Support\AttendanceSessionClassScope::applyForClasses($q, $classIdsArr);
+
+                return $q->with(['course'])->latest('id')->get();
+            })();
 
         $todaySlots = $this->buildTodaysSlots($courses, $assignedClasses, $courseIds, $classIdsArr);
 

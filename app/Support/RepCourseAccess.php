@@ -117,9 +117,19 @@ final class RepCourseAccess
             return $query->whereRaw('1 = 0');
         }
 
-        return $query
+        // Two-sided isolation: the student belongs to the rep's class AND
+        // the underlying attendance_session was opened for the rep's class.
+        // Without the session-class clause, a shared course (e.g. one
+        // taught to two classes) could leak Class B's session marks into
+        // Class A's dashboard whenever a student happened to be enrolled
+        // in both cohorts (legacy data, manual reassignments, etc.).
+        $query
             ->where('course_id', $course->id)
             ->whereHas('student', fn (Builder $s) => $s->whereIn('class_id', $classIds));
+
+        \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($query, $classIds);
+
+        return $query;
     }
 
     public static function classRepForCourse(Student $rep, Course $course): ?ClassRep
