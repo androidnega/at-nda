@@ -438,6 +438,11 @@ class AttendanceSession extends Model
             }
         });
 
+        // Bust the short live-sessions cache whenever a session row changes
+        // so reps / students see open / close events within ~one poll cycle.
+        static::saved(fn () => \App\Support\LiveAttendanceCache::bump());
+        static::deleted(fn () => \App\Support\LiveAttendanceCache::bump());
+
         static::creating(function (AttendanceSession $session) {
             if (empty($session->session_token)) {
                 $session->session_token = Str::random(32);

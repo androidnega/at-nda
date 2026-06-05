@@ -334,15 +334,43 @@ class Course extends Model
      */
     public function activeSessionsForClass(?int $classId): \Illuminate\Database\Eloquent\Collection
     {
-        $query = $this->attendanceSessions()
-            ->with(['attendanceWeek', 'course.lecturer', 'course.venueRelation', 'lecturer', 'venue'])
-            ->activeWithinTimeWindow();
+        $courseId = (int) $this->getKey();
+        $cacheTag = sprintf('course:%d:class:%s', $courseId, $classId ?: '*');
 
-        if ($classId !== null && $classId > 0) {
-            \App\Support\AttendanceSessionClassScope::applyForClass($query, $classId);
+        $sessionIds = \App\Support\LiveAttendanceCache::remember($cacheTag, function () use ($classId) {
+            $query = $this->attendanceSessions()
+                ->activeWithinTimeWindow();
+
+            if ($classId !== null && $classId > 0) {
+                \App\Support\AttendanceSessionClassScope::applyForClass($query, $classId);
+            }
+
+            return $query
+                ->latest('id')
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        });
+
+        if (empty($sessionIds)) {
+            return new \Illuminate\Database\Eloquent\Collection();
         }
 
-        return $query->latest('id')->get();
+        $loaded = AttendanceSession::query()
+            ->with(['attendanceWeek', 'course.lecturer', 'course.venueRelation', 'lecturer', 'venue'])
+            ->whereIn('id', $sessionIds)
+            ->get()
+            ->keyBy('id');
+
+        $sorted = new \Illuminate\Database\Eloquent\Collection();
+        foreach ($sessionIds as $id) {
+            $row = $loaded->get($id);
+            if ($row !== null) {
+                $sorted->push($row);
+            }
+        }
+
+        return $sorted;
     }
 
     public function hasSchedule(): bool

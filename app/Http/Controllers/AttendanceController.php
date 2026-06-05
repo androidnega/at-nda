@@ -412,15 +412,29 @@ class AttendanceController extends Controller
             ]);
         }
 
-        Attendance::create([
-            'student_id' => $student->id,
-            'course_id' => $course->id,
-            'attendance_session_id' => $session->id,
-            'attendance_week_id' => $session->attendance_week_id,
-            'attendance_time' => now(),
-            'status' => 'present',
-            'synced' => true,
-        ]);
+        // Cache-backed lock: with hundreds of students POSTing at the same
+        // moment the duplicate-key fence + lock keep us to a single insert
+        // per (session, student) pair. Use CACHE_STORE=redis on production
+        // so all PHP workers share the same lock.
+        \App\Support\AttendanceMarkLock::run(
+            (int) $session->id,
+            (int) $student->id,
+            function () use ($student, $course, $session) {
+                Attendance::firstOrCreate(
+                    [
+                        'student_id' => $student->id,
+                        'attendance_session_id' => $session->id,
+                    ],
+                    [
+                        'course_id' => $course->id,
+                        'attendance_week_id' => $session->attendance_week_id,
+                        'attendance_time' => now(),
+                        'status' => 'present',
+                        'synced' => true,
+                    ]
+                );
+            }
+        );
 
         $presentCount = Attendance::where('attendance_session_id', $session->id)
             ->where('status', 'present')

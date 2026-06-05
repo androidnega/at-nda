@@ -262,20 +262,34 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'Already marked'], 200);
         }
 
-        Attendance::create([
-            'student_id' => $student->id,
-            'course_id' => $course->id,
-            'attendance_session_id' => $session->id,
-            'attendance_week_id' => $session->attendance_week_id,
-            'attendance_time' => $attendanceTime,
-            'status' => 'present',
-            'synced' => true,
-            'lat' => $latitude,
-            'lng' => $longitude,
-            'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
-            'device_ip' => $deviceIp,
-            'device_id' => $deviceId,
-        ]);
+        // Lock per (session, student) so the same student tapping mark twice
+        // — or two workers handling the retry payload from a flaky phone —
+        // collapses into a single insert. Pair with CACHE_STORE=redis on
+        // production for cross-worker safety.
+        \App\Support\AttendanceMarkLock::run(
+            (int) $session->id,
+            (int) $student->id,
+            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId) {
+                Attendance::firstOrCreate(
+                    [
+                        'student_id' => $student->id,
+                        'attendance_session_id' => $session->id,
+                    ],
+                    [
+                        'course_id' => $course->id,
+                        'attendance_week_id' => $session->attendance_week_id,
+                        'attendance_time' => $attendanceTime,
+                        'status' => 'present',
+                        'synced' => true,
+                        'lat' => $latitude,
+                        'lng' => $longitude,
+                        'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
+                        'device_ip' => $deviceIp,
+                        'device_id' => $deviceId,
+                    ]
+                );
+            }
+        );
 
         $presentCount = Attendance::where('attendance_session_id', $session->id)
             ->where('status', 'present')

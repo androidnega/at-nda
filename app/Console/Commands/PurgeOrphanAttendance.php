@@ -24,7 +24,8 @@ class PurgeOrphanAttendance extends Command
 {
     protected $signature = 'attendance:purge-orphans
                             {--dry-run : Show how many rows would be deleted without deleting them}
-                            {--cross-class : Also delete rep auto-marks that landed in another class\'s session}';
+                            {--cross-class : Also delete rep auto-marks that landed in another class\'s session}
+                            {--duplicate-empty : Also delete extra sessions for the same (course, class, week) that nobody attended}';
 
     protected $description = 'Delete attendance rows and sessions whose backing week was already cleared by admin.';
 
@@ -32,6 +33,7 @@ class PurgeOrphanAttendance extends Command
     {
         $dry = (bool) $this->option('dry-run');
         $alsoCrossClass = (bool) $this->option('cross-class');
+        $alsoDuplicateEmpty = (bool) $this->option('duplicate-empty');
 
         // 1. Attendance rows whose attendance_week_id no longer points at
         //    a real attendance_weeks row.
@@ -95,19 +97,33 @@ class PurgeOrphanAttendance extends Command
             }
         }
 
+        // 4. Sessions that were closed (or replaced) before anyone marked
+        //    attendance for them. The history builder turns each empty
+        //    session into a separate "missed class" row — collapse repeats
+        //    for the same (course, class, week) here.
+        $duplicateEmptyIds = [];
+        if ($alsoDuplicateEmpty) {
+            $duplicateEmptyIds = $this->collectDuplicateEmptySessionIds();
+            $this->line('Found '.count($duplicateEmptyIds).' duplicate empty session(s).');
+        }
+
         if ($dry) {
             $this->info('Dry run — nothing deleted. Re-run without --dry-run to purge.');
 
             return self::SUCCESS;
         }
 
-        if ($orphanCount === 0 && $orphanSessionCount === 0 && $crossClassCount === 0) {
+        if ($orphanCount === 0
+            && $orphanSessionCount === 0
+            && $crossClassCount === 0
+            && $duplicateEmptyIds === []
+        ) {
             $this->info('Nothing to purge.');
 
             return self::SUCCESS;
         }
 
-        DB::transaction(function () use ($orphanAttendance, $orphanSessions, $crossClassQuery): void {
+        DB::transaction(function () use ($orphanAttendance, $orphanSessions, $crossClassQuery, $duplicateEmptyIds): void {
             foreach ($orphanAttendance->cursor() as $row) {
                 $row->delete();
             }
@@ -117,15 +133,57 @@ class PurgeOrphanAttendance extends Command
                     $row->delete();
                 }
             }
+            if ($duplicateEmptyIds !== []) {
+                AttendanceSession::query()->whereIn('id', $duplicateEmptyIds)->delete();
+            }
         });
 
         $this->info(
             'Purged '.$orphanCount.' attendance row(s), '
             .$orphanSessionCount.' session(s)'
-            .($alsoCrossClass ? ', and '.$crossClassCount.' cross-class auto-mark(s)' : '')
+            .($alsoCrossClass ? ', '.$crossClassCount.' cross-class auto-mark(s)' : '')
+            .($alsoDuplicateEmpty ? ', and '.count($duplicateEmptyIds).' duplicate empty session(s)' : '')
             .'.'
         );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Sessions that nobody marked attendance for, where another session for
+     * the same (course_id, attendance_week_id) already exists. The newest
+     * row in each group is kept just in case it's still live; everything
+     * older is dropped.
+     *
+     * @return list<int>
+     */
+    private function collectDuplicateEmptySessionIds(): array
+    {
+        $sessions = AttendanceSession::query()
+            ->select(['id', 'course_id', 'attendance_week_id', 'created_at'])
+            ->whereNotNull('attendance_week_id')
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('attendances')
+                    ->whereColumn('attendances.attendance_session_id', 'attendance_sessions.id');
+            })
+            ->orderBy('attendance_week_id')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $byGroup = [];
+        $ids = [];
+        foreach ($sessions as $row) {
+            $key = (int) $row->course_id.'-'.(int) $row->attendance_week_id;
+            if (! isset($byGroup[$key])) {
+                $byGroup[$key] = true;
+                // First in the desc-sorted list per group → most recent, keep it.
+                continue;
+            }
+            $ids[] = (int) $row->id;
+        }
+
+        return array_values($ids);
     }
 }

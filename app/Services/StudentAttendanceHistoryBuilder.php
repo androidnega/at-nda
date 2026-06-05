@@ -178,7 +178,21 @@ class StudentAttendanceHistoryBuilder
         $sessionsBaseQuery = AttendanceSession::query()
             ->whereHas('course', fn ($q) => $q->forManagedClasses([$student->class_id]))
             ->whereNotNull('attendance_week_id')
-            ->whereHas('attendanceWeek', fn ($q) => $q->whereNull('cancelled_at'));
+            ->whereHas('attendanceWeek', fn ($q) => $q->whereNull('cancelled_at'))
+            // Drop empty zombie sessions that were opened then immediately
+            // replaced. They never had any attendance and only exist to
+            // poison the "missed class" list. The session this student
+            // actually attended is kept via the orWhereIn below.
+            ->where(function ($q) use ($attendedSessionIds) {
+                $q->whereExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('attendances')
+                        ->whereColumn('attendances.attendance_session_id', 'attendance_sessions.id');
+                });
+                if (! $attendedSessionIds->isEmpty()) {
+                    $q->orWhereIn('id', $attendedSessionIds);
+                }
+            });
         \App\Support\AttendanceSessionClassScope::applyForClass($sessionsBaseQuery, (int) $student->class_id);
         $sessions = $sessionsBaseQuery
             ->where(function ($q) use ($attendedSessionIds) {
