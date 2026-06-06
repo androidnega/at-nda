@@ -330,8 +330,24 @@
                             @endif
                         </p>
                     </div>
-                    <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide {{ $slot['marked'] ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
-                        {{ $slot['marked'] ? 'Marked' : 'Pending' }}
+                    @php
+                        // Context-aware badge: a single "Pending" label
+                        // for every non-marked row was confusing — an
+                        // upcoming class and a class that ended hours ago
+                        // both said the same thing. Status comes from
+                        // StudentDashboardController::collectTodaysScheduledClasses().
+                        $slotStatus = $slot['status'] ?? ($slot['marked'] ? 'marked' : 'pending');
+                        $slotLabel = $slot['status_label'] ?? ($slot['marked'] ? 'Marked' : 'Pending');
+                        $slotClass = match ($slotStatus) {
+                            'marked'   => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+                            'live'     => 'bg-amber-50 text-amber-800 ring-1 ring-amber-200 animate-pulse',
+                            'upcoming' => 'bg-sky-50 text-sky-700 ring-1 ring-sky-200',
+                            'missed'   => 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
+                            default    => 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+                        };
+                    @endphp
+                    <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide {{ $slotClass }}">
+                        {{ $slotLabel }}
                     </span>
                 </li>
             @endforeach

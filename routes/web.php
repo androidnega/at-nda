@@ -243,6 +243,7 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');
         Route::get('/live-sessions/{session}/close', [ClassRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
         Route::post('/live-sessions/{session}/close', [ClassRepController::class, 'closeSession'])->name('live-sessions.close');
+        Route::post('/live-sessions/{session}/extend', [ClassRepController::class, 'extendSession'])->name('live-sessions.extend');
         Route::get('/live-sessions/{session}/qr', [ClassRepController::class, 'qr'])->name('live-sessions.qr')->scopeBindings();
         Route::get('/live-sessions/{session}/qr-stats', [ClassRepController::class, 'qrStats'])->name('live-sessions.qr-stats')->scopeBindings();
         Route::get('/live-sessions/{session}/qr-payload', [ClassRepController::class, 'qrPayload'])->name('live-sessions.qr-payload')->scopeBindings();

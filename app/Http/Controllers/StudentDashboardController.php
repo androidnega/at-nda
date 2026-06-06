@@ -322,7 +322,18 @@ class StudentDashboardController extends Controller
      * Returns at most a handful of rows for display — one per scheduled
      * slot today, sorted by start time.
      *
-     * @return Collection<int, array{course: Course, start: ?string, end: ?string, lecturer: ?string, venue: ?string, marked: bool}>
+     * Each row now carries a context-aware `status`:
+     *   marked   — student has already been counted as present today
+     *   live     — there is an active session for this course right now
+     *   upcoming — the slot's start time is in the future
+     *   missed   — the slot's end time is in the past and no mark exists
+     *   pending  — fallback (mid-slot, no live session yet)
+     *
+     * Previously every non-marked row was labelled "Pending", which was
+     * misleading for upcoming classes (rep hasn't opened anything yet)
+     * and for classes that ended hours ago without a mark.
+     *
+     * @return Collection<int, array{course: Course, start: ?string, end: ?string, start_raw: ?string, end_raw: ?string, lecturer: ?string, venue: ?string, marked: bool, status: string, status_label: string}>
      */
     private function collectTodaysScheduledClasses(Student $student): Collection
     {
@@ -353,9 +364,13 @@ class StudentDashboardController extends Controller
                     'course' => $row->course,
                     'start' => $this->formatScheduleTime($row->start_time),
                     'end' => $this->formatScheduleTime($row->end_time),
+                    'start_raw' => $row->start_time,
+                    'end_raw' => $row->end_time,
                     'lecturer' => $lecturerName !== '' ? $lecturerName : null,
                     'venue' => $row->venueRelation?->name ?? null,
                     'marked' => false,
+                    'status' => 'pending',
+                    'status_label' => 'Pending',
                 ]);
             }
         }
@@ -372,9 +387,13 @@ class StudentDashboardController extends Controller
                     'course' => $course,
                     'start' => $this->formatScheduleTime($course->start_time),
                     'end' => $this->formatScheduleTime($course->end_time),
+                    'start_raw' => $course->start_time,
+                    'end_raw' => $course->end_time,
                     'lecturer' => trim((string) ($course->resolvedLecturerName() ?? '')) ?: null,
                     'venue' => $course->venueRelation?->name ?? ($course->venue ?: null),
                     'marked' => false,
+                    'status' => 'pending',
+                    'status_label' => 'Pending',
                 ]);
             }
         }
@@ -403,11 +422,77 @@ class StudentDashboardController extends Controller
             ->map(fn ($id) => (int) $id)
             ->flip();
 
-        return $rows->map(function (array $r) use ($presentToday) {
-            $r['marked'] = $presentToday->has((int) ($r['course']->id ?? 0));
+        $now = now();
 
+        return $rows->map(function (array $r) use ($presentToday, $now, $classId) {
+            $courseId = (int) ($r['course']->id ?? 0);
+            $marked = $presentToday->has($courseId);
+            $r['marked'] = $marked;
+
+            // Parse schedule times for THIS calendar day (the raw values are
+            // typically TIME columns like "09:00:00" with no date).
+            $start = $this->scheduleTimeForToday($r['start_raw'] ?? null);
+            $end = $this->scheduleTimeForToday($r['end_raw'] ?? null);
+
+            if ($marked) {
+                $r['status'] = 'marked';
+                $r['status_label'] = 'Marked';
+                return $r;
+            }
+
+            // Is there actually a live session for this course + class right
+            // now? If so, this is the only state where the student can
+            // realistically act, and "Live" / "Open now" is far more useful
+            // than the generic "Pending".
+            $hasLiveSession = false;
+            try {
+                $hasLiveSession = $r['course']->activeSessionForClass($classId) !== null;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+            if ($hasLiveSession) {
+                $r['status'] = 'live';
+                $r['status_label'] = 'Open now';
+                return $r;
+            }
+
+            if ($start !== null && $now->lt($start)) {
+                $r['status'] = 'upcoming';
+                $r['status_label'] = 'Upcoming';
+                return $r;
+            }
+
+            if ($end !== null && $now->gt($end)) {
+                $r['status'] = 'missed';
+                $r['status_label'] = 'Missed';
+                return $r;
+            }
+
+            // Mid-slot but the rep hasn't opened a session yet — leave it
+            // as Pending so the student knows they still have a chance.
+            $r['status'] = 'pending';
+            $r['status_label'] = 'Pending';
             return $r;
         });
+    }
+
+    /**
+     * Convert a TIME-only schedule value (e.g. "09:00:00") into a Carbon
+     * datetime anchored on TODAY. Returns null if the value can't be
+     * parsed — caller treats that as "no boundary".
+     */
+    private function scheduleTimeForToday(mixed $value): ?\Illuminate\Support\Carbon
+    {
+        if (! $value) {
+            return null;
+        }
+        try {
+            $parsed = \Illuminate\Support\Carbon::parse((string) $value);
+            return now()->copy()
+                ->setTime($parsed->hour, $parsed->minute, $parsed->second);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     private function formatScheduleTime(mixed $value): ?string

@@ -271,6 +271,15 @@
                                     <i class="fas fa-clipboard-check text-[10px]"></i> Form
                                 </a>
                                 @if($item->canOpenSession)
+                                {{-- Extend: bumps expires_at / end_time by 15 minutes (server clamps to a sane max).
+                                     Repeat the click for longer extensions; an audit log line is written each time. --}}
+                                <form action="{{ route('dashboard.live-sessions.extend', $activeSession) }}" method="POST" class="flex-1 min-w-[5rem] sm:flex-none">
+                                    @csrf
+                                    <input type="hidden" name="minutes" value="15">
+                                    <button type="submit" class="w-full sm:w-auto inline-flex justify-center items-center gap-1.5 px-3 py-2 rounded-md text-[11px] font-semibold border border-amber-200 bg-white text-amber-700 hover:bg-amber-50">
+                                        <i class="fas fa-clock text-[10px]"></i> +15 min
+                                    </button>
+                                </form>
                                 <form action="{{ route('dashboard.live-sessions.close', $activeSession) }}" method="POST" class="flex-1 min-w-full sm:min-w-0 sm:flex-none" onsubmit="return confirm('Close this session?');">
                                     @csrf
                                     <button type="submit" class="w-full sm:w-auto inline-flex justify-center items-center gap-1.5 px-3 py-2 rounded-md text-[11px] font-semibold border border-rose-200/90 bg-white text-rose-600 hover:bg-rose-50">

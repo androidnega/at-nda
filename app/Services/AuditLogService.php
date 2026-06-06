@@ -21,6 +21,7 @@ class AuditLogService
     public const SESSION_OPENED = 'session_opened';
     public const SESSION_REOPENED = 'session_reopened';
     public const SESSION_CLOSED = 'session_closed';
+    public const SESSION_EXTENDED = 'session_extended';
 
     /** Per-student attendance changes. */
     public const MARK_CREATED = 'mark_created';

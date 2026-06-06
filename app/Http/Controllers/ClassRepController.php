@@ -613,6 +613,95 @@ class ClassRepController extends Controller
             : 'Session closed.');
     }
 
+    /**
+     * Push back the session's expires_at / end_time by N minutes (default 15).
+     * Reactivates the session if it had already expired (within a sane safety
+     * window). Honours the same rep / main-rep / course-access checks as
+     * open and close. No business-logic change to how marks are recorded;
+     * we only move the time window.
+     */
+    public function extendSession(Request $request, AttendanceSession $session): RedirectResponse
+    {
+        $student = $this->requireClassRep($request);
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
+
+        $course = $session->course;
+        if (! $this->repCanAccessCourse($student, $course)) {
+            abort(403, 'You can only manage sessions for courses in your class.');
+        }
+        if (! $this->requireMainRep($student, $session->course_id)) {
+            return back()->with('error', 'Only main reps can extend sessions');
+        }
+
+        $validated = $request->validate([
+            'minutes' => 'nullable|integer|min:5|max:120',
+        ]);
+        $minutes = (int) ($validated['minutes'] ?? 15);
+
+        // Reject extending a session that has been closed manually too long
+        // ago — reps shouldn't be able to silently revive a session from
+        // yesterday. canBeMarkedByClassRep() already enforces a sensible
+        // lookback window (config 'app.attendance_rep_supplemental_days').
+        if (! $session->canBeMarkedByClassRep()) {
+            return back()->with('error', 'This session is too old to extend. Open a new session instead.');
+        }
+
+        // Base the new expiry on whichever is later: now() or the existing
+        // expires_at. Otherwise extending an already-expired session by 15
+        // minutes would still leave it in the past.
+        $base = $session->expires_at && $session->expires_at->isFuture()
+            ? $session->expires_at->copy()
+            : now();
+        $newExpiry = $base->copy()->addMinutes($minutes);
+
+        $previousExpiresAt = $session->expires_at;
+        $previousEndTime = $session->end_time;
+
+        $session->update([
+            'expires_at' => $newExpiry,
+            'end_time' => $newExpiry,
+            'is_active' => true,
+        ]);
+        $session->refresh();
+        $session->load('course');
+
+        // Bust the cached "active sessions for this course" list so the
+        // student dashboards / Flutter app see the new window immediately
+        // instead of waiting for the 5s TTL.
+        try {
+            \App\Support\LiveAttendanceCache::bump();
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $presentCount = Attendance::where('attendance_session_id', $session->id)
+            ->where('status', 'present')
+            ->count();
+        event(new SessionLiveEvent($session, 'session_extended', [
+            'present_count' => $presentCount,
+            'expires_at' => $newExpiry->toIso8601String(),
+        ]));
+
+        \App\Services\AuditLogService::record(\App\Services\AuditLogService::SESSION_EXTENDED, [
+            'request' => $request,
+            'course_id' => (int) $session->course_id,
+            'class_id' => $session->class_id ? (int) $session->class_id : null,
+            'attendance_session_id' => (int) $session->id,
+            'subject_type' => 'attendance_session',
+            'subject_id' => (int) $session->id,
+            'payload' => [
+                'minutes' => $minutes,
+                'previous_expires_at' => $previousExpiresAt?->toIso8601String(),
+                'previous_end_time' => $previousEndTime?->toIso8601String(),
+                'new_expires_at' => $newExpiry->toIso8601String(),
+            ],
+        ]);
+
+        return back()->with('success', 'Session extended by '.$minutes.' min. Now ends '.$newExpiry->format('g:i A').'.');
+    }
+
     public function qr(AttendanceSession $session, Request $request)
     {
         $student = $this->requireClassRep($request);
