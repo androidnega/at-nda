@@ -14,22 +14,53 @@ use Illuminate\Database\Eloquent\Builder;
 final class RepCourseAccess
 {
     /**
+     * Per-request memo of (rep_id, course_id) → list<int> for
+     * scopedClassIdsForCourse(), and course_id → list<int> for
+     * courseClassIdsForAccess(). Both are read on every rep
+     * dashboard load and many times per attendance write — caching
+     * within a request shaves dozens of small queries off pages
+     * that render multiple courses.
+     *
+     * @var array<string, list<int>>
+     */
+    private static array $scopedCache = [];
+
+    /**
+     * @var array<int, list<int>>
+     */
+    private static array $courseClassesCache = [];
+
+    /**
      * Class IDs this course is assigned to (pivot when present; legacy class_id otherwise).
      *
      * @return list<int>
      */
     public static function courseClassIdsForAccess(Course $course): array
     {
-        if (SchemaFeatures::hasCourseClassPivot()) {
-            $fromPivot = $course->relationLoaded('schoolClasses')
-                ? $course->schoolClasses->pluck('id')->map(fn ($id) => (int) $id)->all()
-                : $course->schoolClasses()->pluck('classes.id')->map(fn ($id) => (int) $id)->all();
-            if ($fromPivot !== []) {
-                return array_values(array_unique($fromPivot));
-            }
+        $courseId = (int) $course->getKey();
+        if ($courseId > 0 && isset(self::$courseClassesCache[$courseId])) {
+            return self::$courseClassesCache[$courseId];
         }
 
-        return $course->assignedClassIds();
+        $resolve = function () use ($course): array {
+            if (SchemaFeatures::hasCourseClassPivot()) {
+                $fromPivot = $course->relationLoaded('schoolClasses')
+                    ? $course->schoolClasses->pluck('id')->map(fn ($id) => (int) $id)->all()
+                    : $course->schoolClasses()->pluck('classes.id')->map(fn ($id) => (int) $id)->all();
+                if ($fromPivot !== []) {
+                    return array_values(array_unique($fromPivot));
+                }
+            }
+
+            return $course->assignedClassIds();
+        };
+
+        $resolved = $resolve();
+        if ($courseId > 0) {
+            self::$courseClassesCache[$courseId] = $resolved;
+        }
+
+        return $resolved;
     }
 
     public static function canAccessCourse(Student $rep, Course $course): bool
@@ -76,10 +107,32 @@ final class RepCourseAccess
      */
     public static function scopedClassIdsForCourse(Student $rep, Course $course): array
     {
+        $repId = (int) $rep->getKey();
+        $courseId = (int) $course->getKey();
+        $key = $repId.':'.$courseId;
+        if ($repId > 0 && $courseId > 0 && isset(self::$scopedCache[$key])) {
+            return self::$scopedCache[$key];
+        }
+
         $managed = $rep->repManagedClassIds()->map(fn ($id) => (int) $id)->all();
         $assigned = self::courseClassIdsForAccess($course);
+        $scoped = array_values(array_intersect($managed, $assigned));
 
-        return array_values(array_intersect($managed, $assigned));
+        if ($repId > 0 && $courseId > 0) {
+            self::$scopedCache[$key] = $scoped;
+        }
+
+        return $scoped;
+    }
+
+    /**
+     * Drop the per-request memo. Useful in tests or after bulk
+     * updates that change rep/course assignments mid-request.
+     */
+    public static function flushRequestCache(): void
+    {
+        self::$scopedCache = [];
+        self::$courseClassesCache = [];
     }
 
     public static function repClassLabelForCourse(Student $rep, Course $course): string

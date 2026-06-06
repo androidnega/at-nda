@@ -3,10 +3,28 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class SystemSetting extends Model
 {
+    /**
+     * Per-request memo of the resolved settings row. Hot paths
+     * (controllers, middleware, services) call ::get() multiple
+     * times per request — caching it avoids repeated SELECT 1
+     * queries on shared hosting where DB connections are scarce.
+     */
+    private static ?self $cachedInstance = null;
+
+    /**
+     * Per-request memo for has*Column lookups so we don't hit
+     * INFORMATION_SCHEMA every time a controller asks "is this
+     * optional column on the table?".
+     *
+     * @var array<string, bool>
+     */
+    private static array $columnCache = [];
+
     protected $fillable = [
         'enable_face_verification',
         'enable_ip_binding',
@@ -90,45 +108,63 @@ class SystemSetting extends Model
     public const INSTANT_MODE_LOCATION_QR = 'location_qr';
     public const INSTANT_MODE_WIFI = 'wifi';
 
+    /**
+     * Cheap, memoised "does optional column X exist?" — avoids one
+     * INFORMATION_SCHEMA query per check on busy pages.
+     */
+    private static function columnExists(string $column): bool
+    {
+        if (array_key_exists($column, self::$columnCache)) {
+            return self::$columnCache[$column];
+        }
+
+        try {
+            $exists = Schema::hasColumn('system_settings', $column);
+        } catch (\Throwable $e) {
+            $exists = false;
+        }
+
+        return self::$columnCache[$column] = $exists;
+    }
+
     public static function hasRequireProfileImageColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'require_profile_image_on_onboarding');
+        return self::columnExists('require_profile_image_on_onboarding');
     }
 
     public static function hasDynamicUiColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'dynamic_ui');
+        return self::columnExists('dynamic_ui');
     }
 
     public static function hasRepDashboardThemeColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'rep_dashboard_theme');
+        return self::columnExists('rep_dashboard_theme');
     }
 
     public static function hasStudentDashboardThemeColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'student_dashboard_theme');
+        return self::columnExists('student_dashboard_theme');
     }
 
     public static function hasMobileAppThemeSeedColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'mobile_app_theme_seed');
+        return self::columnExists('mobile_app_theme_seed');
     }
 
     public static function hasAttendanceModeColumns(): bool
     {
-        return Schema::hasColumn('system_settings', 'attendance_mode')
-            && Schema::hasColumn('system_settings', 'instant_mode_type');
+        return self::columnExists('attendance_mode') && self::columnExists('instant_mode_type');
     }
 
     public static function hasEnforceStudentLogoutLockColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'enforce_student_logout_lock');
+        return self::columnExists('enforce_student_logout_lock');
     }
 
     public static function hasAuthHeroImagePathColumn(): bool
     {
-        return Schema::hasColumn('system_settings', 'auth_hero_image_path');
+        return self::columnExists('auth_hero_image_path');
     }
 
     public function requiresProfileImageOnOnboarding(): bool
@@ -140,8 +176,33 @@ class SystemSetting extends Model
         return (bool) ($this->require_profile_image_on_onboarding ?? true);
     }
 
+    /**
+     * Resolve the (singleton) settings row.
+     *
+     * Hot path — read from many controllers, services and middleware.
+     * Caching layers, in order:
+     *   1. Per-request static memo (zero overhead on repeat calls)
+     *   2. Application cache for 60s (saves DB query across requests)
+     *   3. Fresh DB read with default-row seed
+     *
+     * The `saved` / `deleted` boot hooks invalidate both caches so
+     * admin updates take effect immediately for everyone.
+     */
     public static function get(): self
     {
+        if (self::$cachedInstance !== null) {
+            return self::$cachedInstance;
+        }
+
+        try {
+            $cached = Cache::get('atenda:system_settings:row');
+            if ($cached instanceof self) {
+                return self::$cachedInstance = $cached;
+            }
+        } catch (\Throwable $e) {
+            // Cache backend unreachable — fall through to DB.
+        }
+
         $setting = static::first();
         if (! $setting) {
             $payload = [
@@ -179,6 +240,36 @@ class SystemSetting extends Model
             $setting = static::create($payload);
         }
 
-        return $setting;
+        try {
+            Cache::put('atenda:system_settings:row', $setting, now()->addSeconds(60));
+        } catch (\Throwable $e) {
+            // Cache write failed — not critical, the per-request memo
+            // below still saves repeated DB hits inside this request.
+        }
+
+        return self::$cachedInstance = $setting;
+    }
+
+    /**
+     * Drop both layers of cached settings. Called automatically from
+     * the model's saved/deleted hooks; can also be called explicitly
+     * after bulk updates that bypass Eloquent.
+     */
+    public static function flushCache(): void
+    {
+        self::$cachedInstance = null;
+        self::$columnCache = [];
+        try {
+            Cache::forget('atenda:system_settings:row');
+            Cache::forget('api_v1_settings');
+        } catch (\Throwable $e) {
+            // Cache backend unavailable — safe to swallow.
+        }
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::flushCache());
+        static::deleted(fn () => self::flushCache());
     }
 }

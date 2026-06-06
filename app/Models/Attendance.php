@@ -18,6 +18,31 @@ class Attendance extends Model
             ]);
         });
 
+        // Bump the cache version on every write so dashboard counts /
+        // weekly aggregations cached via CacheVersions get a fresh key
+        // the next time they're read. Cheap (two Cache::forever calls)
+        // and deterministic — no need for surgical Cache::forget loops.
+        //
+        // We bump two namespaces:
+        //   - 'attendance' (global)              → rep / lecturer aggregations
+        //   - 'attendance:student:{id}' (scoped) → that student's own tiles
+        // so a single mark only invalidates ONE student's dashboard
+        // cache, not everyone else's.
+        $bump = function (Attendance $attendance): void {
+            try {
+                \App\Support\CacheVersions::bump('attendance');
+                $studentId = (int) ($attendance->student_id ?? 0);
+                if ($studentId > 0) {
+                    \App\Support\CacheVersions::bump('attendance:student:'.$studentId);
+                }
+            } catch (\Throwable $e) {
+                // Cache backend down — readers still get correct data
+                // from the DB; nothing more to do here.
+            }
+        };
+        static::saved($bump);
+        static::deleted($bump);
+
         // Strip optional columns before insert/update if the running database
         // hasn't been migrated yet. Keeps older deploys from blowing up with
         // "unknown column 'user_agent'" the moment we deploy this change.

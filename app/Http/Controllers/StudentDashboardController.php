@@ -223,41 +223,54 @@ class StudentDashboardController extends Controller
             return $q;
         };
 
-        $totalPresent = $baseAttendance()
-            ->countedAsPresent()
-            ->count();
-
-        // "Courses" replaces the old "Weeks" tile. Students mostly want
-        // to know how many distinct courses they've been marked present
-        // for so far, not the raw week count.
-        $coursesAttended = $baseAttendance()
-            ->countedAsPresent()
-            ->distinct()
-            ->count('course_id');
-
-        // Today's marks (use the configured timezone so "today" matches
-        // what the student actually sees in their UI). Counts *distinct
-        // courses* the student was present in today: if a rep opens then
-        // closes and reopens the same class three times, the student is
-        // still credited for one course, not three.
-        $todayCount = $baseAttendance()
-            ->countedAsPresent()
-            ->whereDate('attendance_time', now()->toDateString())
-            ->distinct()
-            ->count('course_id');
-
-        // Marks this ISO-week, counted as *distinct courses attended*
-        // rather than raw rows or (course,day) pairs. So if the student
-        // sits Course A on Mon, Tue, and Wed, the tile reads "1", not
-        // "3". This matches how students intuitively read "THIS WEEK"
-        // — "how many of my classes have I shown up for?" — and lines
-        // up with the canonical academic week count.
+        // Bundle the four count() queries into a single short-TTL cache
+        // entry keyed by student. Marks made by this student bump the
+        // 'attendance:student:{id}' namespace, so the next read fetches
+        // fresh numbers without hammering the DB on every refresh.
+        $countsCacheKey = \App\Support\CacheVersions::key(
+            'student_tiles:'.(int) $student->id.':'.now()->toDateString(),
+            ['attendance:student:'.(int) $student->id]
+        );
         $weekStart = now()->startOfWeek();
-        $weekCount = $baseAttendance()
-            ->countedAsPresent()
-            ->where('attendance_time', '>=', $weekStart)
-            ->distinct()
-            ->count('course_id');
+        $todayDate = now()->toDateString();
+        try {
+            $tiles = \Illuminate\Support\Facades\Cache::remember(
+                $countsCacheKey,
+                30,
+                function () use ($baseAttendance, $weekStart, $todayDate): array {
+                    return [
+                        'total_present' => $baseAttendance()
+                            ->countedAsPresent()
+                            ->count(),
+                        'courses_attended' => $baseAttendance()
+                            ->countedAsPresent()
+                            ->distinct()
+                            ->count('course_id'),
+                        'today_count' => $baseAttendance()
+                            ->countedAsPresent()
+                            ->whereDate('attendance_time', $todayDate)
+                            ->distinct()
+                            ->count('course_id'),
+                        'week_count' => $baseAttendance()
+                            ->countedAsPresent()
+                            ->where('attendance_time', '>=', $weekStart)
+                            ->distinct()
+                            ->count('course_id'),
+                    ];
+                }
+            );
+        } catch (\Throwable $e) {
+            $tiles = [
+                'total_present' => $baseAttendance()->countedAsPresent()->count(),
+                'courses_attended' => $baseAttendance()->countedAsPresent()->distinct()->count('course_id'),
+                'today_count' => $baseAttendance()->countedAsPresent()->whereDate('attendance_time', $todayDate)->distinct()->count('course_id'),
+                'week_count' => $baseAttendance()->countedAsPresent()->where('attendance_time', '>=', $weekStart)->distinct()->count('course_id'),
+            ];
+        }
+        $totalPresent = (int) ($tiles['total_present'] ?? 0);
+        $coursesAttended = (int) ($tiles['courses_attended'] ?? 0);
+        $todayCount = (int) ($tiles['today_count'] ?? 0);
+        $weekCount = (int) ($tiles['week_count'] ?? 0);
 
         // How many courses the student is enrolled in via their class —
         // gives them a denominator so "X / Y courses" makes sense.

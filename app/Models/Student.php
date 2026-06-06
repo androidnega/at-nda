@@ -94,6 +94,20 @@ class Student extends Model implements AuthenticatableContract
             }
         });
 
+        // Bump the cached 'students' namespace whenever roster data
+        // changes. Rep dashboards cache the enrolled-student count
+        // for 60s and rely on this to refresh as soon as an admin
+        // adds, removes, or reassigns a student.
+        $bumpStudents = function (): void {
+            try {
+                \App\Support\CacheVersions::bump('students');
+            } catch (\Throwable $e) {
+                // Non-fatal — rep page will re-fetch on the next reload.
+            }
+        };
+        static::saved($bumpStudents);
+        static::deleted($bumpStudents);
+
         static::creating(function (Student $student) {
             // Index-only self-registration: clear profile until onboarding.
             // Imports and admin roster entry pass names — keep them.

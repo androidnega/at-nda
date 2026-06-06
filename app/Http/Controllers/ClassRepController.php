@@ -991,7 +991,22 @@ class ClassRepController extends Controller
         if ($weeks->isEmpty() || $repClassIds === []) {
             return collect();
         }
-        $enrolled = Student::query()->whereIn('class_id', $repClassIds)->count();
+        // Enrolled count rarely changes; keep it cached for 60s and let
+        // the 'students' namespace version bump invalidate it when an
+        // admin adds/removes students from a class.
+        $enrolledCacheKey = \App\Support\CacheVersions::key(
+            'rep_enrolled:'.implode('-', $repClassIds),
+            ['students']
+        );
+        try {
+            $enrolled = (int) \Illuminate\Support\Facades\Cache::remember(
+                $enrolledCacheKey,
+                60,
+                fn () => Student::query()->whereIn('class_id', $repClassIds)->count()
+            );
+        } catch (\Throwable $e) {
+            $enrolled = Student::query()->whereIn('class_id', $repClassIds)->count();
+        }
         $weekIds = $weeks->pluck('id')->all();
         $byWeek = RepCourseAccess::scopeAttendanceForRep(
             Attendance::query()->with(['student'])->whereIn('attendance_week_id', $weekIds),
