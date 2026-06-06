@@ -24,7 +24,12 @@ class RepSessionPage extends StatefulWidget {
   State<RepSessionPage> createState() => _RepSessionPageState();
 }
 
-class _RepSessionPageState extends State<RepSessionPage> {
+class _RepSessionPageState extends State<RepSessionPage>
+    with WidgetsBindingObserver {
+  /// Refresh cadence for the background poll. Kept at 8s by design — the
+  /// page renders a live rep session view and stats.
+  static const Duration _pollInterval = Duration(seconds: 8);
+
   Timer? _pollTimer;
   bool _loading = true;
   String? _error;
@@ -35,97 +40,175 @@ class _RepSessionPageState extends State<RepSessionPage> {
   int _statsTotalStudents = 0;
   int _statsPresent = 0;
 
+  /// True while a [_refresh] call is already in progress. Stops the periodic
+  /// timer (and any other trigger) from launching overlapping requests when
+  /// the network is slow.
+  bool _inFlight = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refresh();
-    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refresh());
+    _startPolling();
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    final student = await OfflineService.getCurrentStudent();
-    if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'Sign in online once so the app can verify your account.';
-          _courses = [];
-        });
-      }
-      return;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopPolling();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Resume the timer first so we don't miss the next tick, then run a
+        // silent catch-up so stats reflect anything that happened while the
+        // app was backgrounded.
+        _startPolling();
+        if (mounted) {
+          _refresh(silent: true);
+        }
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        _stopPolling();
     }
+  }
+
+  /// Creates the periodic poll timer if one is not already active. Safe to
+  /// call multiple times; the `??=` guard prevents duplicate timers.
+  void _startPolling() {
+    _pollTimer ??= Timer.periodic(_pollInterval, (_) {
+      if (!mounted) return;
+      _refresh(silent: true);
+    });
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  /// Refreshes rep courses and active-session stats.
+  ///
+  /// [silent] - when true, the centre spinner is suppressed and transient
+  /// failures do not blank the list / overwrite the cached error. Used for
+  /// the background poll, pull-to-refresh (which has its own indicator),
+  /// app-resume catch-up, and post-action refreshes (open / close / extend)
+  /// where the snackbar already gives the user feedback. The first load and
+  /// the explicit Retry path remain non-silent so the user gets a spinner
+  /// when there is nothing yet to show.
+  Future<void> _refresh({bool silent = false}) async {
+    if (_inFlight) return;
+    _inFlight = true;
     try {
-      final pwd = await OfflineService.getApiSessionPassword();
-      final res = await ApiService.repCourses(
-        indexNumber: student.indexNumber,
-        password: pwd ?? '',
-      );
-      if (res.statusCode == 403) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error =
-                'This account is not a class rep (or rep access was removed).';
-            _courses = [];
-          });
-        }
-        return;
-      }
-      if (res.statusCode != 200) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = ApiService.messageFromHttpResponse(res).isEmpty
-                ? 'Could not load rep courses (${res.statusCode}).'
-                : ApiService.messageFromHttpResponse(res);
-            _courses = [];
-          });
-        }
-        return;
-      }
-      final body = jsonDecode(res.body);
-      if (body is! Map) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = 'Invalid response from server.';
-            _courses = [];
-          });
-        }
-        return;
-      }
-      final raw = body['courses'];
-      final list = <RepCourse>[];
-      if (raw is List) {
-        for (final item in raw) {
-          if (item is Map) {
-            list.add(RepCourse.fromJson(Map<String, dynamic>.from(item)));
-          }
-        }
-      }
-      if (mounted) {
+      // Only flash the centre spinner when we have nothing yet to display.
+      // Background ticks / pull-to-refresh / post-action refreshes update
+      // the existing list in place.
+      final hadData = _courses.isNotEmpty;
+      final showSpinner = !silent && !hadData;
+      if (showSpinner) {
         setState(() {
-          _loading = false;
-          _courses = list;
+          _loading = true;
           _error = null;
-          if (_selectedIndex != null && _selectedIndex! >= _courses.length) {
-            _selectedIndex = null;
+        });
+      }
+
+      final student = await OfflineService.getCurrentStudent();
+      if (student == null || !await OfflineService.hasPasswordOrApiToken()) {
+        if (!mounted) return;
+        // On a silent background tick, don't blank a populated list because
+        // of a transient auth blip — wait for an explicit refresh to surface
+        // the issue.
+        if (!silent) {
+          setState(() {
+            _loading = false;
+            _error = 'Sign in online once so the app can verify your account.';
+            _courses = [];
+          });
+        }
+        return;
+      }
+
+      try {
+        final pwd = await OfflineService.getApiSessionPassword();
+        final res = await ApiService.repCourses(
+          indexNumber: student.indexNumber,
+          password: pwd ?? '',
+        );
+        if (res.statusCode == 403) {
+          if (!mounted) return;
+          if (!silent) {
+            setState(() {
+              _loading = false;
+              _error =
+                  'This account is not a class rep (or rep access was removed).';
+              _courses = [];
+            });
           }
-        });
+          return;
+        }
+        if (res.statusCode != 200) {
+          if (!mounted) return;
+          if (!silent) {
+            setState(() {
+              _loading = false;
+              _error = ApiService.messageFromHttpResponse(res).isEmpty
+                  ? 'Could not load rep courses (${res.statusCode}).'
+                  : ApiService.messageFromHttpResponse(res);
+              _courses = [];
+            });
+          }
+          return;
+        }
+        final body = jsonDecode(res.body);
+        if (body is! Map) {
+          if (!mounted) return;
+          if (!silent) {
+            setState(() {
+              _loading = false;
+              _error = 'Invalid response from server.';
+              _courses = [];
+            });
+          }
+          return;
+        }
+        final raw = body['courses'];
+        final list = <RepCourse>[];
+        if (raw is List) {
+          for (final item in raw) {
+            if (item is Map) {
+              list.add(RepCourse.fromJson(Map<String, dynamic>.from(item)));
+            }
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _courses = list;
+            _error = null;
+            if (_selectedIndex != null && _selectedIndex! >= _courses.length) {
+              _selectedIndex = null;
+            }
+          });
+        }
+        await _refreshClassActiveSessionAndStats(student.indexNumber, pwd ?? '');
+      } catch (e) {
+        if (!mounted) return;
+        if (!silent) {
+          setState(() {
+            _loading = false;
+            _error = 'Network error: $e';
+            _courses = [];
+          });
+        }
       }
-      await _refreshClassActiveSessionAndStats(student.indexNumber, pwd ?? '');
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'Network error: $e';
-          _courses = [];
-        });
-      }
+    } finally {
+      _inFlight = false;
     }
   }
 
@@ -500,7 +583,9 @@ class _RepSessionPageState extends State<RepSessionPage> {
           title: title ?? 'Session opened',
           sessionMap: sessionMap,
         );
-        _refresh();
+        // Silent: snackbar/dialog already gave the user feedback, no need
+        // to blank the list with a spinner.
+        _refresh(silent: true);
       } else if (!ok && mounted) {
         final msg = data is Map && data['message'] != null
             ? data['message'].toString()
@@ -672,7 +757,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
           });
         }
         NotificationBridge.showSnackBar(SnackBar(content: Text(msg)));
-        _refresh();
+        // Silent: snackbar already informed the user the close succeeded.
+        _refresh(silent: true);
       }
     } catch (e) {
       if (mounted) {
@@ -761,7 +847,8 @@ class _RepSessionPageState extends State<RepSessionPage> {
           NotificationBridge.showSnackBar(
             const SnackBar(content: Text('Session extended.')),
           );
-          _refresh();
+          // Silent: snackbar already informed the user the extend succeeded.
+          _refresh(silent: true);
         } else if (mounted) {
           final msg = data['message']?.toString() ??
               ApiService.messageFromHttpResponse(res).toString();
@@ -992,7 +1079,9 @@ class _RepSessionPageState extends State<RepSessionPage> {
                   ),
                 )
               : ModernPullToRefresh(
-                  onRefresh: _refresh,
+                  // Silent: the pull indicator already shows progress; the
+                  // centre spinner would replace the list during the swipe.
+                  onRefresh: () => _refresh(silent: true),
                   child: _courses.isEmpty
                       ? ListView(
                           physics: modernPullToRefreshPhysics,
@@ -1075,11 +1164,5 @@ class _RepSessionPageState extends State<RepSessionPage> {
                         ),
                 ),
     );
-  }
-
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    super.dispose();
   }
 }
