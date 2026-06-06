@@ -366,6 +366,13 @@
         @endif
 
         @if(session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings())
+        @php
+            $redisProbe = \App\Support\RedisRuntimeConfig::lastAvailabilityResult();
+            $redisKnownUnavailable = $redisProbe['status'] === 'unavailable';
+            $redisCheckedAt = $redisProbe['checked_at'] ?? null;
+            $redisExpiresAt = $redisProbe['expires_at'] ?? null;
+            $redisCheckedHuman = $redisCheckedAt ? \Carbon\Carbon::createFromTimestamp($redisCheckedAt)->diffForHumans() : null;
+        @endphp
         <div class="space-y-3" data-settings-panel="cache" hidden>
             <h3 class="text-base font-semibold text-gray-800 flex items-center gap-2">
                 <i class="fas fa-bolt text-rose-500/80"></i>
@@ -377,7 +384,41 @@
                 system silently falls back to the file driver, so reps and admins always have a slot to log in.
             </p>
 
-            @if(\App\Support\RedisRuntimeConfig::isDegradedToFile())
+            @if($redisKnownUnavailable)
+                {{-- Calm, informational state — Redis genuinely isn't on
+                     this host. Hides the entire Redis form so admins
+                     stop seeing the same auto-configure error every
+                     visit. They can force a re-probe if they enable
+                     Redis later. --}}
+                <div class="p-4 rounded-xl border border-sky-200 bg-sky-50/60 text-sky-900 flex flex-col sm:flex-row items-start gap-3">
+                    <i class="fas fa-circle-info mt-0.5 text-sky-700 text-lg shrink-0"></i>
+                    <div class="text-sm leading-snug flex-1 min-w-0">
+                        <p class="font-semibold">Redis is not available on this host.</p>
+                        <p class="text-sky-900/85 text-xs mt-1">
+                            Your site is running on the <strong>database</strong> cache driver, which is the safe default and works on every shared-hosting plan.
+                            We probed for Redis @if($redisCheckedHuman)<span class="text-sky-700">{{ $redisCheckedHuman }}</span>@endif and it wasn't reachable, so we'll skip Redis for the next 7 days to keep this page quiet.
+                        </p>
+                        @if(! empty($redisProbe['attempts']))
+                            <details class="mt-2 text-[11px] text-sky-900/80">
+                                <summary class="cursor-pointer font-semibold">What we tried</summary>
+                                <ul class="mt-1 ml-4 list-disc space-y-0.5">
+                                    @foreach($redisProbe['attempts'] as $attempt)
+                                        <li><span class="font-mono">{{ $attempt['label'] ?? 'candidate' }} ({{ $attempt['host'] ?? '-' }}:{{ $attempt['port'] ?? 0 }})</span> → {{ $attempt['error'] ?? 'failed' }}</li>
+                                    @endforeach
+                                </ul>
+                            </details>
+                        @endif
+                        <div class="mt-3 flex flex-wrap items-center gap-2">
+                            <button type="submit" name="redis_action" value="reprobe"
+                                    formnovalidate
+                                    class="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-50">
+                                <i class="fas fa-rotate text-[10px]"></i> Force re-probe Redis
+                            </button>
+                            <span class="text-[11px] text-sky-900/70">Click only if you've enabled Redis on your host since the last attempt.</span>
+                        </div>
+                    </div>
+                </div>
+            @elseif(\App\Support\RedisRuntimeConfig::isDegradedToFile())
                 <div class="p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 flex items-start gap-2.5">
                     <i class="fas fa-triangle-exclamation mt-0.5 text-amber-700"></i>
                     <div class="text-sm leading-snug">
@@ -391,6 +432,7 @@
                 </div>
             @endif
 
+            @unless($redisKnownUnavailable)
             <div class="p-4 rounded-xl border border-rose-100 bg-rose-50/30 space-y-3">
                 <div>
                     <label for="cache_driver" class="font-medium text-gray-800 text-sm">Active cache driver</label>
@@ -483,6 +525,7 @@
                 </div>
                 @endif
             </div>
+            @endunless
         </div>
         @endif
 

@@ -24,6 +24,15 @@ final class RedisRuntimeConfig
     private static bool $applied = false;
     private static ?bool $degradedToFile = null;
 
+    /**
+     * How long we trust a "Redis is unavailable on this host" result.
+     * 7 days is long enough that admins on shared hosting (where Redis
+     * isn't enabled) don't keep seeing the same error message every
+     * time they open settings, but short enough that a host that
+     * later activates Redis will eventually surface the option again.
+     */
+    private const PROBE_UNAVAILABLE_TTL_SECONDS = 7 * 24 * 3600;
+
     public static function applyOnce(): bool
     {
         if (self::$applied) {
@@ -267,15 +276,15 @@ final class RedisRuntimeConfig
         // predis/predis is available — otherwise every candidate will
         // fail with the cryptic "Class Redis not found" error.
         if (! extension_loaded('redis') && ! class_exists(\Predis\Client::class)) {
-            return [
-                'ok' => false,
-                'attempts' => [[
-                    'label' => 'preflight',
-                    'host' => '-',
-                    'port' => 0,
-                    'error' => 'No Redis client installed. Run `composer require predis/predis` on the server, or enable the phpredis extension in php.ini.',
-                ]],
-            ];
+            $attempts = [[
+                'label' => 'preflight',
+                'host' => '-',
+                'port' => 0,
+                'error' => 'No Redis client installed on this server.',
+            ]];
+            self::recordUnavailable('no_redis_client', $attempts);
+
+            return ['ok' => false, 'attempts' => $attempts];
         }
 
         $defaultPrefix = self::defaultPrefix();
@@ -348,6 +357,8 @@ final class RedisRuntimeConfig
             if ($err === null) {
                 self::$applied = false;
                 self::applyOnce(); // best-effort re-apply for the rest of this request
+                self::recordAvailable((string) $cand['host'], (int) $cand['port']);
+
                 return [
                     'ok' => true,
                     'host' => $cand['host'],
@@ -366,6 +377,8 @@ final class RedisRuntimeConfig
                 'error' => $err,
             ];
         }
+
+        self::recordUnavailable('all_candidates_failed', $attempts);
 
         return ['ok' => false, 'attempts' => $attempts];
     }
@@ -466,5 +479,121 @@ final class RedisRuntimeConfig
         $v = trim($v);
 
         return $v === '' ? null : $v;
+    }
+
+    // ---------- Persistent availability tracking ----------------------
+    //
+    // Auto-configure used to nag the admin every time the host didn't
+    // have Redis: probe → fail → "switched to database". The next visit
+    // would re-probe and show the same error. We now persist the probe
+    // result on disk for 7 days so the settings page can stay quiet
+    // (and hide the auto-configure button) once we know this host
+    // doesn't have Redis.
+    //
+    // The marker lives under storage/framework/cache so it's wiped by
+    // a deploy / fresh install, which is exactly when we'd want to
+    // re-probe anyway.
+    // ------------------------------------------------------------------
+
+    /**
+     * @return array{
+     *     status: 'available'|'unavailable'|'unknown',
+     *     reason: ?string,
+     *     attempts: array<int, array{label: string, host: string, port: int, error: string}>,
+     *     checked_at: ?int,
+     *     expires_at: ?int,
+     * }
+     */
+    public static function lastAvailabilityResult(): array
+    {
+        $file = self::availabilityMarkerPath();
+        if (! is_file($file)) {
+            return ['status' => 'unknown', 'reason' => null, 'attempts' => [], 'checked_at' => null, 'expires_at' => null];
+        }
+        try {
+            $raw = (string) @file_get_contents($file);
+            $decoded = json_decode($raw, true);
+            if (! is_array($decoded) || ! isset($decoded['status'])) {
+                return ['status' => 'unknown', 'reason' => null, 'attempts' => [], 'checked_at' => null, 'expires_at' => null];
+            }
+            $checkedAt = (int) ($decoded['checked_at'] ?? 0);
+            $expires = (int) ($decoded['expires_at'] ?? ($checkedAt + self::PROBE_UNAVAILABLE_TTL_SECONDS));
+            // An expired "unavailable" marker is treated as unknown so
+            // the admin can re-try via the normal flow.
+            if ($decoded['status'] === 'unavailable' && time() > $expires) {
+                return ['status' => 'unknown', 'reason' => null, 'attempts' => [], 'checked_at' => null, 'expires_at' => null];
+            }
+
+            return [
+                'status' => (string) $decoded['status'],
+                'reason' => $decoded['reason'] ?? null,
+                'attempts' => is_array($decoded['attempts'] ?? null) ? $decoded['attempts'] : [],
+                'checked_at' => $checkedAt > 0 ? $checkedAt : null,
+                'expires_at' => $expires > 0 ? $expires : null,
+            ];
+        } catch (\Throwable) {
+            return ['status' => 'unknown', 'reason' => null, 'attempts' => [], 'checked_at' => null, 'expires_at' => null];
+        }
+    }
+
+    /** Was Redis probed recently and found genuinely unavailable on this host? */
+    public static function isKnownUnavailable(): bool
+    {
+        return self::lastAvailabilityResult()['status'] === 'unavailable';
+    }
+
+    /** Forget the persisted probe result so the next auto-configure tries fresh. */
+    public static function forgetAvailabilityMarker(): void
+    {
+        $file = self::availabilityMarkerPath();
+        if (is_file($file)) {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * @param  array<int, array{label: string, host: string, port: int, error: string}>  $attempts
+     */
+    private static function recordUnavailable(string $reason, array $attempts = []): void
+    {
+        $now = time();
+        $payload = [
+            'status' => 'unavailable',
+            'reason' => mb_substr($reason, 0, 240),
+            'attempts' => $attempts,
+            'checked_at' => $now,
+            'expires_at' => $now + self::PROBE_UNAVAILABLE_TTL_SECONDS,
+        ];
+        try {
+            @file_put_contents(self::availabilityMarkerPath(), json_encode($payload, JSON_UNESCAPED_SLASHES));
+        } catch (\Throwable) {
+            // best effort
+        }
+    }
+
+    private static function recordAvailable(string $host, int $port): void
+    {
+        $now = time();
+        $payload = [
+            'status' => 'available',
+            'reason' => null,
+            'attempts' => [],
+            'host' => $host,
+            'port' => $port,
+            'checked_at' => $now,
+            // available results never auto-expire — applyOnce()'s 30 s
+            // health probe handles transient outages.
+            'expires_at' => null,
+        ];
+        try {
+            @file_put_contents(self::availabilityMarkerPath(), json_encode($payload, JSON_UNESCAPED_SLASHES));
+        } catch (\Throwable) {
+            // best effort
+        }
+    }
+
+    private static function availabilityMarkerPath(): string
+    {
+        return storage_path('framework/cache/atenda-redis-probe.json');
     }
 }

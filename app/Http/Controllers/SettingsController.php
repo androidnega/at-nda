@@ -68,7 +68,7 @@ class SettingsController extends Controller
                 $rules['redis_database'] = 'nullable|integer|min:0|max:15';
                 $rules['redis_password'] = 'nullable|string|max:255';
                 $rules['redis_prefix'] = 'nullable|string|max:64';
-                $rules['redis_action'] = 'nullable|in:save,test,auto';
+                $rules['redis_action'] = 'nullable|in:save,test,auto,reprobe';
             }
         }
         $validated = $request->validate($rules);
@@ -121,7 +121,20 @@ class SettingsController extends Controller
 
         $autoRedisResult = null;
         if ($request->session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings()) {
+            // "Force re-probe" lets the admin clear the persisted
+            // "Redis unavailable on this host" marker so a fresh
+            // auto-configure attempt is offered immediately. Useful
+            // after the host enables Redis or after a wrong probe.
+            if (($validated['redis_action'] ?? null) === 'reprobe') {
+                \App\Support\RedisRuntimeConfig::forgetAvailabilityMarker();
+
+                return back()->with('success', 'Redis probe cache cleared. You can now run "Auto-configure" again to detect Redis on this host.');
+            }
             if (($validated['redis_action'] ?? null) === 'auto') {
+                // Honour an explicit "Force retry" — even if we recently
+                // marked Redis unavailable, the admin is asking us to try
+                // fresh, so wipe the marker first and probe again.
+                \App\Support\RedisRuntimeConfig::forgetAvailabilityMarker();
                 // Probe every likely endpoint and use whichever pings.
                 $autoRedisResult = \App\Support\RedisRuntimeConfig::autoDiscover();
                 if (! empty($autoRedisResult['ok'])) {
@@ -227,21 +240,22 @@ class SettingsController extends Controller
                             (int) ($autoRedisResult['database'] ?? 0)
                         );
                     } else {
-                        // Auto-discover failed. Switch the cache driver to
-                        // 'database' (always safe) so the site keeps working
-                        // and rep/admin can keep logging in. The admin can
-                        // manually re-enable Redis later from this same
-                        // page once the host activates it.
-                        $tried = collect($autoRedisResult['attempts'] ?? [])
-                            ->map(fn ($a) => "{$a['label']} ({$a['host']}:{$a['port']}) → {$a['error']}")
-                            ->implode('; ');
-
+                        // Auto-discover failed. The probe result was just
+                        // persisted on disk for 7 days (handled inside
+                        // autoDiscover()), so the settings page will
+                        // stop nagging until either the marker expires,
+                        // the admin clicks "Force retry", or a deploy
+                        // wipes storage/cache. Switch to the always-safe
+                        // database driver so the site stays responsive.
                         $settings->update(['cache_driver' => 'database']);
                         \App\Support\RedisRuntimeConfig::reapply();
 
-                        $hint = 'Cache driver was switched to database so the site stays responsive. Once your host enables Redis you can come back and run auto-configure again.';
-
-                        return back()->with('error', 'Redis auto-configure failed. Tried: '.($tried !== '' ? $tried : 'no candidates available').'. '.$hint);
+                        // Treat this as INFORMATIONAL, not an error —
+                        // the site is working fine on database cache,
+                        // Redis just isn't available on this host.
+                        return back()->with('success',
+                            'Redis is not available on this host — the cache driver is set to database (safe default that works on every shared-hosting plan). The system will stop offering Redis auto-configure for the next 7 days. If your host enables Redis later, click "Force re-probe Redis" on the Cache tab.'
+                        );
                     }
                 }
             }
