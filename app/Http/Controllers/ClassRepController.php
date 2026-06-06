@@ -314,39 +314,73 @@ class ClassRepController extends Controller
         $student = $this->requireClassRep($request);
         if ($student instanceof RedirectResponse) return $student;
 
-        $classIds = $this->getRepClassIds($student);
-        $courses = RepCourseAccess::coursesQueryForRep($student)
-            ->with([
-                'schoolClass.faculty.university',
-                'schoolClasses',
-                'attendanceSessions' => fn ($q) => $q->where('is_active', true),
-            ])
-            ->orderBy('course_name')
-            ->get()
-            ->map(function (Course $c) use ($student) {
-                $repClassId = $this->resolveRepClassId($student, $c);
-                return (object) [
-                    'course' => $c,
-                    'class_id' => $repClassId,
-                    'role' => RepCourseAccess::classRepForCourse($student, $c)?->role ?? 'rep',
-                    'canOpenSession' => $this->requireMainRep($student, $c->id),
-                    'active_session' => $repClassId
-                        ? $c->activeSessionForClass($repClassId)
-                        : null,
-                ];
-            });
+        // /dashboard/session — same hardening as overview(). Each of the
+        // three queries below can independently fail (corrupted Cache,
+        // stale schema, missing pivot column) and we want the page to
+        // still render with whatever data we *can* fetch.
+        $courses = $this->safeCall(
+            fn () => RepCourseAccess::coursesQueryForRep($student)
+                ->with([
+                    'schoolClass.faculty.university',
+                    'schoolClasses',
+                    'attendanceSessions' => fn ($q) => $q->where('is_active', true),
+                ])
+                ->orderBy('course_name')
+                ->get()
+                ->map(function (Course $c) use ($student) {
+                    $repClassId = $this->resolveRepClassId($student, $c);
+                    return (object) [
+                        'course' => $c,
+                        'class_id' => $repClassId,
+                        'role' => $this->safeCall(
+                            fn () => RepCourseAccess::classRepForCourse($student, $c)?->role,
+                            'rep_dashboard.role.'.$c->id,
+                            null
+                        ) ?? 'rep',
+                        'canOpenSession' => $this->safeCall(
+                            fn () => $this->requireMainRep($student, $c->id),
+                            'rep_dashboard.main_rep.'.$c->id,
+                            false
+                        ),
+                        'active_session' => $repClassId
+                            ? $this->safeCall(
+                                fn () => $c->activeSessionForClass($repClassId),
+                                'rep_dashboard.active_session.'.$c->id,
+                                null
+                            )
+                            : null,
+                    ];
+                }),
+            'rep_dashboard.courses',
+            collect()
+        );
 
-        $settings = SystemSetting::get();
-        $attendanceMode = SystemSetting::hasAttendanceModeColumns()
+        $settings = $this->safeCall(
+            fn () => SystemSetting::get(),
+            'rep_dashboard.settings',
+            null
+        );
+
+        $hasAttendanceModeColumns = $this->safeCall(
+            fn () => SystemSetting::hasAttendanceModeColumns(),
+            'rep_dashboard.has_attendance_mode_columns',
+            false
+        );
+
+        $attendanceMode = ($hasAttendanceModeColumns && $settings)
             ? (string) ($settings->attendance_mode ?: SystemSetting::ATTENDANCE_MODE_INSTANT)
             : SystemSetting::ATTENDANCE_MODE_INSTANT;
-        $instantModeType = SystemSetting::hasAttendanceModeColumns()
+        $instantModeType = ($hasAttendanceModeColumns && $settings)
             ? (string) ($settings->instant_mode_type ?: SystemSetting::INSTANT_MODE_LOCATION_QR)
             : SystemSetting::INSTANT_MODE_LOCATION_QR;
 
         // Venues let the rep override the timetable default for one session
         // (e.g. when class meets in a different room today).
-        $venues = \App\Models\Venue::query()->orderBy('name')->get();
+        $venues = $this->safeCall(
+            fn () => \App\Models\Venue::query()->orderBy('name')->get(),
+            'rep_dashboard.venues',
+            collect()
+        );
 
         return view('classrep.dashboard', [
             'student' => $student,
