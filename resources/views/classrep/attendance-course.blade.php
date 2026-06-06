@@ -183,32 +183,6 @@
                         </div>
                     @endunless
 
-                    @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.pdf'))
-                        <div class="flex flex-wrap gap-2">
-                            <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
-                               class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-50">
-                                <i class="fas fa-file-pdf text-red-500 text-[10px]"></i> Week PDF
-                            </a>
-                        </div>
-                    @endif
-                    @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.rename'))
-                        <form action="{{ route('dashboard.class-attendance.week.rename', [$course, $week]) }}" method="post"
-                              class="flex flex-wrap items-end gap-2 bg-white rounded-lg border border-slate-200 px-3 py-2"
-                              onsubmit="event.stopPropagation();">
-                            @csrf
-                            <div class="flex-1 min-w-0">
-                                <label for="rename-week-{{ $week->id }}" class="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Edit week label</label>
-                                <p class="text-[11px] text-slate-500">Currently <strong class="text-slate-700">Week {{ $week->week_number }}</strong> — change if it was tagged wrong.</p>
-                            </div>
-                            <input type="number" name="week_number" id="rename-week-{{ $week->id }}" min="1" max="500" required value="{{ $week->week_number }}"
-                                   onclick="event.stopPropagation();"
-                                   class="w-20 text-[12px] tabular-nums border border-slate-200 rounded-md px-2 py-1 focus:ring-1 focus:ring-primary/30 focus:border-primary/50">
-                            <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-slate-800 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-700">
-                                <i class="fas fa-pen text-[9px]"></i> Save
-                            </button>
-                        </form>
-                    @endif
-
                     @if($week->isCancelled())
                         <p class="text-xs text-amber-900">
                             This week was marked cancelled
@@ -229,114 +203,305 @@
                             </form>
                         @endif
                     @else
-                        @if($present->isEmpty())
-                            <p class="text-xs text-gray-500">No students marked attendance this week.</p>
-                        @else
-                            <ul class="divide-y divide-gray-100 bg-white rounded-lg border border-gray-100 max-h-72 overflow-y-auto">
-                                @foreach($present->unique('student_id') as $a)
-                                    <li class="px-3 py-2 flex items-center justify-between gap-2 text-xs">
-                                        <span class="min-w-0 flex-1">
-                                            <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
-                                            @if($a->student)
-                                                <span class="ml-1 text-gray-600">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
-                                            @endif
-                                            @if(method_exists($a, 'isManuallyMarked') && $a->isManuallyMarked())
-                                                <span class="ml-1 inline-flex items-center gap-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-                                                      title="{{ $a->manual_reason }}">
-                                                    <i class="fas fa-user-pen text-[8px]"></i> Manual
-                                                </span>
-                                            @endif
-                                        </span>
-                                        <span class="text-gray-500 whitespace-nowrap shrink-0">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
-                                        @if(\App\Models\SystemSetting::repsCanDeleteAttendance() && \Illuminate\Support\Facades\Route::has('dashboard.class-attendance.delete'))
-                                            <form method="post" action="{{ route('dashboard.class-attendance.delete', $a) }}" class="shrink-0"
-                                                  onsubmit="return promptAttendanceDeleteReason(this);"
-                                                  onclick="event.stopPropagation();">
-                                                @csrf
-                                                @method('DELETE')
-                                                <input type="hidden" name="reason" value="">
-                                                <button type="submit" title="Delete this attendance row"
-                                                        class="inline-flex items-center justify-center w-6 h-6 rounded-md text-red-500/80 hover:bg-red-50 hover:text-red-700">
-                                                    <i class="fas fa-xmark text-[10px]"></i>
-                                                </button>
-                                            </form>
-                                        @endif
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-
-                        {{-- Manual mark: lets the rep record attendance for a student who couldn't mark themselves. --}}
-                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.manual-mark') && !empty($classmates ?? null))
-                            <details class="rounded-lg border border-indigo-100 bg-indigo-50/40">
-                                <summary class="cursor-pointer list-none px-3 py-2 text-[11px] font-semibold text-indigo-900 flex items-center gap-2"
-                                         onclick="event.stopPropagation();">
-                                    <i class="fas fa-user-pen text-[10px]"></i> Manually mark a student for week {{ $week->week_number }}
-                                </summary>
-                                <form action="{{ route('dashboard.class-attendance.manual-mark', [$course, $week]) }}" method="post"
-                                      class="p-3 space-y-2"
-                                      onclick="event.stopPropagation();"
-                                      onsubmit="return confirm('Manually mark this student? This is logged for audit.');">
-                                    @csrf
-                                    <div class="flex flex-col sm:flex-row gap-2">
-                                        <select name="student_id" required
-                                                class="flex-1 text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
-                                            <option value="">Pick a student…</option>
-                                            @foreach($classmates as $cm)
-                                                <option value="{{ $cm->id }}">{{ $cm->index_number }} — {{ trim(($cm->last_name ?? '').' '.($cm->first_name ?? '')) }}</option>
-                                            @endforeach
-                                        </select>
-                                        <select name="status" required
-                                                class="text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
-                                            <option value="present">Present</option>
-                                            <option value="late">Late</option>
-                                            <option value="absent">Absent</option>
-                                        </select>
-                                    </div>
-                                    <input type="text" name="reason" required minlength="3" maxlength="500"
-                                           placeholder="Reason (required, e.g. phone died, lecturer confirmed)"
-                                           class="w-full text-[11px] border border-indigo-200 rounded-md px-2 py-1.5 bg-white">
-                                    <button type="submit"
-                                            class="inline-flex items-center gap-1 rounded-md bg-indigo-700 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-indigo-800">
-                                        <i class="fas fa-check"></i> Save manual mark
-                                    </button>
-                                </form>
-                            </details>
-                        @endif
-                    @endif
-
-                    <div class="pt-2 border-t border-gray-100 flex flex-wrap items-center gap-2">
-                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.export-json'))
-                            <a href="{{ route('dashboard.class-attendance.course.week.export-json', [$course, $week]) }}"
-                               class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
-                                <i class="fas fa-file-code text-slate-500"></i> Download JSON
-                            </a>
-                        @endif
-                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.import-json'))
-                            <form action="{{ route('dashboard.class-attendance.course.week.import-json', [$course, $week]) }}" method="post" enctype="multipart/form-data" class="flex items-center gap-1">
-                                @csrf
-                                <input type="file" name="backup" accept=".json,application/json" required
-                                    class="text-[11px] border border-gray-200 rounded-md file:mr-1.5 file:py-1 file:px-2 file:text-[11px] file:rounded file:border-0 file:bg-gray-100">
-                                <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white hover:bg-primary/90">
-                                    <i class="fas fa-upload"></i> Upload
+                        @php $uniquePresent = $present->unique('student_id'); @endphp
+                        {{-- Primary actions: short row of buttons. Heavy content (attendees list,
+                             manual-mark form) opens in a modal so the card stays compact. --}}
+                        <div class="flex flex-wrap gap-1.5">
+                            @if($uniquePresent->isNotEmpty())
+                                <button type="button"
+                                        data-week-modal-open="attendees-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-50">
+                                    <i class="fas fa-list-check text-[10px] text-emerald-600"></i>
+                                    View attendees ({{ $uniquePresent->count() }})
                                 </button>
-                            </form>
-                        @endif
-                        @unless($week->isCancelled())
-                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.cancel'))
-                                <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="ml-auto flex items-center gap-1">
-                                    @csrf
-                                    <input type="text" name="note" placeholder="Cancellation note" maxlength="2000"
-                                        class="text-[11px] border border-gray-200 rounded-md px-2 py-1 w-32 sm:w-40">
-                                    <button type="submit" class="inline-flex items-center gap-1 rounded-md bg-amber-700 text-white px-2 py-1 text-[11px] font-semibold hover:bg-amber-800">
-                                        Cancel week
-                                    </button>
-                                </form>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[11px] font-medium text-gray-500">
+                                    <i class="fas fa-user-slash text-[10px]"></i>
+                                    No attendees yet
+                                </span>
                             @endif
-                        @endunless
-                    </div>
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.manual-mark') && !empty($classmates ?? null))
+                                <button type="button"
+                                        data-week-modal-open="manual-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md bg-indigo-700 text-white px-2.5 py-1.5 text-[11px] font-semibold hover:bg-indigo-800">
+                                    <i class="fas fa-user-pen text-[10px]"></i>
+                                    Manually mark a student
+                                </button>
+                            @endif
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.pdf'))
+                                <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
+                                   class="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-50">
+                                    <i class="fas fa-file-pdf text-red-500 text-[10px]"></i>
+                                    Week PDF
+                                </a>
+                            @endif
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.rename'))
+                                <button type="button"
+                                        data-week-modal-open="rename-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+                                    <i class="fas fa-pen text-[10px]"></i>
+                                    Edit label
+                                </button>
+                            @endif
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.export-json'))
+                                <a href="{{ route('dashboard.class-attendance.course.week.export-json', [$course, $week]) }}"
+                                   class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+                                    <i class="fas fa-file-code text-slate-500 text-[10px]"></i>
+                                    Download JSON
+                                </a>
+                            @endif
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.import-json'))
+                                <button type="button"
+                                        data-week-modal-open="upload-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-primary hover:bg-primary/10">
+                                    <i class="fas fa-upload text-[10px]"></i>
+                                    Upload backup
+                                </button>
+                            @endif
+
+                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.cancel'))
+                                <button type="button"
+                                        data-week-modal-open="cancel-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 ml-auto">
+                                    <i class="fas fa-ban text-[10px]"></i>
+                                    Cancel week
+                                </button>
+                            @endif
+                        </div>
+                    @endif
                 </div>
             </details>
+
+            {{-- Modals for this week. Hidden by default; opened by the buttons above.
+                 Sit OUTSIDE the <details> so they don't disappear when the card closes. --}}
+            @unless($week->isCancelled())
+                @if(($uniquePresent ?? collect())->isNotEmpty())
+                    <div data-week-modal="attendees-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="attendees-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200 max-h-[92vh] sm:max-h-[85vh] flex flex-col">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div class="min-w-0">
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Attendees</p>
+                                    <h3 id="attendees-{{ $week->id }}-title" class="text-base font-bold text-gray-900 truncate">Week {{ $week->week_number }} — {{ $uniquePresent->count() }} present</h3>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">{{ $week->week_date ? $week->week_date->format('l, M j, Y') : '' }}</p>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div class="overflow-y-auto flex-1 p-2">
+                                <ul class="divide-y divide-gray-100">
+                                    @foreach($uniquePresent as $a)
+                                        <li class="px-2.5 py-2 flex items-center justify-between gap-2 text-xs rounded-md hover:bg-gray-50">
+                                            <span class="min-w-0 flex-1">
+                                                <span class="font-mono font-semibold text-gray-900">{{ $a->student?->index_number ?? '—' }}</span>
+                                                @if($a->student)
+                                                    <span class="ml-1 text-gray-700">{{ trim(($a->student->last_name ?? '').' '.($a->student->first_name ?? '')) }}</span>
+                                                @endif
+                                                @if(method_exists($a, 'isManuallyMarked') && $a->isManuallyMarked())
+                                                    <span class="ml-1 inline-flex items-center gap-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                                                          title="{{ $a->manual_reason }}">
+                                                        <i class="fas fa-user-pen text-[8px]"></i> Manual
+                                                    </span>
+                                                @endif
+                                            </span>
+                                            <span class="text-gray-500 whitespace-nowrap shrink-0">{{ optional($a->attendance_time)->format('M d, H:i') }}</span>
+                                            @if(\App\Models\SystemSetting::repsCanDeleteAttendance() && \Illuminate\Support\Facades\Route::has('dashboard.class-attendance.delete'))
+                                                <form method="post" action="{{ route('dashboard.class-attendance.delete', $a) }}" class="shrink-0"
+                                                      onsubmit="return promptAttendanceDeleteReason(this);">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <input type="hidden" name="reason" value="">
+                                                    <button type="submit" title="Delete this attendance row"
+                                                            class="inline-flex items-center justify-center w-7 h-7 rounded-md text-red-500/80 hover:bg-red-50 hover:text-red-700">
+                                                        <i class="fas fa-xmark text-[10px]"></i>
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                            <div class="flex justify-end gap-2 p-3 border-t border-gray-100 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[env(safe-area-inset-bottom,0)]">
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.manual-mark') && !empty($classmates ?? null))
+                    <div data-week-modal="manual-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="manual-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200 max-h-[92vh] sm:max-h-[85vh] flex flex-col">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div class="min-w-0">
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Manual mark</p>
+                                    <h3 id="manual-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }}</h3>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">Use this when a student couldn't mark in the app. The action is logged for audit.</p>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <form action="{{ route('dashboard.class-attendance.manual-mark', [$course, $week]) }}" method="post"
+                                  class="p-4 space-y-3 overflow-y-auto"
+                                  onsubmit="return confirm('Manually mark this student? This is logged for audit.');">
+                                @csrf
+                                <div>
+                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Student</label>
+                                    <select name="student_id" required
+                                            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                                        <option value="">Pick a student…</option>
+                                        @foreach($classmates as $cm)
+                                            <option value="{{ $cm->id }}">{{ $cm->index_number }} — {{ trim(($cm->last_name ?? '').' '.($cm->first_name ?? '')) }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Status</label>
+                                    <select name="status" required
+                                            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                                        <option value="present">Present</option>
+                                        <option value="late">Late</option>
+                                        <option value="absent">Absent</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Reason</label>
+                                    <input type="text" name="reason" required minlength="3" maxlength="500"
+                                           placeholder="e.g. phone died, lecturer confirmed in class"
+                                           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                                    <p class="text-[10px] text-gray-400 mt-1">Required — saved with the audit log so this manual action is traceable.</p>
+                                </div>
+                                <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
+                                    <button type="button" data-week-modal-close
+                                            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                        Cancel
+                                    </button>
+                                    <button type="submit"
+                                            class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
+                                        <i class="fas fa-check text-[11px]"></i> Save manual mark
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.rename'))
+                    <div data-week-modal="rename-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="rename-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div>
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-700">Edit week label</p>
+                                    <h3 id="rename-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }}</h3>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">Use this only if the week was numbered wrong (e.g. catching up after a holiday).</p>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <form action="{{ route('dashboard.class-attendance.week.rename', [$course, $week]) }}" method="post" class="p-4 space-y-3">
+                                @csrf
+                                <div>
+                                    <label for="rename-week-{{ $week->id }}" class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">New week number</label>
+                                    <input type="number" name="week_number" id="rename-week-{{ $week->id }}" min="1" max="500" required value="{{ $week->week_number }}"
+                                           class="w-full text-sm tabular-nums border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-slate-200 focus:border-slate-400">
+                                </div>
+                                <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
+                                    <button type="button" data-week-modal-close
+                                            class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                                    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700">
+                                        <i class="fas fa-pen text-[11px]"></i> Save label
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.import-json'))
+                    <div data-week-modal="upload-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="upload-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div>
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-primary">Restore week</p>
+                                    <h3 id="upload-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }} — upload backup</h3>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <form action="{{ route('dashboard.class-attendance.course.week.import-json', [$course, $week]) }}" method="post" enctype="multipart/form-data" class="p-4 space-y-3">
+                                @csrf
+                                <input type="file" name="backup" accept=".json,application/json" required
+                                       class="w-full text-sm border border-gray-200 rounded-lg file:mr-2 file:py-2 file:px-3 file:text-sm file:rounded file:border-0 file:bg-gray-100">
+                                <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
+                                    <button type="button" data-week-modal-close
+                                            class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                                    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90">
+                                        <i class="fas fa-upload text-[11px]"></i> Upload
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.cancel'))
+                    <div data-week-modal="cancel-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="cancel-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div>
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700">Cancel week</p>
+                                    <h3 id="cancel-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }}</h3>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">Marks the week as cancelled. Existing attendance stays for audit; the % won't count against students.</p>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <form action="{{ route('dashboard.class-attendance.week.cancel', [$course, $week]) }}" method="post" class="p-4 space-y-3"
+                                  onsubmit="return confirm('Cancel week {{ $week->week_number }}?');">
+                                @csrf
+                                <div>
+                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Note (optional)</label>
+                                    <input type="text" name="note" placeholder="e.g. lecturer absent, public holiday" maxlength="2000"
+                                           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-200 focus:border-amber-400">
+                                </div>
+                                <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
+                                    <button type="button" data-week-modal-close
+                                            class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Keep open</button>
+                                    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800">
+                                        <i class="fas fa-ban text-[11px]"></i> Cancel week
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+            @endunless
         @endforeach
     </div>
 </div>
@@ -422,6 +587,62 @@
         grid.addEventListener('toggle', refreshLabel, true);
         refreshLabel();
     }
+
+    // Per-week modals (attendees, manual mark, upload, cancel). One reusable
+    // open/close handler scoped by the data-week-modal="<id>" attribute.
+    const showModal = (modal) => {
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        // Lock the page scroll while the dialog is up so the background
+        // doesn't bounce on iOS.
+        document.documentElement.dataset.weekModalOpen = '1';
+        document.body.style.overflow = 'hidden';
+        // Auto-focus the first focusable element so the form is usable
+        // straight from the keyboard.
+        const focusable = modal.querySelector('input, select, textarea, button:not([data-week-modal-close])');
+        if (focusable) {
+            try { focusable.focus({ preventScroll: true }); } catch (_) { focusable.focus(); }
+        }
+    };
+    const hideModal = (modal) => {
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        // Only unlock scroll if no other modal is still open.
+        if (!document.querySelector('[data-week-modal]:not(.hidden)')) {
+            delete document.documentElement.dataset.weekModalOpen;
+            document.body.style.overflow = '';
+        }
+    };
+
+    document.addEventListener('click', (ev) => {
+        const opener = ev.target.closest('[data-week-modal-open]');
+        if (opener) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = opener.getAttribute('data-week-modal-open');
+            showModal(document.querySelector(`[data-week-modal="${id}"]`));
+            return;
+        }
+        const closer = ev.target.closest('[data-week-modal-close]');
+        if (closer) {
+            ev.preventDefault();
+            hideModal(closer.closest('[data-week-modal]'));
+            return;
+        }
+        // Click on the dim backdrop (the modal root itself, not its card) closes.
+        const root = ev.target.closest('[data-week-modal]');
+        if (root && ev.target === root) {
+            hideModal(root);
+        }
+    });
+
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        const open = document.querySelector('[data-week-modal]:not(.hidden)');
+        if (open) hideModal(open);
+    });
 })();
 
 // Prompt the rep for a deletion reason and stash it into the hidden
