@@ -781,6 +781,19 @@ function runAttendanceFlow() {
                 try {
                     const data = JSON.parse(decoded);
                     var qrTok = data.token != null ? data.token : data.qr_token;
+                    // Devtools breadcrumb — pairs with the server-side
+                    // [QR-DEBUG] log entries so we can correlate what
+                    // the camera saw with what the backend received.
+                    try {
+                        console.info('[QR-DEBUG][scan]', {
+                            scanned_course_id: data.course_id,
+                            expected_course_id: courseId,
+                            session_id: data.session_id,
+                            token_len: qrTok ? String(qrTok).length : 0,
+                            token_head: qrTok ? String(qrTok).slice(0, 8) : '',
+                            decoded_at: new Date().toISOString(),
+                        });
+                    } catch (logErr) { /* no-op */ }
                     if (data.course_id != courseId || !qrTok) return;
 
                     qrScanSubmitting = true;

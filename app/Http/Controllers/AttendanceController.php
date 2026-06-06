@@ -18,6 +18,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class AttendanceController extends Controller
@@ -191,6 +192,29 @@ class AttendanceController extends Controller
             'client_meta' => 'nullable',
         ]);
 
+        // ---- [QR-DEBUG] inbound payload ----
+        // Logs a sanitized snapshot of what arrived so an operator
+        // running `tail -F storage/logs/laravel-YYYY-MM-DD.log | grep
+        // QR-DEBUG` can see every mark attempt end-to-end. NEVER log
+        // the full session_token (it's a credential); head/tail only.
+        $tok = (string) ($validated['session_token'] ?? '');
+        $debugId = bin2hex(random_bytes(4)); // ties all lines for one request together
+        Log::info('[QR-DEBUG] mark.received', [
+            'debug_id' => $debugId,
+            'ip' => $request->ip(),
+            'ua' => substr((string) $request->userAgent(), 0, 80),
+            'course_id' => $validated['course_id'] ?? null,
+            'index_number' => $validated['index_number'] ?? null,
+            'session_id_hint' => $validated['session_id'] ?? null,
+            'session_token_len' => strlen($tok),
+            'session_token_head' => substr($tok, 0, 8),
+            'session_token_tail' => strlen($tok) > 12 ? substr($tok, -8) : '',
+            'has_session_code' => isset($validated['session_code']) && trim((string) $validated['session_code']) !== '',
+            'lat' => $validated['latitude'] ?? null,
+            'lng' => $validated['longitude'] ?? null,
+        ]);
+        $request->attributes->set('qr_debug_id', $debugId);
+
         if (! empty($validated['wifi_ssid'])) {
             $validated['wifi_ssid'] = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', (string) $validated['wifi_ssid']));
         }
@@ -288,6 +312,13 @@ class AttendanceController extends Controller
         }
 
         if (! $session) {
+            Log::warning('[QR-DEBUG] mark.session_not_resolved', [
+                'debug_id' => $debugId,
+                'course_id' => $course->id,
+                'session_id_hint' => $validated['session_id'] ?? null,
+                'session_code_provided' => $sessionCode !== '',
+            ]);
+
             return response()->json(['success' => false, 'message' => 'Session closed or expired'], 422);
         }
 
@@ -295,9 +326,20 @@ class AttendanceController extends Controller
 
         $mode = $session->mode;
 
+        Log::info('[QR-DEBUG] mark.session_resolved', [
+            'debug_id' => $debugId,
+            'session_id' => $session->id,
+            'mode' => $mode,
+            'is_active' => (bool) $session->is_active,
+            'is_valid' => $session->isValid(),
+            'expires_at' => optional($session->expires_at)?->toIso8601String(),
+            'is_class_rep' => $isClassRep,
+            'supplemental_rep_mark' => $supplementalRepMark,
+        ]);
+
         if (! $supplementalRepMark && $mode === 'qr') {
             if (! $isClassRep) {
-                $qrErr = $this->validateQrProofJson($session, $validated);
+                $qrErr = $this->validateQrProofJson($session, $validated, $debugId);
                 if ($qrErr !== null) {
                     return $qrErr;
                 }
@@ -323,7 +365,7 @@ class AttendanceController extends Controller
                 }
             }
             if (! $isClassRep) {
-                $qrErr = $this->validateQrProofJson($session, $validated);
+                $qrErr = $this->validateQrProofJson($session, $validated, $debugId);
                 if ($qrErr !== null) {
                     return $qrErr;
                 }
@@ -590,35 +632,92 @@ class AttendanceController extends Controller
     /**
      * @param  array{session_token?: string|null, qr_sig?: string|null, qr_t?: int|null}  $validated
      */
-    private function validateQrProofJson(AttendanceSession $session, array $validated): ?JsonResponse
+    private function validateQrProofJson(AttendanceSession $session, array $validated, ?string $debugId = null): ?JsonResponse
     {
         $manual = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
         if ($manual !== '') {
             // Legacy static session code.
             if (strcasecmp($manual, (string) ($session->session_code ?? '')) === 0) {
+                Log::info('[QR-DEBUG] qr_validation.passed', [
+                    'debug_id' => $debugId,
+                    'via' => 'static_session_code',
+                    'session_id' => $session->id,
+                ]);
+
                 return null;
             }
             // New rotating code (6-char) — checked against current
             // window + 2 previous windows inside the helper, so a
             // student who reads it during a rotation still gets in.
             if (SecureQrToken::isValidRotatingCode($manual, $session)) {
+                Log::info('[QR-DEBUG] qr_validation.passed', [
+                    'debug_id' => $debugId,
+                    'via' => 'rotating_code',
+                    'session_id' => $session->id,
+                ]);
+
                 return null;
             }
+            Log::warning('[QR-DEBUG] qr_validation.manual_code_mismatch', [
+                'debug_id' => $debugId,
+                'session_id' => $session->id,
+                'submitted_len' => strlen($manual),
+                'submitted_head' => substr(strtoupper($manual), 0, 4),
+                'static_code_set' => $session->session_code !== null && $session->session_code !== '',
+            ]);
         }
 
         $tok = isset($validated['session_token']) ? trim((string) $validated['session_token']) : '';
         if ($tok === '') {
+            Log::warning('[QR-DEBUG] qr_validation.no_token_no_code', [
+                'debug_id' => $debugId,
+                'session_id' => $session->id,
+            ]);
+
             return response()->json(['success' => false, 'message' => 'Invalid QR code or session code'], 422);
         }
-        if (! SecureQrToken::isValidSubmission($tok, $session)) {
+
+        // Full diagnosis — tells us *which* check failed (signature,
+        // expiry, session-id mismatch, missing secret, …).
+        $diag = SecureQrToken::diagnoseSubmission($tok, $session);
+        if (! $diag['ok']) {
+            Log::warning('[QR-DEBUG] qr_validation.failed', [
+                'debug_id' => $debugId,
+                'session_id' => $session->id,
+                'reason' => $diag['reason'],
+                'parsed' => $diag['parsed'],
+                'secret_configured' => $diag['secret_configured'],
+                'token_session_id' => $diag['token_session_id'],
+                'server_session_id' => $diag['server_session_id'],
+                'token_expires_at' => $diag['expires_at'],
+                'now' => now()->timestamp,
+                'expected_qr_token_match' => $diag['expected_qr_token_match'],
+                'token_len' => $diag['len'],
+                'token_head' => $diag['head'],
+                'token_tail' => $diag['tail'],
+            ]);
+
             return response()->json(['success' => false, 'message' => 'Invalid QR code'], 403);
         }
+
         if (array_key_exists('session_id', $validated)
             && $validated['session_id'] !== null
             && $validated['session_id'] !== ''
             && (int) $validated['session_id'] !== (int) $session->id) {
+            Log::warning('[QR-DEBUG] qr_validation.session_id_hint_mismatch', [
+                'debug_id' => $debugId,
+                'submitted_session_id' => (int) $validated['session_id'],
+                'resolved_session_id' => (int) $session->id,
+            ]);
+
             return response()->json(['success' => false, 'message' => 'Invalid QR code'], 403);
         }
+
+        Log::info('[QR-DEBUG] qr_validation.passed', [
+            'debug_id' => $debugId,
+            'via' => 'signed_token',
+            'session_id' => $session->id,
+        ]);
 
         return null;
     }

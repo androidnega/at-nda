@@ -104,29 +104,89 @@ class SecureQrToken
      */
     public static function isValidSubmission(string $submitted, AttendanceSession $session): bool
     {
+        return self::diagnoseSubmission($submitted, $session)['ok'];
+    }
+
+    /**
+     * Same check as isValidSubmission() but returns a structured diagnosis
+     * — `ok` + `reason` + sanitized facts about what was compared. Used by
+     * the AttendanceController to write [QR-DEBUG] log lines so an
+     * operator with PuTTY can see exactly *why* a scan was rejected
+     * (signature mismatch, expired, wrong session, secret missing, …)
+     * without leaking the token itself.
+     *
+     * @return array{ok: bool, reason: string, parsed: bool, secret_configured: bool, expires_at: ?int, token_session_id: ?int, server_session_id: int, expected_qr_token_match: ?bool, len: int, head: string, tail: string}
+     */
+    public static function diagnoseSubmission(string $submitted, AttendanceSession $session): array
+    {
         $submitted = trim($submitted);
+        $facts = [
+            'ok' => false,
+            'reason' => 'unknown',
+            'parsed' => false,
+            'secret_configured' => self::secret() !== null,
+            'expires_at' => null,
+            'token_session_id' => null,
+            'server_session_id' => (int) $session->id,
+            'expected_qr_token_match' => null,
+            'len' => strlen($submitted),
+            // Never log the full token (it's a credential). Head/tail are
+            // enough to recognise rotation but useless for replay.
+            'head' => substr($submitted, 0, 8),
+            'tail' => strlen($submitted) > 12 ? substr($submitted, -8) : '',
+        ];
+
         if ($submitted === '') {
-            return false;
+            $facts['reason'] = 'empty_token';
+
+            return $facts;
         }
 
         if (! self::secret()) {
-            return hash_equals((string) ($session->qr_token ?? ''), $submitted);
+            $match = hash_equals((string) ($session->qr_token ?? ''), $submitted);
+            $facts['expected_qr_token_match'] = $match;
+            $facts['ok'] = $match;
+            $facts['reason'] = $match ? 'plain_token_match' : 'plain_token_mismatch';
+
+            return $facts;
         }
 
         $parsed = self::parseAndVerify($submitted);
         if ($parsed === null) {
-            return hash_equals((string) ($session->qr_token ?? ''), $submitted);
+            // Signed-token path failed (bad base64, JSON, or HMAC).
+            // Many older sessions still expose the legacy plain token,
+            // so fall back to that — but record why the signed check
+            // failed for the log.
+            $match = hash_equals((string) ($session->qr_token ?? ''), $submitted);
+            $facts['expected_qr_token_match'] = $match;
+            $facts['ok'] = $match;
+            $facts['reason'] = $match
+                ? 'signed_parse_failed_but_plain_match'
+                : 'signed_parse_failed_and_plain_mismatch';
+
+            return $facts;
         }
 
-        if ($parsed['data']['session_id'] !== (int) $session->id) {
-            return false;
+        $facts['parsed'] = true;
+        $facts['token_session_id'] = (int) ($parsed['data']['session_id'] ?? 0);
+        $facts['expires_at'] = (int) ($parsed['data']['expires_at'] ?? 0);
+
+        if ($facts['token_session_id'] !== $facts['server_session_id']) {
+            $facts['reason'] = 'session_id_mismatch';
+
+            return $facts;
         }
 
-        if ($parsed['data']['expires_at'] < Carbon::now()->timestamp) {
-            return false;
+        if ($facts['expires_at'] < Carbon::now()->timestamp) {
+            $facts['reason'] = 'expired';
+
+            return $facts;
         }
 
-        return true;
+        $facts['ok'] = true;
+        $facts['reason'] = 'ok';
+
+        return $facts;
     }
 
     // ---- Rotating short code (manual entry) ----------------------------
