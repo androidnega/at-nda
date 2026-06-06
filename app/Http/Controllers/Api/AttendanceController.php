@@ -10,8 +10,11 @@ use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Services\AttendanceFraudGuard;
 use App\Services\AttendanceOfflineSyncService;
+use App\Services\AuditLogService;
 use App\Services\MissedSessionWarningService;
+use App\Support\AttendanceMarkLock;
 use App\Support\SecureQrToken;
 use App\Support\StudentApiPayload;
 use Carbon\Carbon;
@@ -24,6 +27,7 @@ use Illuminate\Validation\Rule;
 class AttendanceController extends Controller
 {
     private const LATE_MINUTES_THRESHOLD = 20;
+
     /**
      * POST /api/attendance — record attendance (server-side geofence, duplicate check, etc.).
      *
@@ -72,8 +76,11 @@ class AttendanceController extends Controller
         $ip = $request->ip();
 
         $indexUpper = strtoupper(trim($validated['index_number']));
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
-        if (!$student) {
+        // Sargable lookup via the UNIQUE index on `index_number`
+        // (Student::findByIndex still falls back to the legacy raw form for
+        // any historical rows written outside the Eloquent mutator).
+        $student = Student::findByIndex($indexUpper);
+        if (! $student) {
             return response()->json(['message' => 'Student not found'], 404);
         }
 
@@ -91,7 +98,7 @@ class AttendanceController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Device mismatch. Contact admin.'], 403);
         }
 
-        if ($settings->enable_ip_binding && !$settings->allow_multiple_index_on_device && $student->bound_ip) {
+        if ($settings->enable_ip_binding && ! $settings->allow_multiple_index_on_device && $student->bound_ip) {
             $other = Student::where('bound_ip', $ip)->where('id', '!=', $student->id)->first();
             if ($other && $other->index_number !== $student->index_number) {
                 return response()->json(['status' => 'error', 'message' => 'This device is linked to another student.'], 403);
@@ -99,7 +106,7 @@ class AttendanceController extends Controller
         }
 
         $course = null;
-        if (!empty($validated['course_id'])) {
+        if (! empty($validated['course_id'])) {
             $course = Course::find($validated['course_id']);
         }
 
@@ -113,7 +120,7 @@ class AttendanceController extends Controller
             $sessionToken = null;
         }
 
-        $hasCourse = !empty($validated['course_id']);
+        $hasCourse = ! empty($validated['course_id']);
         $hasSession = isset($validated['session_id']) && $validated['session_id'] !== '';
         $hasQrToken = $sessionToken !== null;
         $hasSessionCode = isset($validated['session_code']) && trim((string) $validated['session_code']) !== '';
@@ -161,7 +168,7 @@ class AttendanceController extends Controller
             $accuracyMeters = (float) $validated['horizontal_accuracy'];
         }
 
-        if ($session->requiresQrProof() && !($settings->enable_qr ?? true)) {
+        if ($session->requiresQrProof() && ! ($settings->enable_qr ?? true)) {
             return response()->json(['status' => 'error', 'message' => 'QR attendance is disabled'], 422);
         }
 
@@ -229,9 +236,9 @@ class AttendanceController extends Controller
                 ->addMinutes(self::LATE_MINUTES_THRESHOLD);
             $status = $checkInAt->greaterThan($lateBoundary) ? 'late' : 'present';
 
-            $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+            $collision = AttendanceFraudGuard::detectCollision($student, $session, $request);
             if ($collision !== null) {
-                \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+                AuditLogService::record(AuditLogService::FRAUD_DETECTED, [
                     'request' => $request,
                     'subject_type' => 'student',
                     'subject_id' => $student->id,
@@ -248,7 +255,7 @@ class AttendanceController extends Controller
                 ], 403);
             }
 
-            $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+            $capture = AttendanceFraudGuard::captureFromRequest($request);
 
             Attendance::create([
                 'student_id' => $student->id,
@@ -284,15 +291,16 @@ class AttendanceController extends Controller
                     'message' => 'Already marked from a different device',
                 ], 403);
             }
+
             return response()->json(['message' => 'Already marked'], 200);
         }
 
         // Cross-student fraud guard: same persistent device cookie cannot
         // submit a second mark for a different student inside the same
         // session/week. Survives IP changes (Wi-Fi → mobile data).
-        $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+        $collision = AttendanceFraudGuard::detectCollision($student, $session, $request);
         if ($collision !== null) {
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+            AuditLogService::record(AuditLogService::FRAUD_DETECTED, [
                 'request' => $request,
                 'subject_type' => 'student',
                 'subject_id' => $student->id,
@@ -313,13 +321,13 @@ class AttendanceController extends Controller
         // — or two workers handling the retry payload from a flaky phone —
         // collapses into a single insert. Pair with CACHE_STORE=redis on
         // production for cross-worker safety.
-        $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+        $capture = AttendanceFraudGuard::captureFromRequest($request);
         $userAgent = $capture['user_agent'];
         $deviceFingerprint = $capture['device_fingerprint'];
         $clientMeta = $capture['client_meta'];
         $created = false;
 
-        \App\Support\AttendanceMarkLock::run(
+        AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
             function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
@@ -349,7 +357,7 @@ class AttendanceController extends Controller
         );
 
         if ($created) {
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_CREATED, [
+            AuditLogService::record(AuditLogService::MARK_CREATED, [
                 'request' => $request,
                 'course_id' => (int) $course->id,
                 'class_id' => $session->class_id ? (int) $session->class_id : null,
@@ -394,12 +402,13 @@ class AttendanceController extends Controller
         ])->validate();
 
         $indexUpper = strtoupper(trim($validated['index_number']));
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
+        // Indexed lookup (UNIQUE on `index_number`); see markAttendance() for context.
+        $student = Student::findByIndex($indexUpper);
         if (! $student) {
             return response()->json(['message' => 'Student not found'], 404);
         }
 
-        $course = !empty($validated['course_id']) ? Course::find($validated['course_id']) : null;
+        $course = ! empty($validated['course_id']) ? Course::find($validated['course_id']) : null;
         $sessionToken = isset($validated['qr_code']) && (string) $validated['qr_code'] !== ''
             ? trim((string) $validated['qr_code'])
             : null;
@@ -493,7 +502,7 @@ class AttendanceController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student || !$this->validatePasswordForSync($validated['password'], $student->password)) {
+        if (! $student || ! $this->validatePasswordForSync($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -625,11 +634,11 @@ class AttendanceController extends Controller
         ?float $lng,
         ?float $horizontalAccuracyMeters = null
     ): ?JsonResponse {
-        if (!$session->requiresLocation()) {
+        if (! $session->requiresLocation()) {
             return null;
         }
 
-        if (!$session->hasLocation()) {
+        if (! $session->hasLocation()) {
             return response()->json([
                 'message' => 'Session has no location set; attendance cannot be verified',
             ], 422);
@@ -732,6 +741,7 @@ class AttendanceController extends Controller
             $lng
         );
         $allowedMeters = $session->allowedGeofenceRadiusMeters($course);
+
         return $distanceMeters > $allowedMeters;
     }
 
@@ -855,5 +865,4 @@ class AttendanceController extends Controller
 
         return $input;
     }
-
 }

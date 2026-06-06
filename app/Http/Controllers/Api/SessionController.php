@@ -8,9 +8,11 @@ use App\Models\Course;
 use App\Models\Student;
 use App\Services\ActiveSessionListBuilder;
 use App\Services\MissedSessionWarningService;
+use App\Support\AttendanceSessionClassScope;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
@@ -60,7 +62,7 @@ class SessionController extends Controller
 
             if ($courseId) {
                 $course = Course::find($courseId);
-                if (!$course) {
+                if (! $course) {
                     return response()->json([
                         'sessions' => [],
                         'message' => 'Course not found',
@@ -90,7 +92,7 @@ class SessionController extends Controller
                 ->activeWithinTimeWindow()
                 ->whereHas('course', fn ($q) => $q->forManagedClasses([(int) $classIdFilter]));
 
-            \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $classIdFilter);
+            AttendanceSessionClassScope::applyForClass($query, (int) $classIdFilter);
 
             $sessions = $query->latest('id')->get();
 
@@ -117,8 +119,7 @@ class SessionController extends Controller
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession> $sessions
-     *
+     * @param  Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession>  $sessions
      * @param  array<string, mixed>  $extras  e.g. warnings + warnings_map when include_missed_warnings + password
      * @return array<string, mixed>
      */
@@ -182,7 +183,8 @@ class SessionController extends Controller
         }
 
         $indexUpper = strtoupper(trim($validated['index_number']));
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
+        // Sargable lookup via the UNIQUE index on `index_number`.
+        $student = Student::findByIndex($indexUpper);
         if (! $student) {
             return response()->json(['message' => 'Student not found'], 404);
         }
@@ -261,5 +263,4 @@ class SessionController extends Controller
             'week_number' => $session->attendanceWeek?->week_number,
         ]);
     }
-
 }

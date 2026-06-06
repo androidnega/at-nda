@@ -2,9 +2,14 @@
 
 namespace App\Models;
 
+use App\Support\CacheVersions;
+use App\Support\ClassTimetableAccess;
+use App\Support\SchemaFeatures;
+use App\Support\StudentCourseAccess;
 use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -26,6 +31,24 @@ class Student extends Model implements AuthenticatableContract
 
     protected $hidden = ['password'];
 
+    /**
+     * Normalise `index_number` at assignment time: trim whitespace and
+     * uppercase. Centralises what was previously enforced by a `saving`
+     * listener (uppercase only) and ad-hoc `strtoupper(trim(...))` calls
+     * scattered across controllers. With this in place every freshly
+     * saved row is guaranteed to be safely indexable, so callers can
+     * use a sargable `where('index_number', ?)` lookup instead of the
+     * old `whereRaw('UPPER(TRIM(index_number)) = ?', ...)` which forced
+     * a full table scan.
+     */
+    protected function indexNumber(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($value) => $value === null || $value === ''
+                ? $value
+                : strtoupper(trim((string) $value)),
+        );
+    }
 
     public function department(): BelongsTo
     {
@@ -88,7 +111,7 @@ class Student extends Model implements AuthenticatableContract
         // 2026_06_05_121000_add_email_to_students_table migration has run, so
         // create()/update() never fail with "unknown column 'email'".
         static::saving(function (Student $student): void {
-            if (! \App\Support\SchemaFeatures::hasStudentsEmail()
+            if (! SchemaFeatures::hasStudentsEmail()
                 && array_key_exists('email', $student->getAttributes())) {
                 unset($student->attributes['email']);
             }
@@ -100,7 +123,7 @@ class Student extends Model implements AuthenticatableContract
         // adds, removes, or reassigns a student.
         $bumpStudents = function (): void {
             try {
-                \App\Support\CacheVersions::bump('students');
+                CacheVersions::bump('students');
             } catch (\Throwable $e) {
                 // Non-fatal — rep page will re-fetch on the next reload.
             }
@@ -125,8 +148,12 @@ class Student extends Model implements AuthenticatableContract
         });
 
         static::saving(function (Student $student) {
+            // Defence-in-depth: the indexNumber mutator already normalises on
+            // assignment, but bulk operations that bypass the mutator (e.g.
+            // raw DB updates flushed through a model) would otherwise leak a
+            // non-normalised value here.
             if (! empty($student->index_number)) {
-                $student->index_number = strtoupper($student->index_number);
+                $student->index_number = strtoupper(trim((string) $student->index_number));
             }
         });
 
@@ -210,13 +237,32 @@ class Student extends Model implements AuthenticatableContract
         if (empty($indexNumber)) {
             return null;
         }
-        $student = static::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
+
+        // Fast path: sargable equality lookup that uses the existing
+        // UNIQUE index on `index_number`. Works for every row written
+        // through Eloquent (the model's setIndexNumber attribute mutator
+        // guarantees uppercased + trimmed values).
+        $student = static::query()->where('index_number', $indexNumber)->first();
         if ($student) {
             return $student;
         }
+
+        // Legacy fallback for rows imported / written outside Eloquent
+        // before normalisation existed. Skipped after a data-cleanup
+        // migration (see 2026_06_06_120000_normalize_student_index_numbers)
+        // but kept here as defence-in-depth for older deployments.
+        $student = static::query()
+            ->whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])
+            ->first();
+        if ($student) {
+            return $student;
+        }
+
         $normalized = preg_replace('/[\s\/\-]/', '', $indexNumber);
         if (strlen($normalized) >= 4) {
-            return static::whereRaw("UPPER(REPLACE(REPLACE(REPLACE(TRIM(index_number), ' ', ''), '/', ''), '-', '')) = ?", [$normalized])->first();
+            return static::query()
+                ->whereRaw("UPPER(REPLACE(REPLACE(REPLACE(TRIM(index_number), ' ', ''), '/', ''), '-', '')) = ?", [$normalized])
+                ->first();
         }
 
         return null;
@@ -568,8 +614,8 @@ class Student extends Model implements AuthenticatableContract
 
         $classId = (int) $this->class_id;
         $perSlotCredits = collect();
-        if (\App\Support\SchemaFeatures::hasClassTimetables() && \App\Support\ClassTimetableAccess::classHasEntries($classId)) {
-            $entries = \App\Models\ClassTimetable::query()
+        if (SchemaFeatures::hasClassTimetables() && ClassTimetableAccess::classHasEntries($classId)) {
+            $entries = ClassTimetable::query()
                 ->where('class_id', $classId)
                 ->get(['course_id', 'credit_hours']);
             $perSlotCredits = $entries
@@ -580,7 +626,7 @@ class Student extends Model implements AuthenticatableContract
                 ? collect()
                 : Course::query()->whereIn('id', $courseIds)->get(['id', 'credit_hours']);
         } else {
-            $courses = \App\Support\StudentCourseAccess::coursesQueryForStudent($this)
+            $courses = StudentCourseAccess::coursesQueryForStudent($this)
                 ->whereNotNull('day_of_week')
                 ->whereNotNull('start_time')
                 ->whereNotNull('end_time')
@@ -604,6 +650,7 @@ class Student extends Model implements AuthenticatableContract
         $courseCredits = $courses->mapWithKeys(function (Course $c) use ($perSlotCredits) {
             $perSlot = $perSlotCredits->get($c->id);
             $value = $perSlot !== null && $perSlot !== '' ? (int) $perSlot : (int) ($c->credit_hours ?? 2);
+
             return [$c->id => max(1, $value)];
         });
         $creditHoursTotal = $courseCredits->sum();

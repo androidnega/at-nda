@@ -13,9 +13,13 @@ use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Services\ActiveSessionListBuilder;
 use App\Services\AttendanceInsightsService;
+use App\Services\AuditLogService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Support\ClassTimetableAccess;
 use App\Support\RepCourseAccess;
+use App\Support\SchemaFeatures;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -69,8 +73,11 @@ class ClassRepApiService
         ]);
 
         $indexUpper = strtoupper(trim($validated['index_number']));
+        // Sargable lookup against the UNIQUE index on `index_number`; the
+        // model's attribute mutator + the saving listener guarantee stored
+        // values are uppercased + trimmed.
         $student = Student::with(['classReps'])
-            ->whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])
+            ->where('index_number', $indexUpper)
             ->first();
         if (! $student || ! $this->validateApiPassword($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
@@ -333,7 +340,7 @@ class ClassRepApiService
 
         $week = null;
         $weekNumber = $validated['week_number'] ?? null;
-        $classAware = $repClassId !== null && \App\Support\SchemaFeatures::hasAttendanceWeeksClassId();
+        $classAware = $repClassId !== null && SchemaFeatures::hasAttendanceWeeksClassId();
         if ($weekNumber !== null) {
             $today = now()->toDateString();
             $existingQuery = AttendanceWeek::query()
@@ -398,7 +405,7 @@ class ClassRepApiService
             }
         }
 
-        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
+        $snapshot = ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
 
         [$sessionModel, $wasReopened] = AttendanceSession::openOrReopenForClass(
             (int) $course->id,
@@ -432,8 +439,8 @@ class ClassRepApiService
             ->count();
         event(new SessionLiveEvent($sessionModel->fresh(['course']), $wasReopened ? 'session_reopened' : 'session_opened', ['present_count' => $presentCount]));
 
-        \App\Services\AuditLogService::record(
-            $wasReopened ? \App\Services\AuditLogService::SESSION_REOPENED : \App\Services\AuditLogService::SESSION_OPENED,
+        AuditLogService::record(
+            $wasReopened ? AuditLogService::SESSION_REOPENED : AuditLogService::SESSION_OPENED,
             [
                 'course_id' => (int) $course->id,
                 'class_id' => $repClassId ? (int) $repClassId : null,
@@ -560,7 +567,7 @@ class ClassRepApiService
             $todayName = now()->format('l');
             if (strcasecmp(trim((string) $course->day_of_week), $todayName) === 0) {
                 $slotEnd = now()->copy()->setTimeFromTimeString(
-                    \Carbon\Carbon::parse($course->end_time)->format('H:i:s')
+                    Carbon::parse($course->end_time)->format('H:i:s')
                 );
                 if (! $slotEnd->isPast()) {
                     $newEnd = $newEnd->lessThanOrEqualTo($slotEnd) ? $newEnd : $slotEnd;

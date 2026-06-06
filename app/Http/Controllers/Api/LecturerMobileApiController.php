@@ -126,7 +126,9 @@ class LecturerMobileApiController extends Controller
             ->where('class_id', $course->class_id)
             ->select(['id', 'index_number']);
         if ($targetIndex !== '') {
-            $studentsQuery->whereRaw('UPPER(TRIM(index_number)) = ?', [$targetIndex]);
+            // Sargable equality against the UNIQUE index on `index_number`
+            // (rows are normalised on save via the model's attribute mutator).
+            $studentsQuery->where('index_number', $targetIndex);
         }
         $students = $studentsQuery->get();
         if ($students->isEmpty()) {
@@ -135,7 +137,7 @@ class LecturerMobileApiController extends Controller
 
         $now = now();
         $sendKey = (string) Str::uuid();
-        $table = (new InAppNotification())->getTable();
+        $table = (new InAppNotification)->getTable();
         $rows = $students->map(function (Student $student) use ($course, $lecturer, $title, $body, $now, $sendKey) {
             return [
                 'student_id' => (int) $student->id,

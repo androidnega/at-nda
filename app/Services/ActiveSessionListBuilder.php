@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Student;
 use App\Support\FlutterSessionFormatter;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -68,8 +69,8 @@ class ActiveSessionListBuilder
     /**
      * Append sessions where the student still owes a checkout (same class / optional course filter).
      *
-     * @param  \Illuminate\Support\Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession>  $sessions
-     * @return \Illuminate\Support\Collection<int, AttendanceSession>
+     * @param  Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession>  $sessions
+     * @return Collection<int, AttendanceSession>
      */
     public static function mergePendingCheckoutSessions($sessions, ?Student $student, ?int $courseId = null)
     {
@@ -123,25 +124,54 @@ class ActiveSessionListBuilder
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession>  $sessions
+     * @param  Collection<int, AttendanceSession>|\Illuminate\Database\Eloquent\Collection<int, AttendanceSession>  $sessions
      * @return list<array<string, mixed>>
      */
     public static function buildRows($sessions, ?Student $student): array
     {
+        // Normalise to a generic Collection so we can pluck() / filter() without
+        // assuming an Eloquent collection (callers pass either kind).
+        $sessionList = $sessions instanceof Collection
+            ? $sessions
+            : collect($sessions);
+
+        // Bulk-fetch this student's attendance rows for every candidate session
+        // in ONE query, keyed by attendance_session_id. Replaces the previous
+        // N+1 pattern that ran two queries per session (one for "already_marked"
+        // and one inside isPendingCheckoutForStudent / isUsableInFlutterList).
+        $sessionIds = $sessionList
+            ->pluck('id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $myAttendances = collect();
+        if ($student && $sessionIds !== []) {
+            $myAttendances = Attendance::query()
+                ->where('student_id', $student->id)
+                ->whereIn('attendance_session_id', $sessionIds)
+                ->get()
+                ->keyBy('attendance_session_id');
+        }
+
         $list = [];
-        foreach ($sessions as $session) {
-            if (! self::isUsableInFlutterList($session, $student)) {
+        foreach ($sessionList as $session) {
+            if (! $session) {
                 continue;
             }
+
+            $mine = $student && $session->id !== null
+                ? $myAttendances->get($session->id)
+                : null;
+
+            if (! self::isUsableInFlutterListWithAttendance($session, $student, $mine)) {
+                continue;
+            }
+
             try {
                 $row = FlutterSessionFormatter::format($session);
-                $mine = null;
-                if ($student) {
-                    $mine = Attendance::query()
-                        ->where('student_id', $student->id)
-                        ->where('attendance_session_id', $session->id)
-                        ->first();
-                }
                 $row['already_marked'] = $mine !== null;
                 $row['my_status'] = $mine?->status;
                 $row['check_in_time'] = $mine?->check_in_time?->toIso8601String();
@@ -166,5 +196,34 @@ class ActiveSessionListBuilder
         }
 
         return $list;
+    }
+
+    /**
+     * Same semantics as {@see isUsableInFlutterList()} but reuses a pre-loaded
+     * Attendance row instead of running a fresh `isPendingCheckoutForStudent`
+     * query. Internal helper for the bulk-fetch path inside buildRows().
+     */
+    private static function isUsableInFlutterListWithAttendance(
+        AttendanceSession $session,
+        ?Student $student,
+        ?Attendance $mine,
+    ): bool {
+        $session->loadMissing(['course', 'venue', 'lecturer']);
+
+        if ($session->course === null) {
+            return false;
+        }
+
+        if (self::isUsableActiveSession($session)) {
+            return true;
+        }
+
+        if (! $student || ! $session->isCheckInCheckoutMode()) {
+            return false;
+        }
+
+        return $mine !== null
+            && $mine->check_in_time !== null
+            && $mine->check_out_time === null;
     }
 }

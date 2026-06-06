@@ -32,7 +32,12 @@ class AuthController extends Controller
         $indexNumber = strtoupper($rawLogin);
         $password = $validated['password'];
 
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexNumber])->first();
+        // Indexed lookup (UNIQUE on `index_number`) instead of the previous
+        // whereRaw('UPPER(TRIM(...))') which forced a full table scan. The
+        // Student model's setIndexNumber attribute mutator guarantees stored
+        // values are already trimmed + uppercased; Student::findByIndex still
+        // falls back to the legacy raw form for any historical rows.
+        $student = Student::findByIndex($indexNumber);
         if (! $student) {
             $loginLower = strtolower(trim($rawLogin));
             // Staff: match email or username case-insensitively (nullable columns use COALESCE).

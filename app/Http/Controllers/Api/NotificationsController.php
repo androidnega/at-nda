@@ -35,7 +35,8 @@ class NotificationsController extends Controller
         $indexUpper = strtoupper(trim($validated['index_number']));
         $password = (string) $validated['password'];
 
-        $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
+        // Sargable lookup via the UNIQUE index on `index_number`.
+        $student = Student::findByIndex($indexUpper);
         if (! $student) {
             return response()->json([
                 'success' => false,
@@ -98,4 +99,3 @@ class NotificationsController extends Controller
         return $input === $stored;
     }
 }
-
