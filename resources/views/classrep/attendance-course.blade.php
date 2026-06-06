@@ -88,17 +88,24 @@
 
 @if(isset($weeklyAttendees) && $weeklyAttendees->isNotEmpty())
 <div class="mb-4">
-    <div class="flex items-end justify-between mb-2">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
         <div>
             <p class="text-xs font-semibold text-gray-800 uppercase tracking-wide">Attendance by week</p>
-            <p class="text-[11px] text-gray-500">
-                Open a week to manage cancellation, download/upload its JSON, see attendees, or export its PDF. The top buttons cover the whole semester.
+            <p class="text-[11px] text-gray-500 max-w-2xl">
+                Tap any week to open it — counts, attendees, and actions live inside. Use the toggle on the right to expand or collapse them all at once.
             </p>
         </div>
-        <span class="text-[11px] text-gray-400">{{ $weeklyAttendees->count() }} week{{ $weeklyAttendees->count() === 1 ? '' : 's' }}</span>
+        <div class="flex items-center gap-2 shrink-0">
+            <span class="text-[11px] text-gray-400">{{ $weeklyAttendees->count() }} week{{ $weeklyAttendees->count() === 1 ? '' : 's' }}</span>
+            <button type="button" data-week-toggle-all
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 hover:border-primary/40 transition">
+                <i class="fas fa-up-down-left-right text-[10px]"></i>
+                <span data-week-toggle-label>Expand all</span>
+            </button>
+        </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2.5 sm:gap-3" data-week-grid>
         @foreach($weeklyAttendees as $row)
             @php
                 $week = $row['week'];
@@ -109,39 +116,58 @@
                 $pct = (int) round(($presentCount / $total) * 100);
                 $pct = min(100, max(0, $pct));
                 if ($week->isCancelled()) {
-                    $badge = 'bg-amber-50 text-amber-700';
+                    $badge = 'bg-amber-100 text-amber-800 border-amber-200';
                     $bar = 'bg-amber-500';
+                    $accent = 'amber';
                 } elseif ($pct >= 75) {
-                    $badge = 'bg-emerald-50 text-emerald-700';
+                    $badge = 'bg-emerald-50 text-emerald-700 border-emerald-100';
                     $bar = 'bg-emerald-500';
+                    $accent = 'emerald';
                 } elseif ($pct >= 50) {
-                    $badge = 'bg-amber-50 text-amber-700';
+                    $badge = 'bg-amber-50 text-amber-700 border-amber-100';
                     $bar = 'bg-amber-500';
+                    $accent = 'amber';
                 } else {
-                    $badge = 'bg-rose-50 text-rose-700';
+                    $badge = 'bg-rose-50 text-rose-700 border-rose-100';
                     $bar = 'bg-rose-500';
+                    $accent = 'rose';
                 }
             @endphp
 
-            <details class="group rounded-xl border border-gray-200 bg-white hover:border-primary/40 transition open:shadow-sm">
-                <summary class="cursor-pointer list-none p-3.5">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <p class="text-sm font-bold text-gray-900">Week {{ $week->week_number }}</p>
-                            <p class="text-[11px] text-gray-500 mt-0.5">
+            {{-- Collapsed state stays small (just title, date, %, chevron + a 1.5px progress strip).
+                 Counts, students list, manual-mark form, rename, etc. all live in the expanded
+                 panel — nothing wasteful while the rep is scanning the grid. --}}
+            <details class="group rounded-xl border border-gray-200 bg-white hover:border-primary/40 transition open:shadow-md open:border-primary/40 open:ring-1 open:ring-primary/10">
+                <summary class="cursor-pointer list-none p-3 sm:p-3.5 select-none">
+                    <div class="flex items-center gap-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <p class="text-sm font-bold text-gray-900 leading-none">Week {{ $week->week_number }}</p>
+                                <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums {{ $badge }}">
+                                    {{ $week->isCancelled() ? 'Cancelled' : $pct.'%' }}
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-gray-500 mt-1 truncate">
                                 {{ $week->week_date ? $week->week_date->format('M j, Y') : 'Date not set' }}
-                                @if($week->isCancelled())
-                                    <span class="ml-1 inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">Cancelled</span>
-                                @endif
+                                @unless($week->isCancelled())
+                                    <span class="text-gray-300">·</span>
+                                    <span class="text-emerald-700 font-semibold">{{ $presentCount }}</span>/<span class="text-gray-700">{{ $total }}</span>
+                                @endunless
                             </p>
                         </div>
-                        <span class="inline-flex items-center justify-center px-2 h-7 rounded-lg {{ $badge }} text-[11px] font-bold tabular-nums">
-                            {{ $week->isCancelled() ? 'Cancelled' : $pct.'%' }}
-                        </span>
+                        <i class="fas fa-chevron-down text-[11px] text-gray-400 group-open:rotate-180 group-open:text-primary transition shrink-0"></i>
                     </div>
-
                     @unless($week->isCancelled())
-                        <div class="mt-3 grid grid-cols-2 gap-2 text-center">
+                        <div class="mt-2 h-1 w-full rounded-full bg-gray-100 overflow-hidden">
+                            <div class="h-full {{ $bar }} rounded-full transition-all" style="width: {{ $pct }}%"></div>
+                        </div>
+                    @endunless
+                </summary>
+
+                <div class="border-t border-gray-100 p-3 bg-gray-50/50 space-y-3">
+                    {{-- The expanded panel opens with the headline numbers + actions. --}}
+                    @unless($week->isCancelled())
+                        <div class="grid grid-cols-3 gap-2 text-center">
                             <div class="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1.5">
                                 <p class="text-[9px] font-semibold uppercase tracking-wide text-emerald-700">Present</p>
                                 <p class="text-base font-bold text-emerald-800 tabular-nums leading-tight">{{ $presentCount }}</p>
@@ -150,28 +176,21 @@
                                 <p class="text-[9px] font-semibold uppercase tracking-wide text-rose-700">Absent</p>
                                 <p class="text-base font-bold text-rose-800 tabular-nums leading-tight">{{ $absentCount }}</p>
                             </div>
-                        </div>
-                        <div class="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                            <div class="h-full {{ $bar }} rounded-full" style="width: {{ $pct }}%"></div>
+                            <div class="rounded-lg bg-slate-50 border border-slate-100 px-2 py-1.5">
+                                <p class="text-[9px] font-semibold uppercase tracking-wide text-slate-600">Enrolled</p>
+                                <p class="text-base font-bold text-slate-800 tabular-nums leading-tight">{{ $total }}</p>
+                            </div>
                         </div>
                     @endunless
 
-                    <div class="mt-3 flex items-center justify-between gap-2">
-                        <span class="text-[11px] text-gray-500 inline-flex items-center gap-1">
-                            <i class="fas fa-chevron-down text-[10px] opacity-70 group-open:rotate-180 transition"></i>
-                            Open week
-                        </span>
-                        @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.pdf'))
+                    @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.week.pdf'))
+                        <div class="flex flex-wrap gap-2">
                             <a href="{{ route('dashboard.class-attendance.course.week.pdf', [$course, $week]) }}" target="_blank" rel="noopener"
-                               onclick="event.stopPropagation();"
-                               class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-50">
-                                <i class="fas fa-file-pdf text-red-500"></i> Week PDF
+                               class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-50">
+                                <i class="fas fa-file-pdf text-red-500 text-[10px]"></i> Week PDF
                             </a>
-                        @endif
-                    </div>
-                </summary>
-
-                <div class="border-t border-gray-100 p-3 bg-gray-50/50 space-y-3">
+                        </div>
+                    @endif
                     @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.rename'))
                         <form action="{{ route('dashboard.class-attendance.week.rename', [$course, $week]) }}" method="post"
                               class="flex flex-wrap items-end gap-2 bg-white rounded-lg border border-slate-200 px-3 py-2"
@@ -380,6 +399,28 @@
             clearTimeout(t);
             t = setTimeout(function () { form.requestSubmit(); }, 350);
         });
+    }
+
+    // Expand-all / collapse-all toggle for the weekly grid.
+    const toggleBtn = document.querySelector('[data-week-toggle-all]');
+    const toggleLbl = document.querySelector('[data-week-toggle-label]');
+    const grid = document.querySelector('[data-week-grid]');
+    if (toggleBtn && toggleLbl && grid) {
+        const allDetails = () => Array.from(grid.querySelectorAll(':scope > details'));
+        const refreshLabel = () => {
+            const items = allDetails();
+            const openCount = items.filter(d => d.open).length;
+            toggleLbl.textContent = openCount === items.length && items.length > 0 ? 'Collapse all' : 'Expand all';
+        };
+        toggleBtn.addEventListener('click', () => {
+            const items = allDetails();
+            const allOpen = items.length > 0 && items.every(d => d.open);
+            items.forEach(d => { d.open = !allOpen; });
+            refreshLabel();
+        });
+        // Keep the button label in sync when individual cards are toggled.
+        grid.addEventListener('toggle', refreshLabel, true);
+        refreshLabel();
     }
 })();
 

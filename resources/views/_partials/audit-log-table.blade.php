@@ -126,11 +126,11 @@
 </div>
 
 {{-- Detail modal — single instance reused for every row click. --}}
-<div id="audit-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+<div id="audit-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
      role="dialog" aria-modal="true" aria-labelledby="audit-modal-title">
-    <div class="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-gray-200 max-h-[90vh] flex flex-col"
+    <div class="relative w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200 max-h-[92vh] sm:max-h-[90vh] flex flex-col"
          data-audit-modal-card>
-        <div class="flex items-start justify-between gap-4 p-5 border-b border-gray-100">
+        <div class="flex items-start justify-between gap-4 p-4 sm:p-5 border-b border-gray-100">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 mb-1">
                     <span id="audit-modal-action"
@@ -150,40 +150,40 @@
             </button>
         </div>
 
-        <div class="overflow-y-auto p-5 space-y-5 text-sm">
+        <div class="overflow-y-auto p-4 sm:p-5 space-y-5 text-sm">
             <section>
                 <h4 class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Actor</h4>
-                <dl class="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
+                <dl class="grid grid-cols-[110px_1fr] sm:grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
                     <dt class="text-gray-500">Name</dt>
-                    <dd id="audit-modal-actor-name" class="col-span-2 font-medium text-gray-900">—</dd>
+                    <dd id="audit-modal-actor-name" class="sm:col-span-2 font-medium text-gray-900">—</dd>
                     <dt class="text-gray-500">Role</dt>
-                    <dd id="audit-modal-actor-role" class="col-span-2 capitalize text-gray-800">—</dd>
+                    <dd id="audit-modal-actor-role" class="sm:col-span-2 capitalize text-gray-800">—</dd>
                     <dt class="text-gray-500">Internal id</dt>
-                    <dd id="audit-modal-actor-id" class="col-span-2 font-mono text-gray-700">—</dd>
+                    <dd id="audit-modal-actor-id" class="sm:col-span-2 font-mono text-gray-700">—</dd>
                 </dl>
             </section>
 
             <section>
                 <h4 class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Target</h4>
-                <dl class="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
+                <dl class="grid grid-cols-[110px_1fr] sm:grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
                     <dt class="text-gray-500">Subject</dt>
-                    <dd id="audit-modal-subject" class="col-span-2 text-gray-800">—</dd>
+                    <dd id="audit-modal-subject" class="sm:col-span-2 text-gray-800">—</dd>
                     <dt class="text-gray-500">Course</dt>
-                    <dd id="audit-modal-course" class="col-span-2 text-gray-800">—</dd>
+                    <dd id="audit-modal-course" class="sm:col-span-2 text-gray-800">—</dd>
                     <dt class="text-gray-500">Class</dt>
-                    <dd id="audit-modal-class" class="col-span-2 text-gray-800">—</dd>
+                    <dd id="audit-modal-class" class="sm:col-span-2 text-gray-800">—</dd>
                 </dl>
             </section>
 
             <section>
                 <h4 class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Network &amp; device</h4>
-                <dl class="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
+                <dl class="grid grid-cols-[110px_1fr] sm:grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
                     <dt class="text-gray-500">IP address</dt>
-                    <dd id="audit-modal-ip" class="col-span-2 font-mono text-gray-800">—</dd>
+                    <dd id="audit-modal-ip" class="sm:col-span-2 font-mono text-gray-800">—</dd>
                     <dt class="text-gray-500">User agent</dt>
-                    <dd id="audit-modal-ua" class="col-span-2 text-gray-700 break-words leading-snug">—</dd>
+                    <dd id="audit-modal-ua" class="sm:col-span-2 text-gray-700 break-words leading-snug">—</dd>
                     <dt class="text-gray-500">Device fingerprint</dt>
-                    <dd id="audit-modal-fp" class="col-span-2 font-mono text-gray-700 break-all">—</dd>
+                    <dd id="audit-modal-fp" class="sm:col-span-2 font-mono text-gray-700 break-all">—</dd>
                 </dl>
             </section>
 
@@ -199,7 +199,7 @@
             </section>
         </div>
 
-        <div class="flex justify-end gap-2 p-4 border-t border-gray-100 bg-gray-50/60 rounded-b-2xl">
+        <div class="flex justify-end gap-2 p-3 sm:p-4 border-t border-gray-100 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[env(safe-area-inset-bottom,0)]">
             <button type="button" data-audit-close
                     class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Close
