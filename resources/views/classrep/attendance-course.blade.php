@@ -588,57 +588,91 @@
         refreshLabel();
     }
 
-    // Per-week modals (attendees, manual mark, upload, cancel). One reusable
-    // open/close handler scoped by the data-week-modal="<id>" attribute.
-    const showModal = (modal) => {
+    // Per-week modals (attendees, manual mark, upload, cancel).
+    // We attach handlers BOTH directly (so an eager click after page load
+    // always works even if a stray ancestor swallowed propagation) AND
+    // via document delegation as a fallback.
+    function showModal(modal) {
         if (!modal) return;
         modal.classList.remove('hidden');
         modal.classList.add('flex');
-        // Lock the page scroll while the dialog is up so the background
-        // doesn't bounce on iOS.
         document.documentElement.dataset.weekModalOpen = '1';
         document.body.style.overflow = 'hidden';
-        // Auto-focus the first focusable element so the form is usable
-        // straight from the keyboard.
         const focusable = modal.querySelector('input, select, textarea, button:not([data-week-modal-close])');
         if (focusable) {
             try { focusable.focus({ preventScroll: true }); } catch (_) { focusable.focus(); }
         }
-    };
-    const hideModal = (modal) => {
+    }
+    function hideModal(modal) {
         if (!modal) return;
         modal.classList.add('hidden');
         modal.classList.remove('flex');
-        // Only unlock scroll if no other modal is still open.
         if (!document.querySelector('[data-week-modal]:not(.hidden)')) {
             delete document.documentElement.dataset.weekModalOpen;
             document.body.style.overflow = '';
         }
-    };
+    }
+    function modalForCloser(btn) {
+        // Walk up to the nearest element that has the data-week-modal
+        // attribute (the modal root). Fall back to the explicit
+        // [data-week-modal] selector to guard against future markup
+        // changes that might add unrelated [data-*] attrs in between.
+        let node = btn;
+        while (node && node !== document.body) {
+            if (node.hasAttribute && node.hasAttribute('data-week-modal')) return node;
+            node = node.parentElement;
+        }
+        return null;
+    }
 
-    document.addEventListener('click', (ev) => {
-        const opener = ev.target.closest('[data-week-modal-open]');
+    // Direct binding — fires even if some ancestor calls stopPropagation.
+    document.querySelectorAll('[data-week-modal-open]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = btn.getAttribute('data-week-modal-open');
+            const modal = document.querySelector('[data-week-modal="' + id + '"]');
+            showModal(modal);
+        });
+    });
+    document.querySelectorAll('[data-week-modal-close]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            hideModal(modalForCloser(btn));
+        });
+    });
+    // Click on the dim backdrop (the modal root, not its card) closes too.
+    document.querySelectorAll('[data-week-modal]').forEach(function (modal) {
+        modal.addEventListener('click', function (ev) {
+            if (ev.target === modal) {
+                hideModal(modal);
+            }
+        });
+    });
+
+    // Delegation fallback — ensures dynamically-injected close buttons
+    // (and clicks that bubble past the direct listener) still work.
+    document.addEventListener('click', function (ev) {
+        const target = ev.target;
+        if (!target || !target.closest) return;
+        const closer = target.closest('[data-week-modal-close]');
+        if (closer) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            hideModal(modalForCloser(closer));
+            return;
+        }
+        const opener = target.closest('[data-week-modal-open]');
         if (opener) {
             ev.preventDefault();
             ev.stopPropagation();
             const id = opener.getAttribute('data-week-modal-open');
-            showModal(document.querySelector(`[data-week-modal="${id}"]`));
-            return;
-        }
-        const closer = ev.target.closest('[data-week-modal-close]');
-        if (closer) {
-            ev.preventDefault();
-            hideModal(closer.closest('[data-week-modal]'));
-            return;
-        }
-        // Click on the dim backdrop (the modal root itself, not its card) closes.
-        const root = ev.target.closest('[data-week-modal]');
-        if (root && ev.target === root) {
-            hideModal(root);
+            showModal(document.querySelector('[data-week-modal="' + id + '"]'));
         }
     });
 
-    document.addEventListener('keydown', (ev) => {
+    document.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Escape') return;
         const open = document.querySelector('[data-week-modal]:not(.hidden)');
         if (open) hideModal(open);
