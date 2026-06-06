@@ -41,10 +41,14 @@
                             Rotates every <span id="qr-rotate-window">{{ (int) ($qrRotateSeconds ?? 8) }}</span>s — each student sees a different code
                         </p>
                         @if($session->session_code)
-                        <p class="mt-4 text-center text-sm text-slate-700">
+                        <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-center">
                             <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Session code (manual entry)</span>
                             <span class="font-mono text-lg font-bold tracking-tight text-emerald-900">{{ $session->session_code }}</span>
-                        </p>
+                            <p class="mt-1.5 text-[10px] text-slate-500 leading-snug">
+                                This code is fixed for the whole session — read it out for any student who can&rsquo;t scan.
+                                Only the QR rotates (anti-screenshot).
+                            </p>
+                        </div>
                         @endif
                         <p class="mt-5 text-center text-xs text-slate-400 leading-relaxed">
                             Scan from another device when possible · <span class="text-slate-600 font-medium">a-tenda</span> app or web check-in

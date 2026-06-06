@@ -291,6 +291,8 @@ function runAttendanceFlow() {
     let currentStep = 1;
     let verifiedData = null;
     let qrScanner = null;
+    let qrScanSubmitting = false; // one decode per modal open — kills the "verified flashes on reopen" race
+    let qrPendingVerifiedTimer = null; // outstanding setTimeout from a previous scan; cleared on reopen
     let attendanceMarked = false;
     const isWifiMode = sessionMode === 'wifi';
     var faceModelsPromise = null;
@@ -641,7 +643,21 @@ function runAttendanceFlow() {
                 return;
             }
             if (!res.ok) {
-                showStatus(data.message || ('Request failed (' + res.status + ')'), 'error');
+                var errMsg = data.message || ('Request failed (' + res.status + ')');
+                showStatus(errMsg, 'error');
+                // Token expired between scan and submit (TTL ~20s + any
+                // network latency). Clear the stale token + auto-reopen
+                // the camera so the student can scan the now-current QR
+                // without having to click anything. Mirrors the "verify a
+                // fresh frame" UX users expected when this was first
+                // reported as "keeps saying Invalid QR after the first
+                // scan".
+                if (needsQrScan() && /invalid qr|qr code|qr token|expired/i.test(errMsg)) {
+                    if (sessionTokenInput) sessionTokenInput.value = '';
+                    if (sessionPkInput) sessionPkInput.value = '';
+                    updateFlowStatus('That code expired — opening the camera so you can scan the latest QR.');
+                    setTimeout(openQrScanner, 600);
+                }
                 return;
             }
             if (data.success && data.redirect) {
@@ -672,13 +688,47 @@ function runAttendanceFlow() {
         submitAttendance(buildMarkPayload(indexNumber), 0);
     }
 
-    function safeClearQrScanner() {
-        if (!qrScanner) return;
+    // Take a scanner instance by argument so we can't accidentally clear the
+    // *next* scanner instance from an async .then() that fired late (the
+    // outer `qrScanner` is reassigned every openQrScanner() call).
+    function safeClearScannerInstance(inst) {
+        if (!inst) return;
         try {
-            if (typeof qrScanner.clear === 'function') {
-                qrScanner.clear();
+            if (typeof inst.clear === 'function') {
+                inst.clear();
             }
         } catch (e) {}
+    }
+
+    // Hard reset of the modal: stops any running scanner, clears any pending
+    // "verified → submit" timeout, clears the verified overlay, clears the
+    // stale signed token from a previous scan. Called both on close and at
+    // the top of every openQrScanner() so a failed first scan can never
+    // leak state into the next attempt.
+    function resetQrModal() {
+        qrScanSubmitting = false;
+        if (qrPendingVerifiedTimer) {
+            clearTimeout(qrPendingVerifiedTimer);
+            qrPendingVerifiedTimer = null;
+        }
+        var qrOverlay = document.getElementById('qr-scanner-overlay');
+        var qrVerified = document.getElementById('qr-verified-overlay');
+        if (qrVerified) { qrVerified.style.display = 'none'; qrVerified.style.opacity = '0'; }
+        if (qrOverlay) qrOverlay.style.display = 'flex';
+        if (sessionTokenInput) sessionTokenInput.value = '';
+        if (sessionPkInput) sessionPkInput.value = '';
+        var sigEl = document.getElementById('qr_sig');
+        var tEl = document.getElementById('qr_t');
+        if (sigEl) sigEl.value = '';
+        if (tEl) tEl.value = '';
+        if (qrScanner) {
+            var dyingScanner = qrScanner;
+            try {
+                dyingScanner.stop().then(function() {
+                    safeClearScannerInstance(dyingScanner);
+                }).catch(function() {});
+            } catch (e) {}
+        }
     }
 
     function openQrScanner() {
@@ -694,19 +744,17 @@ function runAttendanceFlow() {
         var qrModal = document.getElementById('qr-scanner-modal');
         var qrOverlay = document.getElementById('qr-scanner-overlay');
         var qrVerified = document.getElementById('qr-verified-overlay');
+        resetQrModal();
         waitForHtml5Qrcode(function() {
             if (!qrModal) return;
             qrModal.style.display = 'flex';
             if (qrVerified) { qrVerified.style.display = 'none'; qrVerified.style.opacity = '0'; }
             if (qrOverlay) qrOverlay.style.display = 'flex';
-            if (qrScanner) {
-                try {
-                    qrScanner.stop().then(function() {
-                        safeClearQrScanner();
-                    }).catch(function() {});
-                } catch (e) {}
-            }
-            qrScanner = new Html5Qrcode('qr-reader');
+            // Build the new scanner and capture it in `instance` so every
+            // closure below operates on THIS instance, even if a later
+            // openQrScanner() reassigns the outer `qrScanner` variable.
+            var instance = new Html5Qrcode('qr-reader');
+            qrScanner = instance;
             var scanCfg = {
                 fps: 12,
                 qrbox: function(viewfinderWidth, viewfinderHeight) {
@@ -717,47 +765,62 @@ function runAttendanceFlow() {
             };
 
             function onDecoded(decoded) {
+                // One decode per modal open. Without this, html5-qrcode can
+                // fire onDecoded multiple times for buffered frames between
+                // stop() being called and stop() actually settling, which
+                // was the root of "verified flashes / wrong-token submitted"
+                // reports on the rep + student QR flow.
+                if (qrScanSubmitting) return;
                 try {
                     const data = JSON.parse(decoded);
                     var qrTok = data.token != null ? data.token : data.qr_token;
-                    if (data.course_id == courseId && qrTok) {
-                        qrScanner.stop().then(function() {
-                            safeClearQrScanner();
-                            if (sessionTokenInput) sessionTokenInput.value = qrTok;
-                            if (sessionPkInput && data.session_id != null) sessionPkInput.value = String(data.session_id);
-                            var sigEl = document.getElementById('qr_sig');
-                            var tEl = document.getElementById('qr_t');
-                            if (sigEl) sigEl.value = '';
-                            if (tEl) tEl.value = '';
-                            if (qrOverlay) qrOverlay.style.display = 'none';
-                            if (qrVerified) {
-                                qrVerified.style.display = 'flex';
-                                qrVerified.style.opacity = '1';
-                            }
-                            var sid = data.session_id != null ? parseInt(data.session_id, 10) : null;
-                            setTimeout(function() {
-                                if (qrVerified) qrVerified.style.display = 'none';
-                                var qm = document.getElementById('qr-scanner-modal');
-                                if (qm) qm.style.display = 'none';
-                                updateFlowStatus('Marking attendance…');
-                                submitAttendance(buildMarkPayload(indexNumber, {
-                                    session_token: qrTok,
-                                    session_id: sid
-                                }), 0);
-                            }, 1000);
-                        }).catch(function() {});
-                    }
-                } catch (e) {}
+                    if (data.course_id != courseId || !qrTok) return;
+
+                    qrScanSubmitting = true;
+                    var sid = data.session_id != null ? parseInt(data.session_id, 10) : null;
+
+                    instance.stop().then(function() {
+                        safeClearScannerInstance(instance);
+                        if (sessionTokenInput) sessionTokenInput.value = qrTok;
+                        if (sessionPkInput && sid != null) sessionPkInput.value = String(sid);
+                        if (qrOverlay) qrOverlay.style.display = 'none';
+                        if (qrVerified) {
+                            qrVerified.style.display = 'flex';
+                            qrVerified.style.opacity = '1';
+                        }
+                        if (qrPendingVerifiedTimer) clearTimeout(qrPendingVerifiedTimer);
+                        qrPendingVerifiedTimer = setTimeout(function() {
+                            qrPendingVerifiedTimer = null;
+                            if (qrVerified) qrVerified.style.display = 'none';
+                            var qm = document.getElementById('qr-scanner-modal');
+                            if (qm) qm.style.display = 'none';
+                            updateFlowStatus('Marking attendance…');
+                            submitAttendance(buildMarkPayload(indexNumber, {
+                                session_token: qrTok,
+                                session_id: sid
+                            }), 0);
+                        }, 1000);
+                    }).catch(function() {
+                        // stop() failed — reset our guard so the user can
+                        // retry instead of being stuck on a frozen overlay.
+                        qrScanSubmitting = false;
+                    });
+                } catch (e) {
+                    // Decoded payload wasn't JSON-shaped for us; let the
+                    // scanner keep running. Don't keep the guard up.
+                    qrScanSubmitting = false;
+                }
             }
             function onScanFailure(error) {
                 /* non-fatal: no QR in frame yet */
             }
 
-            startQrScannerCamera(qrScanner, scanCfg, onDecoded, onScanFailure).catch(function(err) {
+            startQrScannerCamera(instance, scanCfg, onDecoded, onScanFailure).catch(function(err) {
                 console.error('Failed to start QR scanner:', err);
                 showStatus(explainCameraError(err), 'error');
                 alert(explainCameraError(err));
                 if (qrModal) qrModal.style.display = 'none';
+                qrScanSubmitting = false;
             });
         });
     }
@@ -1030,13 +1093,10 @@ function runAttendanceFlow() {
     if (closeQrBtn) closeQrBtn.addEventListener('click', function() {
         var qrModal = document.getElementById('qr-scanner-modal');
         if (qrModal) qrModal.style.display = 'none';
-        if (qrScanner) {
-            qrScanner.stop().then(function() {
-                safeClearQrScanner();
-            }).catch(function(e) {
-                console.warn('QR Scanner stop error:', e);
-            });
-        }
+        // Full reset so the next openQrScanner() starts from a clean state
+        // (no stale verified overlay, no pending submit timer, no leftover
+        // signed token in the form inputs).
+        resetQrModal();
         if (!attendanceMarked && needsQrScan()) {
             var s4 = document.getElementById('step-4');
             if (s4) s4.classList.remove('hidden');
