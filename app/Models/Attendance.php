@@ -33,6 +33,13 @@ class Attendance extends Model
                     }
                 }
             }
+            if (! \App\Support\SchemaFeatures::hasAttendancesDeviceFingerprint()) {
+                foreach (['device_fingerprint', 'client_meta'] as $col) {
+                    if (array_key_exists($col, $attendance->getAttributes())) {
+                        unset($attendance->attributes[$col]);
+                    }
+                }
+            }
         });
     }
 
@@ -87,6 +94,8 @@ class Attendance extends Model
         'marked_manually_by_id',
         'manual_reason',
         'marked_manually_at',
+        'device_fingerprint',
+        'client_meta',
     ];
 
     public function attendanceWeek(): BelongsTo
@@ -102,6 +111,7 @@ class Attendance extends Model
         'lat' => 'decimal:7',
         'lng' => 'decimal:7',
         'marked_manually_at' => 'datetime',
+        'client_meta' => 'array',
     ];
 
     /**

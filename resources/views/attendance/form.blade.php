@@ -589,7 +589,37 @@ function runAttendanceFlow() {
         }
         if (latInput && latInput.value) payload.latitude = parseFloat(latInput.value);
         if (lngInput && lngInput.value) payload.longitude = parseFloat(lngInput.value);
+        payload.client_meta = collectClientMeta();
         return payload;
+    }
+
+    /**
+     * Snapshot of low-cost browser signals we send up with every mark so
+     * a rep / admin can spot two distinct devices behind the same person
+     * trying to "mark for a friend". Nothing here is PII; it's the kind
+     * of data the browser already advertises in normal page loads.
+     */
+    function collectClientMeta() {
+        try {
+            var screenStr = (screen && screen.width && screen.height)
+                ? (screen.width + 'x' + screen.height)
+                : '';
+            var tz = '';
+            try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+            return {
+                platform: (navigator.platform || '').slice(0, 32),
+                screen: screenStr,
+                tz: tz,
+                lang: (navigator.language || '').slice(0, 16),
+                cores: typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : null,
+                memory: typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null,
+                pixel_ratio: window.devicePixelRatio || null,
+                touch: 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0,
+                app: 'web'
+            };
+        } catch (e) {
+            return null;
+        }
     }
 
     async function submitAttendance(payload, delayRedirect) {
@@ -1035,6 +1065,7 @@ function runAttendanceFlow() {
             };
             if (latInput && latInput.value) payload.latitude = parseFloat(latInput.value);
             if (lngInput && lngInput.value) payload.longitude = parseFloat(lngInput.value);
+            payload.client_meta = collectClientMeta();
             sessionCodeBtn.disabled = true;
             submitAttendance(payload).finally(function() {
                 sessionCodeBtn.disabled = false;

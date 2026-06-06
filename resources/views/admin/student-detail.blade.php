@@ -238,6 +238,9 @@
                     $hasGeo = !is_null($a->lat) && !is_null($a->lng);
                     $device = method_exists($a, 'deviceLabel') ? $a->deviceLabel() : '—';
                     $ip = trim((string) ($a->device_ip ?? ''));
+                    $fp = (string) ($a->device_fingerprint ?? '');
+                    $fpShort = $fp !== '' ? substr($fp, 0, 10) : '';
+                    $clientMeta = is_array($a->client_meta) ? $a->client_meta : [];
                     $mapUrl = $hasGeo
                         ? 'https://www.google.com/maps?q='.urlencode(number_format((float) $a->lat, 6).','.number_format((float) $a->lng, 6))
                         : null;
@@ -265,7 +268,20 @@
                             @if(filled($ip))
                                 <span class="font-mono text-gray-500"><i class="fas fa-network-wired text-gray-400 text-[10px] mr-1"></i>{{ $ip }}</span>
                             @endif
-                            @if($device === '—' && !filled($ip))
+                            @if($fpShort !== '')
+                                <span class="font-mono text-amber-700/90" title="Persistent device fingerprint (first 10 chars). Same code on two students = one physical device.">
+                                    <i class="fas fa-fingerprint text-amber-500/90 text-[10px] mr-1"></i>{{ $fpShort }}
+                                </span>
+                            @endif
+                            @if(!empty($clientMeta['platform']) || !empty($clientMeta['screen']) || !empty($clientMeta['tz']))
+                                <span class="text-gray-500" title="Browser-reported signals at mark-time">
+                                    <i class="fas fa-microchip text-gray-400 text-[10px] mr-1"></i>
+                                    @if(!empty($clientMeta['platform'])){{ $clientMeta['platform'] }}@endif
+                                    @if(!empty($clientMeta['screen'])) · {{ $clientMeta['screen'] }}@endif
+                                    @if(!empty($clientMeta['tz'])) · {{ $clientMeta['tz'] }}@endif
+                                </span>
+                            @endif
+                            @if($device === '—' && !filled($ip) && $fpShort === '')
                                 <span class="text-gray-400">—</span>
                             @endif
                         </div>

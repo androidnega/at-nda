@@ -180,6 +180,7 @@ class AttendanceController extends Controller
             'qr_sig' => 'nullable|string',
             'qr_t' => 'nullable|integer',
             'wifi_ssid' => 'nullable|string|max:128',
+            'client_meta' => 'nullable',
         ]);
 
         if (! empty($validated['wifi_ssid'])) {
@@ -340,6 +341,27 @@ class AttendanceController extends Controller
                     $status = 'late';
                 }
 
+                $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+                if ($collision !== null) {
+                    \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+                        'request' => $request,
+                        'subject_type' => 'student',
+                        'subject_id' => $student->id,
+                        'class_id' => $student->class_id,
+                        'course_id' => $course->id,
+                        'attendance_session_id' => $session->id,
+                        'payload' => array_merge(['type' => $collision['reason']], $collision['evidence']),
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $collision['message'],
+                        'fraud' => true,
+                    ], 403);
+                }
+
+                $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+
                 Attendance::create([
                     'student_id' => $student->id,
                     'course_id' => $course->id,
@@ -349,8 +371,10 @@ class AttendanceController extends Controller
                     'check_in_time' => $now,
                     'status' => $status,
                     'synced' => true,
-                    'device_ip' => (string) $request->ip(),
-                    'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
+                    'device_ip' => $capture['device_ip'],
+                    'user_agent' => $capture['user_agent'],
+                    'device_fingerprint' => $capture['device_fingerprint'],
+                    'client_meta' => $capture['client_meta'],
                 ]);
 
                 return response()->json([
@@ -414,18 +438,45 @@ class AttendanceController extends Controller
             ]);
         }
 
+        // Hard fraud gate: same device fingerprint cannot mark for two
+        // different students inside the same session / week. This rides
+        // on a 1-year persistent cookie, so it survives the obvious
+        // bypass attempts (Wi-Fi → mobile data, private window, browser
+        // restart). When triggered we audit-log and refuse the mark.
+        $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+        if ($collision !== null) {
+            \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+                'request' => $request,
+                'subject_type' => 'student',
+                'subject_id' => $student->id,
+                'class_id' => $student->class_id,
+                'course_id' => $course->id,
+                'attendance_session_id' => $session->id,
+                'payload' => array_merge(['type' => $collision['reason']], $collision['evidence']),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $collision['message'],
+                'fraud' => true,
+            ], 403);
+        }
+
+        $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+        $deviceIp = $capture['device_ip'];
+        $userAgent = $capture['user_agent'];
+        $deviceFingerprint = $capture['device_fingerprint'];
+        $clientMeta = $capture['client_meta'];
+        $created = false;
+
         // Cache-backed lock: with hundreds of students POSTing at the same
         // moment the duplicate-key fence + lock keep us to a single insert
         // per (session, student) pair. Use CACHE_STORE=redis on production
         // so all PHP workers share the same lock.
-        $deviceIp = (string) $request->ip();
-        $userAgent = mb_substr((string) $request->userAgent(), 0, 480);
-        $created = false;
-
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $deviceIp, $userAgent, &$created) {
+            function () use ($student, $course, $session, $deviceIp, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
                 $row = Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
@@ -439,6 +490,8 @@ class AttendanceController extends Controller
                         'synced' => true,
                         'device_ip' => $deviceIp,
                         'user_agent' => $userAgent,
+                        'device_fingerprint' => $deviceFingerprint,
+                        'client_meta' => $clientMeta,
                     ]
                 );
                 $created = $row->wasRecentlyCreated;

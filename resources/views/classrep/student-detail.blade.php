@@ -219,6 +219,12 @@
             $device = $att->deviceLabel();
             $ip = trim((string) ($att->device_ip ?? ''));
             $hasGeo = !is_null($att->lat) && !is_null($att->lng);
+            $fp = (string) ($att->device_fingerprint ?? '');
+            $fpShort = $fp !== '' ? substr($fp, 0, 10) : '';
+            $clientMeta = is_array($att->client_meta) ? $att->client_meta : [];
+            $mapUrl = $hasGeo
+                ? 'https://www.google.com/maps?q='.urlencode(number_format((float) $att->lat, 6).','.number_format((float) $att->lng, 6))
+                : null;
         @endphp
         <li class="px-3 py-2.5 text-xs">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
@@ -236,7 +242,7 @@
                     <span class="inline-flex items-center rounded px-1.5 py-0.5 font-medium bg-gray-100 text-gray-700">{{ ucfirst((string) ($att->status ?? 'present')) }}</span>
                 </div>
             </div>
-            @if($device !== '—' || $ip !== '' || $hasGeo)
+            @if($device !== '—' || $ip !== '' || $hasGeo || $fpShort !== '' || !empty($clientMeta))
             <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-gray-500">
                 @if($device !== '—')
                 <span class="inline-flex items-center gap-1" title="{{ $att->user_agent }}">
@@ -249,8 +255,33 @@
                 </span>
                 @endif
                 @if($hasGeo)
-                <span class="inline-flex items-center gap-1 font-mono" title="Latitude / longitude when marked">
-                    <i class="fas fa-location-dot text-gray-400 text-[10px]"></i>{{ number_format((float) $att->lat, 5) }}, {{ number_format((float) $att->lng, 5) }}
+                <a href="{{ $mapUrl }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-mono text-blue-700 hover:text-blue-900" title="Open in Google Maps">
+                    <i class="fas fa-location-dot text-blue-500/80 text-[10px]"></i>{{ number_format((float) $att->lat, 5) }}, {{ number_format((float) $att->lng, 5) }}
+                </a>
+                @endif
+                @if($fpShort !== '')
+                <span class="inline-flex items-center gap-1 font-mono text-amber-700/90" title="Device fingerprint (first 10 chars of a 1-year persistent cookie). Survives Wi-Fi changes and private windows. Same code on two students = same physical device.">
+                    <i class="fas fa-fingerprint text-amber-500/90 text-[10px]"></i>{{ $fpShort }}
+                </span>
+                @endif
+                @if(!empty($clientMeta['platform']))
+                <span class="inline-flex items-center gap-1" title="Browser-reported OS / device platform">
+                    <i class="fas fa-microchip text-gray-400 text-[10px]"></i>{{ $clientMeta['platform'] }}
+                </span>
+                @endif
+                @if(!empty($clientMeta['screen']))
+                <span class="inline-flex items-center gap-1 font-mono" title="Screen resolution at mark-time">
+                    <i class="fas fa-display text-gray-400 text-[10px]"></i>{{ $clientMeta['screen'] }}
+                </span>
+                @endif
+                @if(!empty($clientMeta['tz']))
+                <span class="inline-flex items-center gap-1" title="Browser-reported time zone">
+                    <i class="fas fa-clock text-gray-400 text-[10px]"></i>{{ $clientMeta['tz'] }}
+                </span>
+                @endif
+                @if(!empty($clientMeta['lang']))
+                <span class="inline-flex items-center gap-1 uppercase tracking-wider" title="Browser language">
+                    <i class="fas fa-language text-gray-400 text-[10px]"></i>{{ $clientMeta['lang'] }}
                 </span>
                 @endif
             </div>

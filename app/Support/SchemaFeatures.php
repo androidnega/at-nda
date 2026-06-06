@@ -41,6 +41,8 @@ final class SchemaFeatures
 
     private static ?bool $redisSettings = null;
 
+    private static ?bool $attendancesDeviceFingerprint = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -142,6 +144,14 @@ final class SchemaFeatures
             Schema::hasTable('system_settings')
             && Schema::hasColumn('system_settings', 'cache_driver')
             && Schema::hasColumn('system_settings', 'redis_host')
+        );
+    }
+
+    public static function hasAttendancesDeviceFingerprint(): bool
+    {
+        return self::$attendancesDeviceFingerprint ??= (
+            Schema::hasTable('attendances')
+            && Schema::hasColumn('attendances', 'device_fingerprint')
         );
     }
 }
