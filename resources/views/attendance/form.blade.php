@@ -90,15 +90,35 @@
         </div>
 
         @if($loggedInStudent ?? null)
-        <button type="button" id="btn-start-checkin" class="w-full mb-4 bg-blue-600 text-white py-3 rounded-xl font-semibold">
-            @if($sessionMode === 'qr')
-                Scan QR code
-            @elseif($sessionMode === 'wifi')
-                Check in
-            @else
-                Start check-in
-            @endif
-        </button>
+        {{-- Big tap CTA. Same visual across every attendance mode
+             (location / qr / hybrid / wifi / check-in-out) — only the
+             label + sub-hint changes. Solid emerald (no gradient) so
+             the design reads the same on every kind of session. --}}
+        @php
+            $isCheckInOut = $activeSession?->isCheckInCheckoutMode() ?? false;
+            [$ctaLabel, $ctaHint] = match (true) {
+                $sessionMode === 'qr'     => ['Scan QR',  'Tap to open the scanner'],
+                $sessionMode === 'wifi'   => ['Check In', "Tap once you're on the class Wi-Fi"],
+                $sessionMode === 'hybrid' => ['Check In', "We'll verify location, then scan"],
+                $isCheckInOut             => ['Clock In', 'Tap to record your check-in'],
+                default                   => ['Check In', "Tap when you're at the venue"],
+            };
+        @endphp
+        <div class="my-6 flex flex-col items-center select-none">
+            <button type="button" id="btn-start-checkin"
+                aria-label="{{ $ctaLabel }}"
+                class="group relative h-44 w-44 sm:h-48 sm:w-48 rounded-[2rem] bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 transition-transform duration-150 ease-out active:scale-95 hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 overflow-hidden touch-manipulation">
+                {{-- Soft pulse ring inside the button to hint that it
+                     is tappable. Subtle and slow on purpose so it
+                     doesn't feel like an alert. --}}
+                <span class="pointer-events-none absolute inset-2 rounded-[1.75rem] ring-2 ring-white/30 animate-[ping_2.4s_cubic-bezier(0,0,0.2,1)_infinite]"></span>
+                <span class="relative z-10 flex h-full flex-col items-center justify-center gap-2 px-4">
+                    <i class="fa-solid fa-hand-pointer text-5xl drop-shadow-sm" aria-hidden="true"></i>
+                    <span class="text-sm font-bold tracking-wider uppercase">{{ $ctaLabel }}</span>
+                </span>
+            </button>
+            <p class="mt-3 text-xs text-slate-500">{{ $ctaHint }}</p>
+        </div>
         @endif
 
         {{-- Step 2: Location or session verify — visible immediately when signed in so the page is never blank; guests see it after Continue --}}
