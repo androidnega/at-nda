@@ -3,11 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
-use App\Models\Course;
-use App\Models\Student;
-use App\Support\RepCourseAccess;
 use App\Support\SchemaFeatures;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
 
 class AuditLogController extends Controller
@@ -52,46 +50,12 @@ class AuditLogController extends Controller
     }
 
     /**
-     * Rep view: only logs that touch courses / sessions the rep manages.
+     * Rep view kept as a stub so any bookmarked URL doesn't 500.
+     * Audit logs are now admin-only; reps get a polite 403.
      */
-    public function repIndex(Request $request): View
+    public function repIndex(Request $request)
     {
-        $rep = Student::find($request->session()->get('student_id'));
-        $available = SchemaFeatures::hasAuditLogs() && $rep instanceof Student;
-
-        $logs = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 40);
-        if ($available) {
-            $courseIds = RepCourseAccess::coursesQueryForRep($rep)->pluck('courses.id')->all();
-            $classIds = \App\Models\ClassRep::query()
-                ->where('student_id', $rep->id)
-                ->pluck('class_id')
-                ->unique()
-                ->values()
-                ->all();
-
-            $query = AuditLog::query()
-                ->where(function ($q) use ($courseIds, $classIds) {
-                    if (! empty($courseIds)) {
-                        $q->orWhereIn('course_id', $courseIds);
-                    }
-                    if (! empty($classIds)) {
-                        $q->orWhereIn('class_id', $classIds);
-                    }
-                })
-                ->orderByDesc('id');
-
-            if ($action = $request->query('action')) {
-                $query->where('action', $action);
-            }
-
-            $logs = $query->paginate(40)->withQueryString();
-        }
-
-        return view('classrep.audit-logs', [
-            'logs' => $logs,
-            'available' => $available,
-            'actions' => self::knownActions(),
-        ]);
+        abort(Response::HTTP_FORBIDDEN, 'Audit logs are only available to administrators.');
     }
 
     /** @return array<string, string> */

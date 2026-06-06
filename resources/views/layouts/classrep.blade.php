@@ -77,16 +77,12 @@
                     <i class="fas fa-pen-to-square w-4 text-center text-xs"></i>
                     <span>Manage timetable</span>
                 </a>
-                <a href="{{ route('dashboard.class-attendance.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.class-attendance.index') || (request()->routeIs('dashboard.class-attendance.*') && !request()->routeIs('dashboard.class-attendance.audit-logs')) ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                <a href="{{ route('dashboard.class-attendance.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.class-attendance.index') || request()->routeIs('dashboard.class-attendance.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-clipboard-list w-4 text-center text-xs"></i>
                     <span>Attendance</span>
                 </a>
-                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.audit-logs'))
-                <a href="{{ route('dashboard.class-attendance.audit-logs') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.class-attendance.audit-logs') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
-                    <i class="fas fa-shield-halved w-4 text-center text-xs"></i>
-                    <span>Audit log</span>
-                </a>
-                @endif
+                {{-- Audit log link removed: only admins/super-admins
+                     can inspect the platform-wide trail. --}}
                 <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.materials.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-folder-open w-4 text-center text-xs"></i>
                     <span>Materials</span>

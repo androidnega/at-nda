@@ -232,7 +232,11 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         // Rep deletes a single attendance row (only when super admin has enabled it).
         Route::delete('/class-attendance/{attendance}', [ClassRepController::class, 'deleteAttendance'])->name('class-attendance.delete');
         // Read-only audit log scoped to courses / classes this rep manages.
-        Route::get('/class-attendance/audit-logs', [AuditLogController::class, 'repIndex'])->name('class-attendance.audit-logs');
+        // Audit logs are admin-only (see /dashboard/audit-logs below).
+        // Older deploys exposed a rep view here; it has been removed
+        // because reps shouldn't see other classes' login / device
+        // events even when scoped, and admins are the only role
+        // accountable for inspecting the trail.
 
         // Rep bulk-imports a class roster (index numbers, optionally names).
         Route::post('/rep/students/import', [ClassRepController::class, 'importStudents'])->name('rep.students.import');
