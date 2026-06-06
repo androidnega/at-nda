@@ -141,19 +141,18 @@ class StudentPasswordResetService
     }
 
     /**
-     * Send a test message to verify the SMTP credentials. Used by the
-     * super-admin settings page.
+     * Send a branded test message to verify the SMTP credentials. Used
+     * by the super-admin settings page; the HTML template lives at
+     * resources/views/emails/smtp-test.blade.php and matches the
+     * styling of the password-reset email.
      */
     public function sendTestEmail(string $toEmail): ?string
     {
+        $appName = (string) config('app.name', 'a-tenda');
         try {
-            Mail::raw(
-                "This is a test email from ".(string) config('app.name').".\n\nIf you can read this, SMTP is working.",
-                function ($message) use ($toEmail) {
-                    $message->to($toEmail)
-                        ->subject((string) config('app.name').' SMTP test');
-                }
-            );
+            Mail::send('emails.smtp-test', ['appName' => $appName], function ($message) use ($toEmail, $appName) {
+                $message->to($toEmail)->subject($appName.' SMTP test');
+            });
 
             return null;
         } catch (\Throwable $e) {

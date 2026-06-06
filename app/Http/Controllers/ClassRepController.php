@@ -966,6 +966,36 @@ class ClassRepController extends Controller
             $enrolledCount = 0;
         }
 
+        // Classmates roster for the per-week "Manually mark a student"
+        // form. The dropdown was disappearing because this list wasn't
+        // being passed to the view — without it the @if guard in
+        // resources/views/classrep/attendance-course.blade.php hides
+        // the whole control. Cached for 60s under the 'students'
+        // namespace so admin roster changes refresh on the next read.
+        try {
+            if ($repClassIds === []) {
+                $classmates = collect();
+            } else {
+                $cacheKey = \App\Support\CacheVersions::key(
+                    'rep_classmates:'.implode('-', $repClassIds),
+                    ['students']
+                );
+                $classmates = \Illuminate\Support\Facades\Cache::remember(
+                    $cacheKey,
+                    60,
+                    fn () => Student::query()
+                        ->whereIn('class_id', $repClassIds)
+                        ->orderBy('last_name')
+                        ->orderBy('first_name')
+                        ->orderBy('index_number')
+                        ->get(['id', 'index_number', 'first_name', 'middle_name', 'last_name'])
+                );
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $classmates = collect();
+        }
+
         return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
@@ -974,6 +1004,7 @@ class ClassRepController extends Controller
             'weeklyAttendees' => $weeklyAttendees,
             'enrolledCount' => $enrolledCount,
             'repClassLabel' => $repClassLabel,
+            'classmates' => $classmates,
             'dashboardRole' => 'classrep',
         ]);
     }
