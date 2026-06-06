@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\AttendanceSession;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -19,13 +20,73 @@ class SecureQrToken
     }
 
     /**
+     * Emit a `[QR-DEBUG] config.missing_secret` warning at most once
+     * per process. Without this, an operator looking at the log only
+     * sees "plain_token_mismatch" forever and has no signal that the
+     * real problem is a missing .env entry.
+     */
+    private static bool $warnedMissingSecret = false;
+
+    private static function warnMissingSecretOnce(): void
+    {
+        if (self::$warnedMissingSecret) {
+            return;
+        }
+        self::$warnedMissingSecret = true;
+        try {
+            Log::warning('[QR-DEBUG] config.missing_secret', [
+                'fix' => 'add QR_SECRET=$(php -r "echo bin2hex(random_bytes(32));") to .env then php artisan config:clear',
+                'consequence' => 'Signed QR tokens are disabled. QRs do not rotate; screenshots remain valid for the life of the session.',
+            ]);
+        } catch (\Throwable $e) {
+            // Logger isn't booted yet — nothing we can do.
+        }
+    }
+
+    /**
      * Build token to store on attendance_sessions.qr_token (after session has an id).
      */
     public static function encode(AttendanceSession $session): string
     {
         $secret = self::secret();
         if (! $secret) {
-            return Str::random(12);
+            // No QR_SECRET configured: signed tokens are unavailable.
+            //
+            // Old behaviour returned Str::random(12) on EVERY call. That
+            // is a silent footgun in production — the rep page polls
+            // this every ~4s, paints a fresh random string into the QR,
+            // but nothing ever writes that string back to
+            // attendance_sessions.qr_token. So the student scans a
+            // random token that the server has never seen → every
+            // single scan fails with `plain_token_mismatch`.
+            //
+            // The safer fallback is to return whatever is already stored
+            // on the session row, so at least the scan validates. The
+            // tradeoff is no rotation (screenshots stay valid for the
+            // life of the session) — but that's the price of running
+            // without a secret. We also emit a one-line warning so the
+            // log makes the misconfiguration obvious.
+            $existing = (string) ($session->qr_token ?? '');
+            if ($existing !== '') {
+                self::warnMissingSecretOnce();
+
+                return $existing;
+            }
+
+            $fresh = Str::random(12);
+            // Persist so the next encode() call matches what we just
+            // handed out. Without this, the legacy "random per call"
+            // bug returns.
+            try {
+                $session->qr_token = $fresh;
+                $session->saveQuietly();
+            } catch (\Throwable $e) {
+                // Don't blow up the QR display if persistence fails —
+                // the rep can still extend / reissue the session.
+            }
+            self::warnMissingSecretOnce();
+
+            return $fresh;
         }
 
         $issuedAt = now()->timestamp;
