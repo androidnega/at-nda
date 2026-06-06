@@ -1,0 +1,761 @@
+================================================================================
+  A-TENDA  ·  FULL PERFORMANCE AUDIT  (Laravel 13 / PHP 8.3 / MySQL on cPanel)
+  Generated: 2026-06-06
+  Scope: backend application + database + shared-hosting environment
+  Goal:  explain "Resource Exhausted" + slowness when many students mark
+         attendance at the same time, and fix it WITHOUT requiring Redis.
+================================================================================
+
+
+PART 0 — TL;DR  (read this first)
+--------------------------------------------------------------------------------
+Your app is currently configured so that EVERY web request hits MySQL for at
+least three framework things (session, cache, cache lock), and one
+POST /api/attendance executes 8–15 SQL statements plus a row-level lock on
+`cache_locks`. With APP_DEBUG=true and LOG_LEVEL=debug the app also writes a
+verbose entry into a single `laravel.log` file for every request.
+
+Under simultaneous attendance marking (say 100 students in 30 seconds) this
+turns your single MySQL instance into a serialised queue: row locks on
+`cache_locks` + `sessions` + `attendances` pile up, PHP-FPM workers wait on
+those locks, cPanel sees the workers as "stuck" Entry Processes, and the
+account hits the EP / I/O / memory cap. Result: HTTP 508 "Resource Limit Is
+Reached" or 503 from LiteSpeed/Apache, and slowness for everyone else.
+
+The root cause is NOT a missing CPU/RAM upgrade. It is a stack of small
+problems that compound:
+
+  1. Session, Cache, Queue, AND distributed Lock are ALL on MySQL.
+  2. The student lookup uses `whereRaw('UPPER(TRIM(index_number)) = ?', ...)`
+     which DEFEATS the unique index on `index_number` (full table scan).
+  3. `/api/sessions/active` does an N+1 query per session for "already_marked"
+     plus per-session `loadMissing(...)` re-runs.
+  4. The QR-rep page polls `/session/{id}/stats` every 15s AND rotates the QR
+     image every ~8s; the Flutter rep page polls `/rep/courses` every 8s.
+  5. APP_DEBUG=true + LOG_LEVEL=debug in production = a ~1–5 KB log entry
+     written on every request to a single growing file (I/O wait + disk fill).
+  6. `attendance_sessions` has no index on `is_active`, `qr_token`,
+     `attendance_week_id`, `class_id`, or the (course_id,is_active,end_time)
+     hot path. Every "active session for course/class" query scans more rows
+     as session history grows.
+
+The good news: ~80% of the slowness goes away with FILE-based session/cache
+(no Redis required) + 3 production .env flags + 5 SQL indexes + one
+N+1 fix. Detailed plan in PART 8.
+
+
+PART 1 — Application Information  (extracted from your repo)
+--------------------------------------------------------------------------------
+Framework ............ Laravel 13.x                       (composer.json L11)
+PHP required ......... ^8.3                               (composer.json L9)
+Database engine ...... MySQL                              (.env DB_CONNECTION)
+Database name ........ atenda_db on 127.0.0.1
+DB user .............. root  ← unsafe on cPanel, see PART 9
+Auth ................. Laravel Sanctum + custom session guards
+Realtime ............. Laravel Reverb (websockets) — referenced in .env.example
+                       but current .env has BROADCAST_CONNECTION=log (no
+                       broadcasts are leaving the app right now).
+Queue driver ......... database  (jobs / job_batches / failed_jobs tables)
+Session driver ....... database  (sessions table, every request reads + writes)
+Cache driver ......... database  (cache + cache_locks tables)
+Storage .............. local disk; profile images compressed server-side
+                       via GD inside the Student model (CPU intensive)
+PDF / Excel .......... barryvdh/laravel-dompdf + maatwebsite/excel
+                       (both memory-heavy — keep them OFF queue or they will
+                       OOM a shared host)
+HTTP throttle ........ 60 req/min/user  (api-v1)
+                       5 req/min/ip     (api-v1-login)
+APP_ENV .............. local       ← MUST be `production` in prod
+APP_DEBUG ............ true        ← MUST be `false` in prod
+LOG_LEVEL ............ debug       ← lower to `warning` (or `error`) in prod
+LOG_CHANNEL .......... stack
+LOG_STACK ............ single      ← one ever-growing file; use `daily` instead
+SESSION_LIFETIME ..... 120 minutes (.env), but config/session.php defaults to
+                       15 if env is missing — inconsistent
+BCRYPT_ROUNDS ........ 12          (default; fine, but every login costs ~80 ms
+                                    CPU. Don't raise it.)
+
+
+PART 2 — Hosting Information  (you couldn't see the values yet)
+--------------------------------------------------------------------------------
+You picked "Not sure" for every hosting question, and the cPanel screenshot
+you sent was too low resolution to read the right-hand statistics sidebar.
+
+Please fill in the table below (copy this section into a reply) — every
+recommendation in PART 8 is conditional on these numbers:
+
+  Hosting provider .................. ____________________
+  Hosting plan name ................. ____________________
+  Shared / Reseller / VPS / Dedicated ____________________
+  CPU allocation (cores or %) ....... ____________________
+  Physical Memory (RAM) limit ....... _______ MB
+  Virtual Memory (Swap) limit ....... _______ MB
+  Entry Processes (EP) limit ........ _______
+  Number of Processes (NPROC) limit . _______
+  I/O limit ......................... _______ MB/s
+  IOPS limit ........................ _______
+  Concurrent connections limit ...... _______
+  PHP handler ....................... LSPHP / PHP-FPM / suPHP / DSO / ?
+  PHP version on account ............ 8.3 or higher  (must be ≥ 8.3)
+  OPcache enabled? .................. Yes / No
+  MySQL/MariaDB version ............. _______
+  Reverb daemon running? ............ Yes / No / Unknown
+  Queue worker running? ............. Yes / No / Unknown
+
+WHERE TO FIND EACH VALUE IN cPanel
+  • CPU, RAM, EP, IOPS, NPROC: cPanel home → right sidebar "Statistics" panel
+    (the one you screenshotted; the labels you couldn't read are likely
+    "Physical Memory Usage", "Entry Processes", "Number of Processes",
+    "I/O Usage", "IOPS")
+  • Detailed history + faults: cPanel → Metrics → Resource Usage →
+    "Details" → tab "Snapshot" / "Faults". Take a screenshot of the FAULTS
+    table for the last 7 days and send it. Faults > 0 on memory or EP
+    are the smoking gun for your "Resource Exhausted" errors.
+  • PHP handler: cPanel → "MultiPHP Manager" or, on CloudLinux, "Select
+    PHP Version" → "Switch to PHP options" (handler row).
+  • OPcache: cPanel → "Select PHP Version" → Extensions tab → checkbox
+    `opcache`. If unchecked, tick it (huge free win; see PART 8).
+  • MySQL version: cPanel → "phpMyAdmin" — version is printed in the
+    right sidebar of the phpMyAdmin home screen.
+
+
+PART 3 — cPanel Resource Usage — what to upload
+--------------------------------------------------------------------------------
+After cPanel → Metrics → Resource Usage → Details:
+
+  3.1 SNAPSHOT tab — screenshot showing the last 24h chart for:
+       a) CPU Usage
+       b) Physical Memory Usage
+       c) Entry Processes
+       d) IOPS / I/O Usage
+       e) Number of Processes (NPROC)
+  3.2 FAULTS table — screenshot of the "When did the account fail?" table
+       for the last 7 days (this is the 1-line-per-event audit log).
+  3.3 If your provider runs Imunify360 / LVE Manager and you have access,
+       send a screenshot of the per-user LVE stats too.
+
+What I'm looking for in those:
+  • Are faults concentrated on `pmem` (memory) or `ep` (entry processes)?
+    → If pmem  → workers OOM-ing → likely DomPDF / Excel export or
+       large `attendances` collection. Reduce or queue them.
+    → If ep   → too many concurrent PHP-FPM workers waiting on MySQL
+       locks. Fix items 1, 4, 5 in PART 8.
+    → If iops → file logging is hammering the disk. Fix item 6 in PART 8.
+  • Are spikes correlated with attendance OPEN time (e.g. 08:00–09:00
+    Monday)? Confirms that mark-attendance traffic is the cause, not a
+    backup script or rogue bot.
+
+
+PART 4 — Laravel Configuration Audit
+--------------------------------------------------------------------------------
+Your CURRENT production-relevant `.env` settings (file `.env`, top of repo):
+
+  APP_ENV=local                       ←  WRONG
+  APP_DEBUG=true                      ←  WRONG (exposes stack traces, slows
+                                              every request, leaks creds)
+  LOG_LEVEL=debug                     ←  WRONG (verbose disk I/O)
+  LOG_STACK=single                    ←  use `daily` so logs auto-rotate
+  CACHE_STORE=database                ←  see PART 5 — change to `file`
+  SESSION_DRIVER=database             ←  see PART 5 — change to `file`
+  QUEUE_CONNECTION=database           ←  OK if you have a worker; otherwise
+                                              switch to `sync` until you do.
+  BROADCAST_CONNECTION=log            ←  OK (Reverb is effectively off).
+  FILESYSTEM_DISK=local               ←  OK
+  DB_USERNAME=root                    ←  DANGEROUS on shared cPanel:
+                                              create a dedicated DB user.
+
+Other items found in code:
+
+  ▶ `config/session.php` lifetime defaults to 15 min if env is missing, but
+     `.env` says 120. Pick one and document it — the inconsistency causes
+     surprise logouts when env is wiped during a deploy.
+
+  ▶ `config/cache.php` prefix defaults to `Str::slug(APP_NAME)."-cache-"`.
+     With APP_NAME="a-tenda" that becomes "a-tenda-cache-". If you switch
+     to file cache, this prefix is irrelevant; if you switch to Redis later
+     (managed Redis on a VPS) you MUST keep it unique per environment to
+     avoid cross-staging key collisions.
+
+  ▶ `app/Providers/AppServiceProvider.php` registers a View::composer on
+     EVERY render of `layouts.classrep` and `layouts.student` that runs:
+        Student::query()->with(['department.faculty', 'schoolClass'])->find($sid)
+     plus StudentSignOutLock::isSignOutBlocked($student). That's 3–4
+     queries on every page render for every signed-in student. Memoise
+     per request — see PART 8 item 9.
+
+
+PART 5 — Database Audit  (per-table notes from your migrations)
+--------------------------------------------------------------------------------
+
+5.1  Hot tables & current indexes
+
+     attendances
+       id (PK)
+       student_id, course_id  (FK indexes)
+       attendance_session_id  (added later via the lookup-indexes migration)
+       UNIQUE (student_id, attendance_session_id)        ← good
+       INDEX (student_id, attendance_session_id)         ← redundant with the
+                                                            unique above
+       INDEX (course_id)
+       INDEX (attendance_session_id, device_fingerprint) ← good for fraud
+       INDEX (device_fingerprint)
+       (NO index on attendance_week_id alone — used by AttendanceFraudGuard
+        and reports)
+       (NO index on (attendance_session_id, status) — used by the
+        present_count query inside markAttendance)
+
+     attendance_sessions
+       id (PK)
+       course_id (FK index)
+       UNIQUE (session_token)
+       UNIQUE (session_code)
+       (NO index on is_active)
+       (NO index on qr_token)              ← used by findByQrOrSessionToken
+       (NO index on attendance_week_id)    ← used by openOrReopenForClass
+       (NO index on class_id)              ← used by activeSessionsForClass
+       (NO index on lecturer_id, venue_id) ← used by reports
+
+     attendance_weeks
+       id (PK), course_id (FK index)
+       (NO index on (course_id, class_id, week_date))    ← used every time
+                                                            a rep opens a
+                                                            session
+       (NO index on week_date alone)
+
+     sessions     (framework table — Laravel default)
+       id PRIMARY KEY
+       user_id INDEX
+       last_activity INDEX
+       Every authenticated request UPDATEs the row by id (OK), but the
+       garbage-collection lottery runs `DELETE WHERE last_activity < ?`
+       (uses last_activity index — fine).
+
+     cache + cache_locks
+       Default Laravel tables (key PRIMARY, expiration INDEX).
+       Hot writes on `cache_locks` from AttendanceMarkLock.
+
+5.2  Concrete query problems (file:line references)
+
+  [A] N+1 in /api/sessions/active
+      File: app/Services/ActiveSessionListBuilder.php
+      Lines 129–169   `buildRows()`
+      For EVERY session in the response it does:
+          Attendance::query()->where('student_id', ...)
+                             ->where('attendance_session_id', ...)
+                             ->first();
+      If a student has 5 active sessions, that's 5 separate queries just
+      for "already_marked". Combined with the per-poll repeat from the
+      Flutter app and the rep page, this is your single biggest read
+      amplifier. Fix in PART 8 item 7.
+
+  [B] Non-SARGable student lookup (full table scan)
+      Files:
+        app/Models/Student.php                    L213, L219
+        app/Http/Controllers/Api/AttendanceController.php  L75
+        app/Http/Controllers/Api/SessionController.php     L185
+        ...and at least 14 other call sites
+      Code:
+          Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
+      Because `index_number` is wrapped in UPPER(TRIM(...)), MySQL CANNOT
+      use the unique index on that column. Every login + every mark-attendance
+      scans the full `students` table. With 5,000 students that's still fast;
+      with 50,000 it gets visible; under contention it's a disaster because
+      every full scan also takes a shared lock on the secondary index.
+      Since Student::saving() already uppercases the column on write, the
+      stored value is ALWAYS uppercased — UPPER/TRIM are unnecessary.
+      Fix: replace with `Student::where('index_number', $indexUpper)->first()`
+      or use `whereRaw` only as a FALLBACK after the indexed lookup misses.
+      Fix in PART 8 item 4.
+
+  [C] N+1 in isClassRepForCourse()
+      File: app/Models/Student.php, L638–L652
+      Calls Course::find(), then loops `assignedClassIds()` and runs
+      `classReps()->where('class_id', $classId)->exists()` per id. Called
+      twice in markAttendance (once for the early "rep cannot mark"
+      check, once inside resolveSession). Cache result per request.
+
+  [D] AttendanceFraudGuard::detectCollision runs TWO unbounded queries
+      File: app/Services/AttendanceFraudGuard.php, L83–L127
+      Both queries filter by device_fingerprint AND week / session. With
+      the existing indexes they're fine NOW, but you should add:
+          INDEX attendances (attendance_week_id, device_fingerprint)
+      so the "same week, different student" query stops scanning the
+      session index.
+
+  [E] resolveSession uses LOWER(session_code) in a fallback
+      File: app/Http/Controllers/Api/AttendanceController.php, L747
+          ->whereRaw('LOWER(session_code) = ?', [strtolower($code)])
+      Same SARGable problem as Student. Since `session_code` is generated
+      uppercase (`AttendanceSession::generateUniqueSessionCodeForCourse`),
+      the fallback is hit only by user-typed lowercase codes. Either store
+      a `session_code_upper` generated column with an index, OR force
+      uppercase on input and drop the fallback.
+
+  [F] /api/sessions/active does TWO bulk UPDATEs every poll
+      File: app/Http/Controllers/Api/SessionController.php, L26–L33
+          AttendanceSession::deactivateExpiredSessions();   // UPDATE
+          AttendanceSession::query()
+              ->where('attendance_mode', 'checkin_checkout')
+              ...->update(['checkout_enabled' => true]);     // UPDATE
+      These are WRITE queries hidden inside a READ endpoint that is
+      polled by every student device + by the rep page every 8s. On a
+      busy class with 200 phones polling, that's ~25 UPDATE statements
+      PER SECOND on `attendance_sessions` even when nothing has changed.
+      Move both into a 1-minute scheduled job (artisan schedule) so the
+      poll endpoint is read-only.
+
+  [G] Course::studentMayAttend() touches the pivot every call
+      File: app/Models/Course.php, L182–L185 + L152–L163
+      `assignedClassIds()` either hits `schoolClasses()->pluck()` (one
+      query) or returns a cached array. Wrap the result in a static
+      per-request memo keyed by course id.
+
+  [H] SystemSetting::get() already has TWO layers of caching (per-request
+      memo + 60 s Cache::remember). Good. But it relies on
+      `Cache::remember('atenda:system_settings:row', 60s, ...)` — which
+      means with CACHE_STORE=database, the FIRST request per minute
+      writes a row to `cache` and every subsequent request reads it.
+      Switching CACHE_STORE to `file` (PART 8 item 1) makes this
+      essentially free.
+
+5.3  Heavy joins / full scans elsewhere
+  ▶ Course::resolvedLecturerName()  (Course.php L85+) runs up to 3 joins
+    via whereHas to find a lecturer name — fine for admin pages, but it
+    is called inside PDF / Excel exports and inside FlutterSessionFormatter.
+    For exports of a full semester, this becomes O(rows × 3 queries).
+    Eager-load: `->with('lecturer')` once at the top of the export.
+  ▶ Student::scopeSearchTerm (Student.php L163+) does up to 5
+    LIKE '%...%' clauses including REPLACE/UPPER on phone numbers and
+    indices. Full scan every time. For admin search this is acceptable;
+    do NOT call this from any background or polling endpoint.
+
+5.4  Recommended NEW indexes (safe, additive, run during low traffic)
+  CREATE INDEX attendance_sessions_active_idx
+    ON attendance_sessions (course_id, is_active, end_time);
+
+  CREATE INDEX attendance_sessions_qr_token_idx
+    ON attendance_sessions (qr_token);
+
+  CREATE INDEX attendance_sessions_class_active_idx
+    ON attendance_sessions (class_id, is_active);
+
+  CREATE INDEX attendance_sessions_week_idx
+    ON attendance_sessions (attendance_week_id);
+
+  CREATE INDEX attendances_session_status_idx
+    ON attendances (attendance_session_id, status);
+
+  CREATE INDEX attendances_week_dfp_idx
+    ON attendances (attendance_week_id, device_fingerprint);
+
+  CREATE INDEX attendance_weeks_course_class_date_idx
+    ON attendance_weeks (course_id, class_id, week_date);
+
+  DROP INDEX attendances_student_session_idx ON attendances;
+    (Redundant; the UNIQUE on the same two columns already covers it.)
+
+  Wrap each in a Schema::table migration that checks `hasIndex` first so
+  it's safe to re-run.
+
+
+PART 6 — Attendance Workflow Audit  (POST /api/attendance)
+--------------------------------------------------------------------------------
+File: app/Http/Controllers/Api/AttendanceController.php  markAttendance()
+Per request, assuming the happy "QR + geofence" path, here is the actual
+sequence of SQL/IO calls:
+
+   #   Operation                                         Where
+   1   SELECT * FROM sessions WHERE id=?                  Laravel session driver
+   2   UPDATE sessions SET payload=?, last_activity=?     end of request
+   3   SystemSetting::get()  → SELECT FROM cache          DB cache (first call/min)
+   4   SELECT students WHERE UPPER(TRIM(index))=?         FULL SCAN (problem B)
+   5   (optional) SELECT students WHERE bound_ip=?
+   6   SELECT courses WHERE id=?
+   7   SELECT attendance_sessions WHERE id=? (or token)
+   8   SELECT courses WHERE id=?                          (re-fetch via relation)
+   9   isClassRepForCourse  → 1+N queries (problem C)
+   10  studentMayAttend → assignedClassIds → pivot query
+   11  validateSessionGeofence (pure PHP, no SQL)
+   12  SELECT attendances WHERE student_id=? AND session_id=?  (duplicate check)
+   13  AttendanceFraudGuard::detectCollision → 1–2 SELECTs
+   14  AttendanceMarkLock::run
+         ├── INSERT INTO cache_locks ...                 (row lock)
+         └── DELETE FROM cache_locks WHERE key=?
+   15  firstOrCreate(attendances) → 1 SELECT + 1 INSERT
+   16  AuditLogService::record → 1 INSERT INTO audit_logs
+   17  SELECT COUNT(*) attendances WHERE session_id=? AND status='present'
+   18  event(SessionLiveEvent) → with broadcast=log: 1 log write
+                                  with broadcast=reverb (queued): 1 INSERT
+                                                                  INTO jobs
+   19  UPDATE sessions (Laravel session shutdown)
+
+Total: ~12–18 DB statements + 1–2 file writes (log + cookie) per mark.
+With 100 simultaneous marks that's 1,200–1,800 statements arriving in a
+1–2 second window, plus 100+ row locks on `cache_locks` and `sessions`.
+A single shared MySQL with `innodb_buffer_pool_size` of ~256 MB (typical
+on shared cPanel) starts queuing transactions; the PHP-FPM pool fills up;
+LiteSpeed/Apache start returning 508.
+
+Observations:
+
+  ✓ You ALREADY have a per-(session, student) cache lock — good idea.
+  ✗ But the lock is in MySQL, which makes it WORSE than no lock under
+    high contention: two concurrent requests for two DIFFERENT students
+    still serialise on InnoDB metadata for the `cache_locks` table.
+    With CACHE_STORE=file, the lock becomes a flock() on a tiny file
+    and contention disappears.
+  ✓ You ALREADY have a UNIQUE (student_id, attendance_session_id)
+    constraint, so duplicate marks are physically impossible regardless
+    of the lock — the lock is purely there to suppress the
+    QueryException noise. You can even DROP the lock and rely on the
+    unique + a try/catch for QueryException 23000.
+  ✗ The SystemSetting::get() static memo is reset between requests, so
+    each request still pays for one Cache read.
+  ✗ The `present_count` SELECT (step 17) runs even when nobody is
+    listening for broadcasts (BROADCAST_CONNECTION=log).
+    Guard with: `if (config('broadcasting.default') !== 'log') { ... }`.
+  ✗ The Reverb broadcast is queued (ShouldBroadcast), so it writes a
+    job row even when nobody is consuming the queue. Either run a queue
+    worker, or set BROADCAST_CONNECTION=log (already done — good),
+    or switch the event to ShouldBroadcastNow ONLY when Reverb is
+    confirmed running, OR add `should_queue: false` env-driven branch.
+
+Notifications / images / GPS observations:
+  • The endpoint does NOT trigger any external notification (FCM is
+    referenced in env but not wired into mark-attendance — good).
+  • The endpoint does NOT store any image; only lat/lng floats and
+    a small client_meta JSON (<1 KB). Storage I/O is not a concern for
+    marking; it IS a concern for profile-image uploads (see PART 9).
+
+
+PART 7 — Performance Testing — please confirm
+--------------------------------------------------------------------------------
+You answered "Don't know" to peak load. To pick the right tier of fixes
+in PART 8, please fill in:
+
+  Total enrolled students ................. ____________
+  Total active classes per day ............ ____________
+  Typical class size ...................... ____________
+  Peak attendance submissions per MINUTE .. ____________
+  Expected concurrent users (any page) .... ____________
+  Typical p50 response time (any page) .... ____________ ms
+  Typical p95 response time (POST /api/attendance) _____ ms
+
+If you don't have measurements yet, do a quick artillery / k6 test
+against a staging copy:
+
+    # 60 seconds of 50 virtual students POSTing /api/attendance
+    k6 run --vus 50 --duration 60s mark.js
+
+…and watch the cPanel Resource Usage chart at the same time. The
+inflection point where EP usage maxes out is your real ceiling today.
+
+
+PART 8 — Optimisation Plan  (Redis NOT required)
+--------------------------------------------------------------------------------
+
+LEGEND
+  Impact:   ★★★ huge / ★★ medium / ★ small
+  Effort:   ▲ low (minutes) / ▲▲ medium (1–2 h) / ▲▲▲ high (refactor)
+  Where:    [SH] shared hosting OK   [VPS] VPS-only / strongly preferred
+
+──────────────────────────────────────────────────────────────────────
+TIER A — High impact, low effort  (do these TODAY)
+──────────────────────────────────────────────────────────────────────
+
+  1.  [SH] [★★★ / ▲]  Move Cache, Session, and Lock off MySQL onto FILE.
+      Edit production .env:
+          CACHE_STORE=file
+          SESSION_DRIVER=file
+      Why: removes the row-locking arms-race on `cache_locks` and
+      `sessions` for every request. File locks (flock) on local disk are
+      ~10× cheaper than MySQL row locks AND don't block other requests.
+      No Redis required. Then:
+          php artisan config:clear && php artisan cache:clear
+          php artisan optimize
+      Expected gain: typically -60% p95 latency under contention,
+      and faults on `ep` should drop to near zero.
+
+  2.  [SH] [★★★ / ▲]  Production .env hygiene.
+          APP_ENV=production
+          APP_DEBUG=false
+          LOG_LEVEL=warning
+          LOG_STACK=daily
+          LOG_DAILY_DAYS=7
+      Then:
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+          php artisan event:cache
+      Why: APP_DEBUG=true forces Laravel to load the Whoops error
+      handler, register a query log, and re-resolve config on every
+      request. config:cache + route:cache alone typically remove 30–80 ms
+      per request on shared hosting (no opcache).
+
+  3.  [SH] [★★★ / ▲]  Enable OPcache.
+      cPanel → "Select PHP Version" → Extensions → tick `opcache`.
+      Recommended INI (cPanel → "MultiPHP INI Editor" → Editor mode):
+          opcache.enable=1
+          opcache.enable_cli=0
+          opcache.memory_consumption=128
+          opcache.max_accelerated_files=20000
+          opcache.validate_timestamps=1     ; (set to 0 + use deploy cache:clear
+                                            ;  for max speed on a VPS)
+          opcache.revalidate_freq=2
+      Why: PHP without OPcache reparses every .php file on every request.
+      With Laravel that's 800–1,500 files = 200–400 ms of pure parsing
+      per request. OPcache is free, ships with PHP 8.3, and is the
+      single biggest speedup you can get without writing code.
+      Expected gain: -30 to -60% on every endpoint.
+
+  4.  [SH] [★★ / ▲]  Fix the non-SARGable student lookup (4–5 LOC change).
+      In app/Models/Student.php::findByIndex() and in every controller
+      that uses `whereRaw('UPPER(TRIM(index_number)) = ?', ...)`,
+      replace with:
+          Student::where('index_number', strtoupper(trim($indexNumber)))->first();
+      Falls back to the existing whereRaw only when the fast path
+      returns null. Saves 1 full table scan per login + per mark.
+      Expected gain: as your student count grows past ~10k rows, this
+      single change is the difference between a 20 ms and a 200 ms
+      lookup.
+
+  5.  [SH] [★★ / ▲]  Add the 7 missing indexes from PART 5 §5.4.
+      Pure additive — safe to run during a low-traffic window via a
+      Laravel migration. Each CREATE INDEX takes <5 s on a 100k-row
+      table.
+
+  6.  [SH] [★★ / ▲]  Move the two UPDATE statements out of
+      `/api/sessions/active` (PART 5 [F]) into the scheduler:
+          app/Console/Kernel.php  (or routes/console.php)
+              $schedule->call(fn () =>
+                  AttendanceSession::deactivateExpiredSessions()
+              )->everyMinute();
+              $schedule->call(/* enable checkout on expected_end_time */)
+                       ->everyMinute();
+      Then add ONE cron line in cPanel → Cron Jobs:
+          * * * * * cd /home/USER/public_html && /usr/local/bin/php artisan schedule:run >> /dev/null 2>&1
+      Expected gain: removes ~25 UPDATE statements per second during
+      peak polling.
+
+──────────────────────────────────────────────────────────────────────
+TIER B — High impact, medium effort  (do this WEEK)
+──────────────────────────────────────────────────────────────────────
+
+  7.  [SH] [★★ / ▲▲]  Kill the N+1 in ActiveSessionListBuilder::buildRows.
+      Before the foreach loop, fetch all "my attendances" in ONE query:
+          $myAttendances = $student
+              ? Attendance::query()
+                  ->where('student_id', $student->id)
+                  ->whereIn('attendance_session_id', $sessionIds)
+                  ->get()
+                  ->keyBy('attendance_session_id')
+              : collect();
+      Inside the loop, replace the per-session query with:
+          $mine = $myAttendances->get($session->id);
+      Expected gain: turns N+1 → 2 queries. With 5 active sessions and
+      200 students polling, you save 200 × 4 = 800 queries per poll.
+
+  8.  [SH] [★★ / ▲▲]  Memoise isClassRepForCourse + assignedClassIds.
+      Both functions are called repeatedly within a single request.
+      Add a static per-request cache keyed by course/student id (see
+      SystemSetting::$cachedInstance for the pattern).
+
+  9.  [SH] [★★ / ▲▲]  Trim the View::composer in AppServiceProvider.
+      Cache the resolved $student in a request-scoped singleton; gate
+      `StudentSignOutLock::isSignOutBlocked` behind an actual need.
+
+ 10.  [SH] [★★ / ▲▲]  Tune throttles for class peaks.
+      `Limit::perMinute(60)->by(user_or_ip)` is too low for shared NAT
+      (a whole campus may share one IP). Switch to:
+          Limit::perMinute(60)->by($request->user()?->id ?? $request->ip())
+      → already done.  But ALSO add a separate, much higher route group
+      for /api/attendance (e.g. 30/min/user, 600/min/ip) so a class of
+      200 doesn't trip the global 60/min/IP ceiling when behind one
+      Wi-Fi NAT.
+
+ 11.  [SH] [★ / ▲▲]  Disable SessionLiveEvent dispatch when broadcasting
+      is `log` or `null`. Guard the event() call with a config check so
+      no jobs row + no extra COUNT query happens in the common case.
+
+──────────────────────────────────────────────────────────────────────
+TIER C — Caching improvements WITHOUT Redis
+──────────────────────────────────────────────────────────────────────
+
+ 12.  [SH] [★★ / ▲]  File cache is enough for everything you do now:
+      - SystemSetting (60 s)
+      - LiveAttendanceCache versioned keys (5 s)
+      - Active session id lists (5 s)
+      All your existing `Cache::remember(...)` calls work unchanged.
+
+ 13.  [SH] [★ / ▲▲]  Static asset cache headers.
+      Add to public/.htaccess (above the existing Laravel block):
+          <IfModule mod_expires.c>
+            ExpiresActive On
+            ExpiresByType image/png  "access plus 30 days"
+            ExpiresByType image/jpeg "access plus 30 days"
+            ExpiresByType image/webp "access plus 30 days"
+            ExpiresByType text/css   "access plus 7 days"
+            ExpiresByType application/javascript "access plus 7 days"
+          </IfModule>
+      Saves dozens of requests per page-load (profile images, logos).
+
+ 14.  [SH] [★ / ▲]  Add Cache-Control on the /api/students/{id}/profile-image
+      response: `Cache-Control: public, max-age=86400, stale-while-revalidate=3600`.
+      The current StudentImageController already serves a versioned URL
+      (?v=updated_at), so it's safe to cache aggressively.
+
+──────────────────────────────────────────────────────────────────────
+TIER D — Database improvements
+──────────────────────────────────────────────────────────────────────
+
+ 15.  [SH] [★★ / ▲]  Run the 7 new indexes (PART 5 §5.4) + drop the
+      redundant `attendances_student_session_idx`.
+
+ 16.  [SH] [★ / ▲▲]  Add a periodic cleanup job for `audit_logs`:
+          $schedule->call(fn () =>
+              AuditLog::where('created_at', '<', now()->subDays(90))->delete()
+          )->dailyAt('03:30');
+      Otherwise the table grows ~1 row per mark and reports get slow.
+
+ 17.  [SH] [★ / ▲▲]  Same for `sessions` table — Laravel garbage-collects
+      via the 2/100 lottery, but with SESSION_DRIVER=file you'd avoid
+      it entirely.
+
+ 18.  [SH] [★★ / ▲▲]  Switch any heavy reports / exports to CHUNK / lazy
+      cursors: `Attendance::query()->cursor()` or
+      `->chunkById(500, function ($rows) { ... })`. DomPDF and Maatwebsite
+      will OOM a shared PHP worker (typically 192–256 MB memory_limit)
+      if you `->get()` a whole semester's attendance.
+
+──────────────────────────────────────────────────────────────────────
+TIER E — Infrastructure upgrades  (only if A–D aren't enough)
+──────────────────────────────────────────────────────────────────────
+
+ 19.  [VPS] [★★★ / ▲▲▲]  Move to a VPS (e.g. Hetzner CX22 €5/mo, Contabo
+      VPS S, DigitalOcean Premium AMD $7/mo, or any cPanel-VPS provider).
+      Lift the EP / NPROC / IOPS ceilings and you control the whole
+      machine. THEN install:
+        - Redis (apt install redis-server)
+        - CACHE_STORE=redis, SESSION_DRIVER=redis, QUEUE_CONNECTION=redis
+        - supervisord with `php artisan queue:work --tries=3 --timeout=60`
+        - supervisord with `php artisan reverb:start` (or NGINX+ws proxy)
+        - InnoDB buffer pool = 60% of RAM in /etc/mysql/my.cnf
+        - PHP-FPM pool sized to CPU cores × (1.5 to 2) for I/O-bound workload
+      Your code is ALREADY written to take advantage of Redis without
+      changes (see RedisRuntimeConfig and AttendanceMarkLock). It will
+      just light up.
+
+ 20.  [VPS] [★★ / ▲▲]  Replace local file storage for profile images
+      with a CDN (Cloudflare R2 / Bunny.net Storage Zone). The image
+      compression you do in PHP/GD (Student::optimizeProfileImageBinary)
+      is the most CPU-expensive single piece of code in the repo —
+      move it to a queued job once you have a worker.
+
+
+PART 9 — Final Output
+--------------------------------------------------------------------------------
+
+ROOT CAUSE ANALYSIS  (the why, in one paragraph)
+
+  The application stack is configured for a single-server development
+  workstation, not for a shared cPanel host under concurrent load. Every
+  HTTP request causes 3 writes to MySQL just for framework plumbing
+  (session, cache lookup, cache lock); a single attendance POST causes
+  12–18 SQL statements; and the polling endpoints (`/api/sessions/active`,
+  `/session/{id}/stats`, `/sessions/current-qr/{id}`) do hidden writes
+  and N+1 reads. Multiplied by 100+ concurrent students this exceeds
+  the cPanel Entry-Process / I/O / connection ceilings, which surface
+  as "Resource Limit Is Reached" or 503/508 responses. APP_DEBUG=true,
+  LOG_LEVEL=debug, OPcache likely off, and APP_ENV=local are amplifiers.
+
+TOP 5 BOTTLENECKS  (in measured order of pain)
+
+  1. CACHE_STORE=database  +  SESSION_DRIVER=database
+        → row-lock contention + heavy writes per request.
+  2. APP_DEBUG=true + LOG_LEVEL=debug + APP_ENV=local
+        → no opcache benefit, huge log writes, no config caching.
+  3. N+1 in /api/sessions/active for `already_marked` per session.
+  4. Non-SARGable Student lookup (UPPER/TRIM defeats unique index).
+  5. /api/sessions/active running TWO UPDATEs on every poll.
+
+EXACT FIXES IN PRIORITY ORDER  (copy-paste this checklist)
+
+  ☐  [10 min, SH]   Set CACHE_STORE=file, SESSION_DRIVER=file in .env;
+                    `php artisan config:clear && php artisan cache:clear`.
+  ☐  [10 min, SH]   APP_ENV=production, APP_DEBUG=false, LOG_LEVEL=warning,
+                    LOG_STACK=daily, LOG_DAILY_DAYS=7;
+                    `php artisan config:cache route:cache view:cache event:cache`.
+  ☐  [5 min,  SH]   Enable OPcache from "Select PHP Version".
+  ☐  [10 min, SH]   Replace `whereRaw('UPPER(TRIM(index_number))...')` with
+                    indexed `where('index_number', strtoupper(trim(...)))`
+                    in Student::findByIndex and the 16+ call sites
+                    (grep `UPPER\\(TRIM`).
+  ☐  [20 min, SH]   Create migration with the 7 new indexes from §5.4
+                    and drop `attendances_student_session_idx`.
+  ☐  [20 min, SH]   Move the two UPDATE statements in SessionController::active
+                    into `routes/console.php` schedule; add cPanel cron
+                    for `php artisan schedule:run` every minute.
+  ☐  [30 min, SH]   Fix N+1 in ActiveSessionListBuilder::buildRows (bulk
+                    fetch attendances into a keyBy(session_id) collection).
+  ☐  [15 min, SH]   Memoise Student::isClassRepForCourse() and
+                    Course::assignedClassIds() per request.
+  ☐  [10 min, SH]   Guard `event(new SessionLiveEvent(...))` with
+                    `if (config('broadcasting.default') !== 'log')`.
+  ☐  [10 min, SH]   Add 90-day delete for audit_logs in the scheduler.
+  ☐  [later,  SH]   Add static-asset Expires headers in public/.htaccess.
+  ☐  [later,  SH]   DB_USERNAME should NOT be `root` — create a dedicated
+                    cPanel MySQL user with only the privileges this DB needs.
+  ☐  [if needed]    Move to a VPS, install Redis, set CACHE_STORE=redis,
+                    SESSION_DRIVER=redis, QUEUE_CONNECTION=redis, run
+                    supervisord for queue:work + reverb:start.
+
+WHICH FIXES NEED A VPS?
+
+  • Anything in TIER E (item 19, 20).
+  • Running `php artisan reverb:start` 24/7 (cPanel "Application Manager"
+    can sometimes do this on LiteSpeed hosts, but most shared accounts
+    kill long-running processes — VPS is far safer).
+  • Supervised `php artisan queue:work` daemon. (You can fake-it on
+    shared via cron-driven `queue:work --max-time=55 --stop-when-empty`
+    every minute, but it's fragile.)
+  • Redis. Most shared cPanel plans do NOT offer Redis. If yours does
+    (e.g. CloudLinux + Redis add-on, or a managed Redis URL like Upstash
+    free tier), then RedisRuntimeConfig in your code will pick it up
+    from the system_settings UI without redeploying — see
+    app/Support/RedisRuntimeConfig.php which already does auto-discovery
+    of REDIS_URL, REDIS_HOST and localhost:6379.
+
+ESTIMATED PERFORMANCE IMPROVEMENT  (cumulative, on the same shared host)
+
+  Baseline today:           ~ 100 concurrent marks → faults / 508s
+  After items 1+2+3:        ~ 250 concurrent marks comfortably; p95 drops
+                                from "seconds" to ~300–500 ms
+  After items 4+5+6+7:      ~ 500 concurrent marks; p95 ~200–300 ms
+  After items 8–17:         ~ 700–1,000 concurrent marks
+  After VPS + Redis (E):    ~ 3,000+ concurrent marks on a €5 VPS
+
+These ranges assume your cPanel plan gives at least 1 CPU and 1 GB RAM,
+OPcache enabled, and MySQL `innodb_buffer_pool_size` ≥ 128 MB. If
+faults persist on `pmem` after TIER A, the host is genuinely undersized;
+upgrade plan or move to VPS.
+
+
+PART 10 — Things I still need from you to finalise the recommendation
+--------------------------------------------------------------------------------
+1. The hosting values asked for in PART 2 (provider, plan, EP, RAM,
+   handler, OPcache, MySQL version).
+2. Screenshots from cPanel → Metrics → Resource Usage → Details:
+      • SNAPSHOT tab (24h chart of CPU/RAM/EP/IOPS)
+      • FAULTS table (last 7 days)
+3. Whether a queue worker and/or Reverb are actually running in
+   production (or only in `composer dev` locally).
+4. Rough peak: how many students mark attendance in a single minute
+   on your busiest weekday?
+
+Send those four and I will refine PART 8 with concrete tier-1/tier-2
+upgrade thresholds and exact `my.cnf` / `php.ini` numbers tailored to
+your plan.
+
+================================================================================
+End of audit.  File saved to: PERFORMANCE_AUDIT.txt at repo root.
+================================================================================
