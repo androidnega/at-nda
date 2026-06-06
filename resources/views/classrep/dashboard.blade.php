@@ -601,16 +601,52 @@
         setTimeout(function() { acquireLocationCascade({ silent: true }); }, 400);
     })();
 
-    useManualBtn?.addEventListener('click', function() {
-        clearLocationError();
+    /**
+     * Validate + apply whatever's in the visible manual_lat / manual_lng
+     * inputs into the hidden location_lat / location_lng inputs.
+     * Returns true on success, false if values are missing/invalid.
+     * Used by both the "Apply coordinates" button and the form-submit
+     * guard (so reps who just type and hit "Open session" still work).
+     */
+    function applyManualCoordsIfAny(opts) {
+        opts = opts || {};
         var lat = parseCoordInput(manualLat && manualLat.value);
         var lng = parseCoordInput(manualLng && manualLng.value);
+        if (isNaN(lat) && isNaN(lng)) return false; // nothing typed
         if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            showLocationError('Enter valid latitude (−90 to 90) and longitude (−180 to 180).');
-            return;
+            if (!opts.silent) showLocationError('Enter valid latitude (−90 to 90) and longitude (−180 to 180).');
+            return false;
         }
-        setLocation(lat, lng, 'Manual coordinates applied.');
+        setLocation(lat, lng, opts.message || 'Manual coordinates applied.');
+        return true;
+    }
+
+    useManualBtn?.addEventListener('click', function() {
+        clearLocationError();
+        applyManualCoordsIfAny();
     });
+
+    // Live-sync the manual inputs into the hidden form fields the
+    // moment both values are valid — so the rep can type lat/long
+    // and click "Open session" without first remembering to click
+    // "Apply coordinates". (We don't show a status message here to
+    // avoid flicker while they're still typing.)
+    function liveSyncManual() {
+        var lat = parseCoordInput(manualLat && manualLat.value);
+        var lng = parseCoordInput(manualLng && manualLng.value);
+        if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+        latHidden.value = String(lat);
+        lngHidden.value = String(lng);
+        if (locationDisplay) {
+            locationDisplay.textContent = 'Anchor: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
+            locationDisplay.classList.remove('hidden');
+        }
+        clearLocationError();
+    }
+    manualLat?.addEventListener('input', liveSyncManual);
+    manualLng?.addEventListener('input', liveSyncManual);
+    manualLat?.addEventListener('blur', function() { applyManualCoordsIfAny({ silent: true }); });
+    manualLng?.addEventListener('blur', function() { applyManualCoordsIfAny({ silent: true }); });
 
     if (latHidden && latHidden.value && lngHidden && lngHidden.value) {
         setLocation(parseFloat(latHidden.value), parseFloat(lngHidden.value), 'Location restored from last attempt.');
@@ -667,11 +703,24 @@
                 return;
             }
             if (!needLoc) return;
+            // If the rep typed lat/long into the visible manual inputs
+            // but never clicked "Apply coordinates", auto-apply now
+            // before the validator runs. Saves them an extra click.
+            if (!latHidden.value || !lngHidden.value) {
+                applyManualCoordsIfAny({ silent: true });
+            }
             var lat = parseFloat(latHidden.value);
             var lng = parseFloat(lngHidden.value);
             if (!latHidden.value || !lngHidden.value || isNaN(lat) || isNaN(lng)) {
                 e.preventDefault();
-                showLocationError('Set a location first: use device GPS, use course location (if available), or apply manual coordinates.');
+                // If they DID type something but it's invalid, be specific.
+                var typedLat = manualLat && manualLat.value && String(manualLat.value).trim() !== '';
+                var typedLng = manualLng && manualLng.value && String(manualLng.value).trim() !== '';
+                if (typedLat || typedLng) {
+                    showLocationError('Latitude must be −90 to 90 and longitude −180 to 180. Check the coordinates and try again.');
+                } else {
+                    showLocationError('Set a location first: use device GPS, use course location (if available), or paste coordinates from Google Maps below.');
+                }
                 var section = document.getElementById('session-location-section');
                 if (section) section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 return;
