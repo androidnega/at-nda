@@ -89,59 +89,105 @@ class ClassRepController extends Controller
             return $student;
         }
 
+        // The rep dashboard renders five independent counters + a "today's
+        // schedule" list. A single failing query (corrupted Cache return
+        // after a Redis driver flip, missing column on an out-of-date
+        // production schema, etc.) used to take the whole page to a 500.
+        // We now isolate every section behind safeCount/safeCall so the
+        // page renders zeros + an empty timetable instead, and report()
+        // the exception so it surfaces in storage/logs/laravel.log for
+        // post-mortem without locking the rep out of their dashboard.
         $classIds = $this->getRepClassIds($student);
         $classIdsArr = $classIds->map(fn ($id) => (int) $id)->all();
-        $studentsCount = Student::whereIn('class_id', $classIds)->count();
+
+        $studentsCount = $this->safeCount(
+            fn () => Student::whereIn('class_id', $classIds)->count(),
+            'rep_overview.students_count'
+        );
 
         // The rep dashboard now mirrors the per-class timetable: a course is
         // "assigned" only once the rep has added it to their own class
         // timetable. This keeps the Courses tile and Today's schedule in
         // sync with /dashboard/timetable.
-        $useClassTimetable = SchemaFeatures::hasClassTimetables() && $classIdsArr !== [];
+        $useClassTimetable = $this->safeCall(
+            fn () => SchemaFeatures::hasClassTimetables() && $classIdsArr !== [],
+            'rep_overview.has_class_timetables',
+            false
+        );
+
         $timetableCourseIds = $useClassTimetable
-            ? \App\Models\ClassTimetable::query()
-                ->whereIn('class_id', $classIdsArr)
-                ->whereNotNull('course_id')
-                ->pluck('course_id')
-                ->map(fn ($id) => (int) $id)
-                ->unique()
-                ->values()
+            ? $this->safeCall(
+                fn () => \App\Models\ClassTimetable::query()
+                    ->whereIn('class_id', $classIdsArr)
+                    ->whereNotNull('course_id')
+                    ->pluck('course_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values(),
+                'rep_overview.timetable_course_ids',
+                collect()
+            )
             : collect();
 
-        $coursesCount = $useClassTimetable
-            ? $timetableCourseIds->count()
-            : (clone RepCourseAccess::coursesQueryForRep($student))->count();
+        $coursesCount = $this->safeCount(
+            fn () => $useClassTimetable
+                ? $timetableCourseIds->count()
+                : (clone RepCourseAccess::coursesQueryForRep($student))->count(),
+            'rep_overview.courses_count'
+        );
 
         // Attendance counters stay scoped to every course assigned to the
         // rep's classes so historical marks aren't hidden if a slot was
         // later removed from the timetable.
-        $courseIds = (clone RepCourseAccess::coursesQueryForRep($student))->pluck('id');
+        $courseIds = $this->safeCall(
+            fn () => (clone RepCourseAccess::coursesQueryForRep($student))->pluck('id'),
+            'rep_overview.course_ids',
+            collect()
+        );
 
         // All three dashboard counters skip attendance rows pointing at
         // cancelled / reset weeks so the headline numbers match what the
         // PDFs and per-course pages show.
-        $marksBase = $courseIds->isEmpty()
-            ? null
-            : Attendance::query()
-                ->whereIn('course_id', $courseIds)
-                ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
-                ->activeWeeksOnly();
+        $marksBase = null;
+        try {
+            $marksBase = $courseIds->isEmpty()
+                ? null
+                : Attendance::query()
+                    ->whereIn('course_id', $courseIds)
+                    ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
+                    ->activeWeeksOnly();
 
-        if ($marksBase !== null) {
-            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
+            if ($marksBase !== null) {
+                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $marksBase = null;
         }
 
-        $totalAttendanceMarks = $marksBase === null ? 0 : (clone $marksBase)->count();
+        $totalAttendanceMarks = $marksBase === null
+            ? 0
+            : $this->safeCount(fn () => (clone $marksBase)->count(), 'rep_overview.total_marks');
 
         $todayAttendanceMarks = $marksBase === null
             ? 0
-            : (clone $marksBase)->whereDate('attendance_time', today())->count();
+            : $this->safeCount(
+                fn () => (clone $marksBase)->whereDate('attendance_time', today())->count(),
+                'rep_overview.today_marks'
+            );
 
         $weekAttendanceMarks = $marksBase === null
             ? 0
-            : (clone $marksBase)->where('attendance_time', '>=', now()->subDays(7)->startOfDay())->count();
+            : $this->safeCount(
+                fn () => (clone $marksBase)->where('attendance_time', '>=', now()->subDays(7)->startOfDay())->count(),
+                'rep_overview.week_marks'
+            );
 
-        $todayCourses = $this->buildRepTodayCourses($student, $classIdsArr, $useClassTimetable);
+        $todayCourses = $this->safeCall(
+            fn () => $this->buildRepTodayCourses($student, $classIdsArr, $useClassTimetable),
+            'rep_overview.today_courses',
+            collect()
+        );
 
         return view('classrep.overview', [
             'student' => $student,
@@ -153,6 +199,51 @@ class ClassRepController extends Controller
             'todayCourses' => $todayCourses,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Run a counter query and fall back to 0 if it throws. Keeps the rep
+     * dashboard usable when a single tile's query is broken (bad cache
+     * value, missing column on a stale schema, transient DB hiccup).
+     */
+    private function safeCount(callable $fn, string $context): int
+    {
+        try {
+            return (int) $fn();
+        } catch (\Throwable $e) {
+            report($e);
+            \Illuminate\Support\Facades\Log::warning(
+                'rep_overview_safe_count_failed',
+                ['context' => $context, 'error' => $e->getMessage()]
+            );
+
+            return 0;
+        }
+    }
+
+    /**
+     * Generic safe wrapper for non-int values (collections, booleans). See
+     * safeCount() for the rationale.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $fn
+     * @param  T  $fallback
+     * @return T
+     */
+    private function safeCall(callable $fn, string $context, mixed $fallback): mixed
+    {
+        try {
+            return $fn();
+        } catch (\Throwable $e) {
+            report($e);
+            \Illuminate\Support\Facades\Log::warning(
+                'rep_overview_safe_call_failed',
+                ['context' => $context, 'error' => $e->getMessage()]
+            );
+
+            return $fallback;
+        }
     }
 
     /**

@@ -52,8 +52,32 @@ class AppServiceProvider extends ServiceProvider
         });
 
         View::composer(['layouts.classrep', 'layouts.student'], function ($view) {
+            // Every rep / student page render passes through here. A bad
+            // relation eager-load, a corrupted Redis cache value inside
+            // StudentSignOutLock, or a missing column on a half-deployed
+            // schema used to take the whole dashboard to a 500 because
+            // a thrown exception inside a View::composer bubbles all the
+            // way up. Wrap each step so the layout renders even when one
+            // piece misbehaves; exceptions still go to laravel.log via
+            // report() so we can diagnose them after the fact.
             $sid = session('student_id');
-            $student = $sid ? Student::query()->with(['department.faculty', 'schoolClass'])->find($sid) : null;
+
+            $student = null;
+            if ($sid) {
+                try {
+                    $student = Student::query()
+                        ->with(['department.faculty', 'schoolClass'])
+                        ->find($sid);
+                } catch (\Throwable $e) {
+                    report($e);
+                    try {
+                        $student = Student::query()->find($sid);
+                    } catch (\Throwable $e2) {
+                        report($e2);
+                        $student = null;
+                    }
+                }
+            }
 
             if ($view->name() === 'layouts.classrep') {
                 $view->with('repStudent', $student);
@@ -64,10 +88,16 @@ class AppServiceProvider extends ServiceProvider
             $signOutBlocked = false;
             $signOutBlockMessage = null;
             if ($student) {
-                $signOutBlocked = \App\Support\StudentSignOutLock::isSignOutBlocked($student);
-                $signOutBlockMessage = $signOutBlocked
-                    ? \App\Support\StudentSignOutLock::blockMessage($student)
-                    : null;
+                try {
+                    $signOutBlocked = \App\Support\StudentSignOutLock::isSignOutBlocked($student);
+                    $signOutBlockMessage = $signOutBlocked
+                        ? \App\Support\StudentSignOutLock::blockMessage($student)
+                        : null;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $signOutBlocked = false;
+                    $signOutBlockMessage = null;
+                }
             }
             $view->with([
                 'studentSignOutBlocked' => $signOutBlocked,

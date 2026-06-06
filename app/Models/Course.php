@@ -352,7 +352,21 @@ class Course extends Model
                 ->all();
         });
 
-        if (empty($sessionIds)) {
+        // Defensive: if the cache backend handed back something unexpected
+        // (string blob from a broken Redis serialize round-trip, null,
+        // single int) treat it as no active sessions instead of feeding
+        // whereIn() a malformed value. Mirrors the same guard that fixed
+        // the classmates dropdown in commit 9628dbc2 — every Cache::*
+        // call site needs to assume the driver may have just flipped.
+        if (! is_array($sessionIds)) {
+            $sessionIds = [];
+        }
+        $sessionIds = array_values(array_filter(
+            array_map(fn ($id) => is_numeric($id) ? (int) $id : 0, $sessionIds),
+            fn (int $id) => $id > 0
+        ));
+
+        if ($sessionIds === []) {
             return new \Illuminate\Database\Eloquent\Collection();
         }
 
