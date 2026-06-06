@@ -8,6 +8,7 @@ use App\Models\AttendanceWeek;
 use App\Models\Course;
 use App\Models\SchoolClass;
 use App\Services\AttendanceDataResetNotifier;
+use App\Services\AttendanceDedupService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -127,6 +128,47 @@ class AdminAttendanceWeekController extends Controller
         $this->purgeWeekDataForCourseIds($ids, 'all');
 
         return back()->with('success', 'All attendance weeks, sessions, and marks have been cleared. Each course’s next week is seeded to Week 1; session IDs may continue from the database unless this was a full wipe with no other sessions.');
+    }
+
+    /**
+     * Collapse duplicate attendance rows that share the same
+     * (student, course, week). Surfaces from older deployments where
+     * closing and reopening a session on the same day inserted a
+     * second/third row instead of reusing the first one.
+     *
+     * Keeps the earliest mark per group; every removal is mirrored
+     * into attendance_deletions and audit_logs.
+     */
+    public function dedupeWeeklyMarks(Request $request, AttendanceDedupService $service): RedirectResponse
+    {
+        $data = $request->validate([
+            'course_id' => 'nullable|integer|exists:courses,id',
+            'class_id' => 'nullable|integer|exists:classes,id',
+            'attendance_week_id' => 'nullable|integer|exists:attendance_weeks,id',
+            'dry_run' => 'nullable|boolean',
+        ]);
+
+        $user = $request->user();
+        $report = $service->run([
+            'dry_run' => (bool) ($data['dry_run'] ?? false),
+            'course_id' => $data['course_id'] ?? null,
+            'class_id' => $data['class_id'] ?? null,
+            'attendance_week_id' => $data['attendance_week_id'] ?? null,
+            'actor_id' => $user?->id,
+            'actor_role' => 'admin',
+            'actor_name' => $user?->name ?? 'admin',
+            'reason' => 'admin_ui_dedupe',
+        ]);
+
+        $msg = sprintf(
+            '%s %d duplicate %s across %d (student, course, week) groups.',
+            ($data['dry_run'] ?? false) ? 'Found' : 'Removed',
+            $report['duplicates_removed'],
+            $report['duplicates_removed'] === 1 ? 'mark' : 'marks',
+            $report['kept']
+        );
+
+        return back()->with('success', $msg);
     }
 
     /**

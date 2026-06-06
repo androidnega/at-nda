@@ -11,7 +11,11 @@
         <div class="min-w-0">
             <h1 class="text-lg sm:text-xl font-bold text-gray-900 leading-snug">{{ $course->course_name }}</h1>
             <p class="text-xs text-gray-500 mt-0.5">
-                @if($course->schoolClass)
+                @php $classLabel = $repClassLabel ?? null; @endphp
+                @if(!empty($classLabel) && $classLabel !== '—')
+                    {{ $classLabel }}
+                    <span class="text-gray-300">·</span>
+                @elseif($course->schoolClass)
                     {{ $course->schoolClass->name }}
                     <span class="text-gray-300">·</span>
                 @endif

@@ -16,11 +16,38 @@
 @endif
 
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    <form action="{{ route('dashboard.settings.update') }}" method="POST" enctype="multipart/form-data" class="p-6 space-y-6">
+    <form action="{{ route('dashboard.settings.update') }}" method="POST" enctype="multipart/form-data" class="p-6 space-y-6"
+          data-settings-form>
         @csrf
 
+        {{-- Tab navigation. All panels live in the same form so a single
+             "Save Settings" still persists everything; the tabs just hide
+             the panels you're not looking at. --}}
+        <nav class="flex gap-1 overflow-x-auto -mx-1 px-1 border-b border-gray-200 pb-px" data-settings-tabs role="tablist">
+            @php
+                $tabs = [
+                    ['key' => 'general',    'label' => 'General',    'icon' => 'fa-image',          'show' => session()->has('admin_id')],
+                    ['key' => 'security',   'label' => 'Security',   'icon' => 'fa-shield-halved',  'show' => true],
+                    ['key' => 'mobile',     'label' => 'Mobile app', 'icon' => 'fa-mobile-screen',  'show' => session()->has('admin_id') && \App\Models\SystemSetting::hasRepDashboardThemeColumn() && \App\Models\SystemSetting::hasStudentDashboardThemeColumn()],
+                    ['key' => 'attendance', 'label' => 'Attendance', 'icon' => 'fa-circle-check',   'show' => \App\Models\SystemSetting::hasAttendanceModeColumns()],
+                    ['key' => 'email',      'label' => 'Email',      'icon' => 'fa-envelope',       'show' => session()->has('admin_id') && \App\Models\SystemSetting::hasMailColumns()],
+                    ['key' => 'cache',      'label' => 'Cache',      'icon' => 'fa-bolt',           'show' => session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings()],
+                ];
+            @endphp
+            @foreach($tabs as $tab)
+                @if($tab['show'])
+                <button type="button" role="tab"
+                    data-settings-tab="{{ $tab['key'] }}"
+                    class="settings-tab-btn relative inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-500 hover:text-gray-800 whitespace-nowrap">
+                    <i class="fas {{ $tab['icon'] }} text-xs"></i>
+                    <span>{{ $tab['label'] }}</span>
+                </button>
+                @endif
+            @endforeach
+        </nav>
+
         @if(session()->has('admin_id'))
-        <div class="space-y-4 pb-6 border-b border-gray-100">
+        <div class="space-y-4" data-settings-panel="general" hidden>
             <h2 class="text-lg font-semibold text-gray-800">Sign-in page hero image</h2>
             <p class="text-sm text-gray-500">Shown on student web sign-in and the mobile app login screen.</p>
 
@@ -57,7 +84,7 @@
         </div>
         @endif
 
-        <div class="space-y-4">
+        <div class="space-y-4" data-settings-panel="security" hidden>
             <h2 class="text-lg font-semibold text-gray-800">Face & Device Security</h2>
 
             <label class="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition cursor-pointer">
@@ -159,7 +186,7 @@
 
 
         @if(session()->has('admin_id') && \App\Models\SystemSetting::hasRepDashboardThemeColumn() && \App\Models\SystemSetting::hasStudentDashboardThemeColumn())
-        <div class="space-y-4 pt-2 border-t border-gray-100">
+        <div class="space-y-4" data-settings-panel="mobile" hidden>
             <h2 class="text-lg font-semibold text-gray-800">Mobile app dashboards</h2>
             <p class="text-sm text-gray-500">Choose the layout students and class reps see in the Flutter app (classic stays the default).</p>
 
@@ -208,7 +235,7 @@
         @endif
 
         @if(\App\Models\SystemSetting::hasAttendanceModeColumns())
-        <div class="space-y-4 pt-2 border-t border-gray-100">
+        <div class="space-y-4" data-settings-panel="attendance" hidden>
             <h2 class="text-lg font-semibold text-gray-800">Attendance runtime mode</h2>
             <div class="p-4 rounded-xl border border-gray-100 space-y-3">
                 <label for="attendance_mode" class="font-medium text-gray-800 block">Global attendance mode</label>
@@ -232,7 +259,7 @@
         @endif
 
         @if(session()->has('admin_id') && \App\Models\SystemSetting::hasMailColumns())
-        <div class="space-y-4 pt-2 border-t border-gray-100">
+        <div class="space-y-4" data-settings-panel="email" hidden>
             <div>
                 <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
                     <i class="fas fa-envelope text-primary/80"></i>
@@ -250,6 +277,19 @@
                 <input type="checkbox" name="mail_enabled" value="1" {{ ($settings->mail_enabled ?? false) ? 'checked' : '' }}
                     class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
             </label>
+
+            <div class="p-3 rounded-xl border border-emerald-200 bg-emerald-50/60 flex flex-wrap items-center gap-2">
+                <span class="text-xs font-medium text-emerald-900">Quick fill from cPanel:</span>
+                <button type="button" data-mail-preset="ssl"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-800">
+                    <i class="fas fa-shield-halved"></i> SSL/TLS (recommended · port 465)
+                </button>
+                <button type="button" data-mail-preset="starttls"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white text-emerald-800 px-3 py-1.5 text-xs font-medium hover:bg-emerald-50">
+                    <i class="fas fa-lock-open"></i> STARTTLS (port 587)
+                </button>
+                <span class="text-[11px] text-emerald-900/70 ml-auto">Fills host, port, encryption, username and from address. The password is never auto-filled — type it below.</span>
+            </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div class="sm:col-span-2 p-4 rounded-xl border border-gray-100 space-y-1.5">
@@ -326,7 +366,7 @@
         @endif
 
         @if(session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings())
-        <div class="space-y-3 pt-2 pb-1">
+        <div class="space-y-3" data-settings-panel="cache" hidden>
             <h3 class="text-base font-semibold text-gray-800 flex items-center gap-2">
                 <i class="fas fa-bolt text-rose-500/80"></i>
                 Cache &amp; Redis (performance)
@@ -394,6 +434,17 @@
                     @endif
                 </div>
 
+                <div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-medium text-rose-900">Not sure what to put here?</span>
+                    <button type="submit" name="redis_action" value="auto"
+                        formnovalidate
+                        onclick="return confirm('Auto-configure will probe REDIS_URL, REDIS_HOST env vars, and 127.0.0.1:6379, then use whichever responds. Continue?');"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 text-white px-3 py-1.5 text-xs font-semibold hover:bg-rose-800">
+                        <i class="fas fa-wand-magic-sparkles"></i> Auto-configure (recommended)
+                    </button>
+                    <span class="text-[11px] text-rose-900/70 ml-auto">Probes the environment for a working Redis endpoint and switches the cache driver only when the ping succeeds.</span>
+                </div>
+
                 <div class="border-t border-rose-200/70 pt-3 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
                     <button type="submit" name="redis_action" value="test"
                         class="inline-flex items-center justify-center gap-1.5 bg-rose-700 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-rose-800 transition">
@@ -404,6 +455,19 @@
                     Tip: on cPanel-style hosting ask your provider for a Redis socket (host + port).
                     On Render / Railway / fly.io paste the internal Redis URL parts here.
                 </p>
+                @php
+                    $hasRedisClient = extension_loaded('redis') || class_exists(\Predis\Client::class);
+                @endphp
+                @if(! $hasRedisClient)
+                <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 flex items-start gap-2">
+                    <i class="fas fa-circle-exclamation mt-0.5"></i>
+                    <span>
+                        No Redis client detected on this server. To use Redis caching, run
+                        <code class="px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-mono">composer require predis/predis</code>
+                        on the host (works on shared hosting), or enable the <code class="px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-mono">phpredis</code> PHP extension. Until then the system falls back to the database driver.
+                    </span>
+                </div>
+                @endif
             </div>
         </div>
         @endif
@@ -415,4 +479,124 @@
         </div>
     </form>
 </div>
+
+@push('scripts')
+<style>
+    [data-settings-tabs] .settings-tab-btn { border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    [data-settings-tabs] .settings-tab-btn.is-active {
+        color: #0f766e; /* primary-ish teal */
+        border-bottom-color: currentColor;
+    }
+    [data-settings-tabs] .settings-tab-btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.3);
+        border-radius: 4px;
+    }
+</style>
+<script>
+    (function () {
+        // ── Settings tab switcher ────────────────────────────────────────
+        const STORAGE_KEY = 'atenda.settings.activeTab';
+        const tabs = Array.from(document.querySelectorAll('[data-settings-tab]'));
+        const panels = Array.from(document.querySelectorAll('[data-settings-panel]'));
+        if (tabs.length && panels.length) {
+            function activate(key, save) {
+                let matched = false;
+                panels.forEach(p => {
+                    const isMatch = p.getAttribute('data-settings-panel') === key;
+                    p.hidden = !isMatch;
+                    if (isMatch) matched = true;
+                });
+                tabs.forEach(t => t.classList.toggle('is-active', t.getAttribute('data-settings-tab') === key));
+                if (save && matched) {
+                    try { localStorage.setItem(STORAGE_KEY, key); } catch (e) {}
+                }
+                return matched;
+            }
+            const validKeys = new Set(panels.map(p => p.getAttribute('data-settings-panel')));
+
+            tabs.forEach(t => t.addEventListener('click', () => activate(t.getAttribute('data-settings-tab'), true)));
+
+            // Boot order: ?tab=, hash (#email), saved, then first available.
+            const params = new URLSearchParams(window.location.search);
+            const fromQuery = params.get('tab');
+            const fromHash = (window.location.hash || '').replace('#', '');
+            let saved = null;
+            try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+            const candidates = [fromQuery, fromHash, saved, panels[0]?.getAttribute('data-settings-panel')];
+            for (const c of candidates) {
+                if (c && validKeys.has(c) && activate(c, false)) break;
+            }
+
+            // After validation/save reloads, jump to whichever tab the user
+            // was last using so they keep their context.
+            const form = document.querySelector('[data-settings-form]');
+            if (form) {
+                form.addEventListener('submit', () => {
+                    const active = document.querySelector('[data-settings-tab].is-active');
+                    if (active) {
+                        try { localStorage.setItem(STORAGE_KEY, active.getAttribute('data-settings-tab')); } catch (e) {}
+                    }
+                });
+            }
+        }
+
+        // Quick-fill presets for the SMTP form, derived from the cPanel
+        // mailbox the operator pasted into the brief. The password field
+        // is intentionally never touched — it must always be re-entered.
+        const PRIMARY_DOMAIN = @json(parse_url(config('app.url'), PHP_URL_HOST) ?: 'at-enda.manuelcode.info');
+        const FROM_NAME = @json(config('app.name'));
+
+        const presets = {
+            ssl: {
+                host: PRIMARY_DOMAIN,
+                port: 465,
+                encryption: 'ssl',
+                username: 'reset@' + PRIMARY_DOMAIN,
+                from_address: 'reset@' + PRIMARY_DOMAIN,
+            },
+            starttls: {
+                host: 'mail.' + PRIMARY_DOMAIN,
+                port: 587,
+                encryption: 'tls',
+                username: 'reset@' + PRIMARY_DOMAIN,
+                from_address: 'reset@' + PRIMARY_DOMAIN,
+            },
+        };
+
+        function setField(id, value) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.value = value;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        document.querySelectorAll('[data-mail-preset]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const preset = presets[btn.getAttribute('data-mail-preset')];
+                if (!preset) return;
+                setField('mail_host', preset.host);
+                setField('mail_port', preset.port);
+                setField('mail_encryption', preset.encryption);
+                setField('mail_username', preset.username);
+                setField('mail_from_address', preset.from_address);
+
+                const fromName = document.getElementById('mail_from_name');
+                if (fromName && !fromName.value.trim()) {
+                    fromName.value = FROM_NAME || 'a-tenda';
+                }
+
+                const enable = document.querySelector('input[name="mail_enabled"][type="checkbox"]');
+                if (enable) enable.checked = true;
+
+                const passwordInput = document.getElementById('mail_password');
+                if (passwordInput) {
+                    passwordInput.focus();
+                    passwordInput.placeholder = 'Type the mailbox password to finish';
+                }
+            });
+        });
+    })();
+</script>
+@endpush
 @endsection

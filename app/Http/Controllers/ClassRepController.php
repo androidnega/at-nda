@@ -884,7 +884,14 @@ class ClassRepController extends Controller
             abort(403, 'You can only view attendance for courses in your class.');
         }
 
-        $course->loadMissing(['schoolClass', 'lecturer', 'venueRelation']);
+        $course->loadMissing(['schoolClass', 'schoolClasses', 'lecturer', 'venueRelation']);
+
+        // Resolve the rep's *own* class context for this course. The course
+        // may be taught to several classes (legacy class_id + course_class
+        // pivot), so blindly showing $course->schoolClass->name would
+        // mislabel a shared course as the wrong cohort. We pin the header
+        // to whichever class(es) the rep actually manages for it.
+        $repClassLabel = RepCourseAccess::repClassLabelForCourse($rep, $course);
         // Best-effort recent sessions list. We only ask for columns that
         // definitely exist on the model; failures here (stale schema cache,
         // missing migration on a fresh server) must never blow up the whole
@@ -966,6 +973,7 @@ class ClassRepController extends Controller
             'attendanceWeeks' => $attendanceWeeks,
             'weeklyAttendees' => $weeklyAttendees,
             'enrolledCount' => $enrolledCount,
+            'repClassLabel' => $repClassLabel,
             'dashboardRole' => 'classrep',
         ]);
     }

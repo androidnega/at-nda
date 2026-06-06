@@ -294,6 +294,7 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/attendance-weeks/reset-course', [AdminAttendanceWeekController::class, 'resetCourse'])->name('attendance-weeks.reset-course');
         Route::post('/attendance-weeks/reset-class', [AdminAttendanceWeekController::class, 'resetClass'])->name('attendance-weeks.reset-class');
         Route::post('/attendance-weeks/reset-all', [AdminAttendanceWeekController::class, 'resetAll'])->name('attendance-weeks.reset-all');
+        Route::post('/attendance-weeks/dedupe', [AdminAttendanceWeekController::class, 'dedupeWeeklyMarks'])->name('attendance-weeks.dedupe');
         Route::get('/pdf/{course}', [AttendancePdfController::class, 'export'])->name('pdf.export');
         Route::post('/students/{student}/assign-rep', [StudentController::class, 'assignRep'])->name('students.assign-rep')->scopeBindings();
         Route::post('/students/{student}/remove-rep', [StudentController::class, 'removeRep'])->name('students.remove-rep')->scopeBindings();

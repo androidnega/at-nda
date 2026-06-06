@@ -180,6 +180,55 @@
             </form>
         </section>
 
+        {{-- Card 4: Collapse duplicate weekly marks --}}
+        <section class="rounded-xl border border-emerald-200 bg-white overflow-hidden">
+            <header class="px-5 py-3.5 border-b border-emerald-100 bg-emerald-50">
+                <h2 class="font-semibold text-emerald-950 flex items-center gap-2">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-800 text-xs font-bold">4</span>
+                    Clean up duplicate weekly marks
+                </h2>
+                <p class="text-xs text-emerald-900/80 mt-1 ml-9">
+                    If a session was closed and reopened on the same day on an older release, a student may show 2 or 3 rows for one course in one week.
+                    This keeps the earliest mark per <span class="font-medium">(student, course, week)</span> and removes the rest. Every removal is audited.
+                </p>
+            </header>
+            <form method="POST" action="{{ route('dashboard.attendance-weeks.dedupe') }}" class="p-5 space-y-4">
+                @csrf
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="dedupe_course_id" class="block text-sm font-medium text-gray-700 mb-1.5">Limit to course (optional)</label>
+                        <select name="course_id" id="dedupe_course_id"
+                                class="w-full border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300">
+                            <option value="">All courses</option>
+                            @foreach($courses as $c)
+                                <option value="{{ $c->id }}">{{ $c->course_name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label for="dedupe_class_id" class="block text-sm font-medium text-gray-700 mb-1.5">Limit to class (optional)</label>
+                        <select name="class_id" id="dedupe_class_id"
+                                class="w-full border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300">
+                            <option value="">All classes</option>
+                            @foreach($classes as $cl)
+                                <option value="{{ $cl->id }}">{{ $cl->name }}@if($cl->level) · Level {{ $cl->level }}@endif</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <button type="submit" name="dry_run" value="1"
+                            class="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white text-emerald-800 px-4 py-2 text-sm font-medium hover:bg-emerald-50">
+                        <i class="fas fa-magnifying-glass text-xs"></i> Preview duplicates
+                    </button>
+                    <button type="submit"
+                            class="inline-flex items-center gap-2 rounded-lg bg-emerald-700 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-800">
+                        <i class="fas fa-broom text-xs"></i> Clean up duplicates
+                    </button>
+                </div>
+            </form>
+        </section>
+
         {{-- Optional: advanced "set next week" controls, tucked away --}}
         <details class="rounded-xl border border-gray-200 bg-white">
             <summary class="px-5 py-3.5 cursor-pointer text-sm font-medium text-gray-700 select-none flex items-center justify-between">

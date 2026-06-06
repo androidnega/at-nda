@@ -68,7 +68,7 @@ class SettingsController extends Controller
                 $rules['redis_database'] = 'nullable|integer|min:0|max:15';
                 $rules['redis_password'] = 'nullable|string|max:255';
                 $rules['redis_prefix'] = 'nullable|string|max:64';
-                $rules['redis_action'] = 'nullable|in:save,test';
+                $rules['redis_action'] = 'nullable|in:save,test,auto';
             }
         }
         $validated = $request->validate($rules);
@@ -119,19 +119,37 @@ class SettingsController extends Controller
             $payload['allow_rep_attendance_deletion'] = $request->boolean('allow_rep_attendance_deletion');
         }
 
+        $autoRedisResult = null;
         if ($request->session()->has('admin_id') && \App\Support\SchemaFeatures::hasRedisSettings()) {
-            $payload['cache_driver'] = $this->stringOrNull($validated['cache_driver'] ?? null) ?? 'database';
-            $payload['redis_host'] = $this->stringOrNull($validated['redis_host'] ?? null);
-            $payload['redis_port'] = isset($validated['redis_port']) && $validated['redis_port'] !== ''
-                ? (int) $validated['redis_port'] : null;
-            $payload['redis_database'] = isset($validated['redis_database']) && $validated['redis_database'] !== ''
-                ? (int) $validated['redis_database'] : 0;
-            $payload['redis_prefix'] = $this->stringOrNull($validated['redis_prefix'] ?? null);
-            $newRedisPassword = $request->input('redis_password');
-            if (is_string($newRedisPassword) && trim($newRedisPassword) !== '') {
-                $payload['redis_password_encrypted'] = $newRedisPassword;
-            } elseif ($request->boolean('clear_redis_password')) {
-                $payload['redis_password_encrypted'] = null;
+            if (($validated['redis_action'] ?? null) === 'auto') {
+                // Probe every likely endpoint and use whichever pings.
+                $autoRedisResult = \App\Support\RedisRuntimeConfig::autoDiscover();
+                if (! empty($autoRedisResult['ok'])) {
+                    $payload['cache_driver'] = 'redis';
+                    $payload['redis_host'] = (string) $autoRedisResult['host'];
+                    $payload['redis_port'] = (int) $autoRedisResult['port'];
+                    $payload['redis_database'] = (int) ($autoRedisResult['database'] ?? 0);
+                    $payload['redis_prefix'] = (string) ($autoRedisResult['prefix'] ?? 'atenda_cache_');
+                    if (array_key_exists('password', $autoRedisResult)) {
+                        $payload['redis_password_encrypted'] = $autoRedisResult['password'];
+                    }
+                }
+                // If auto-discovery failed, do NOT touch the saved config —
+                // the admin's previously-working values stay intact.
+            } else {
+                $payload['cache_driver'] = $this->stringOrNull($validated['cache_driver'] ?? null) ?? 'database';
+                $payload['redis_host'] = $this->stringOrNull($validated['redis_host'] ?? null);
+                $payload['redis_port'] = isset($validated['redis_port']) && $validated['redis_port'] !== ''
+                    ? (int) $validated['redis_port'] : null;
+                $payload['redis_database'] = isset($validated['redis_database']) && $validated['redis_database'] !== ''
+                    ? (int) $validated['redis_database'] : 0;
+                $payload['redis_prefix'] = $this->stringOrNull($validated['redis_prefix'] ?? null);
+                $newRedisPassword = $request->input('redis_password');
+                if (is_string($newRedisPassword) && trim($newRedisPassword) !== '') {
+                    $payload['redis_password_encrypted'] = $newRedisPassword;
+                } elseif ($request->boolean('clear_redis_password')) {
+                    $payload['redis_password_encrypted'] = null;
+                }
             }
         }
 
@@ -191,12 +209,28 @@ class SettingsController extends Controller
             if (\App\Support\SchemaFeatures::hasRedisSettings()) {
                 \App\Support\RedisRuntimeConfig::reapply();
 
-                if (($validated['redis_action'] ?? 'save') === 'test') {
+                $action = $validated['redis_action'] ?? 'save';
+                if ($action === 'test') {
                     $err = \App\Support\RedisRuntimeConfig::ping();
                     if ($err === null) {
                         $messages[] = 'Redis ping OK — caching is healthy.';
                     } else {
                         return back()->with('error', 'Settings saved, but Redis ping failed: '.$err);
+                    }
+                } elseif ($action === 'auto') {
+                    if (! empty($autoRedisResult['ok'])) {
+                        $messages[] = sprintf(
+                            'Redis auto-configured from %s — using %s:%d (db %d). Cache driver switched to redis.',
+                            (string) ($autoRedisResult['source'] ?? 'auto'),
+                            (string) $autoRedisResult['host'],
+                            (int) $autoRedisResult['port'],
+                            (int) ($autoRedisResult['database'] ?? 0)
+                        );
+                    } else {
+                        $tried = collect($autoRedisResult['attempts'] ?? [])
+                            ->map(fn ($a) => "{$a['label']} ({$a['host']}:{$a['port']}) → {$a['error']}")
+                            ->implode('; ');
+                        return back()->with('error', 'Redis auto-configure failed. Tried: '.($tried !== '' ? $tried : 'no candidates available').'. Other settings on this page were still saved.');
                     }
                 }
             }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\AttendanceDedupeWeeksCommand;
 use App\Console\Commands\DispatchClassStartReminders;
 use App\Console\Commands\MigrateSqliteToMysql;
 use App\Http\Middleware\EnsureAdminOnly;
@@ -34,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         MigrateSqliteToMysql::class,
         DispatchClassStartReminders::class,
+        AttendanceDedupeWeeksCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Laravel defaults to route('login'), which this app does not define.
