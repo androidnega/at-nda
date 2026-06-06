@@ -20,14 +20,19 @@ class AttendanceController extends Controller
 {
     public function form(Course $course, Request $request): View
     {
-        $activeSession = $loggedInStudent?->class_id
-            ? $course->activeSessionForClass((int) $loggedInStudent->class_id)
-            : null;
-        $settings = SystemSetting::get();
+        // Resolve the signed-in student FIRST — a recent refactor moved
+        // the $activeSession line above the assignment, which produced a
+        // hard "Undefined variable $loggedInStudent" 500 on every web
+        // /attendance/{course} hit (the student "Mark attendance" button).
         $loggedInStudent = null;
         if ($request->session()->has('student_id')) {
             $loggedInStudent = Student::find($request->session()->get('student_id'));
         }
+
+        $activeSession = $loggedInStudent?->class_id
+            ? $course->activeSessionForClass((int) $loggedInStudent->class_id)
+            : null;
+        $settings = SystemSetting::get();
 
         $isClassRep = $loggedInStudent
             ? $loggedInStudent->isClassRepForCourse((int) $course->id)

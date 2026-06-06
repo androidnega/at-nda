@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 /**
  * Tie live sessions and attendance marks to a single class cohort when courses are shared.
@@ -17,10 +18,19 @@ final class AttendanceSessionClassScope
     }
 
     /**
-     * @param  Builder<AttendanceSession>  $query
-     * @return Builder<AttendanceSession>
+     * Accepts either a Builder or a Relation. Eloquent relations
+     * (HasMany, BelongsToMany, etc.) delegate where/whereIn/whereHas to
+     * their inner query via __call, so the body works on both, but PHP's
+     * strict scalar type-hint used to reject the Relation path — which
+     * is exactly what Course::activeSessionsForClass() passes in. Caused
+     * a hard 500 on the rep dashboard until widened (see laravel.log
+     * 2026-06-06 production.ERROR: "Argument #1 ($query) must be of
+     * type Builder, HasMany given").
+     *
+     * @param  Builder<AttendanceSession>|Relation<AttendanceSession, mixed, mixed>  $query
+     * @return Builder<AttendanceSession>|Relation<AttendanceSession, mixed, mixed>
      */
-    public static function applyForClass(Builder $query, int $classId): Builder
+    public static function applyForClass(Builder|Relation $query, int $classId): Builder|Relation
     {
         if ($classId <= 0) {
             return $query->whereRaw('1 = 0');
@@ -41,11 +51,11 @@ final class AttendanceSessionClassScope
     }
 
     /**
-     * @param  Builder<AttendanceSession>  $query
+     * @param  Builder<AttendanceSession>|Relation<AttendanceSession, mixed, mixed>  $query
      * @param  list<int>  $classIds
-     * @return Builder<AttendanceSession>
+     * @return Builder<AttendanceSession>|Relation<AttendanceSession, mixed, mixed>
      */
-    public static function applyForClasses(Builder $query, array $classIds): Builder
+    public static function applyForClasses(Builder|Relation $query, array $classIds): Builder|Relation
     {
         $ids = collect($classIds)
             ->map(fn ($id) => (int) $id)
