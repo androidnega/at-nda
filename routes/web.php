@@ -148,6 +148,8 @@ Route::middleware('no-store')->group(function () {
 
     // Forgot password by email — students enter their index number, get a
     // 6-digit code in their inbox, then set a new password.
+    Route::get('/student/recovery-email', [StudentDashboardController::class, 'emailPromptForm'])->name('student.email-prompt');
+    Route::post('/student/recovery-email', [StudentDashboardController::class, 'emailPromptSubmit'])->name('student.email-prompt.submit');
     Route::get('/student/password/forgot', [StudentPasswordResetController::class, 'requestForm'])->name('student.password.request.form');
     Route::post('/student/password/forgot', [StudentPasswordResetController::class, 'sendCode'])->name('student.password.request.send');
     Route::get('/student/password/verify', [StudentPasswordResetController::class, 'verifyForm'])->name('student.password.verify.form');

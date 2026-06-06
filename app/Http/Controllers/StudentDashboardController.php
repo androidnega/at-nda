@@ -246,14 +246,18 @@ class StudentDashboardController extends Controller
             ->distinct()
             ->count('course_id');
 
-        // Marks this ISO-week, also deduped per course so multiple session
-        // openings of the same class don't inflate the tile.
+        // Marks this ISO-week, counted as *distinct courses attended*
+        // rather than raw rows or (course,day) pairs. So if the student
+        // sits Course A on Mon, Tue, and Wed, the tile reads "1", not
+        // "3". This matches how students intuitively read "THIS WEEK"
+        // — "how many of my classes have I shown up for?" — and lines
+        // up with the canonical academic week count.
         $weekStart = now()->startOfWeek();
         $weekCount = $baseAttendance()
             ->countedAsPresent()
             ->where('attendance_time', '>=', $weekStart)
             ->distinct()
-            ->count(\Illuminate\Support\Facades\DB::raw('CONCAT(course_id, "|", DATE(attendance_time))'));
+            ->count('course_id');
 
         // How many courses the student is enrolled in via their class —
         // gives them a denominator so "X / Y courses" makes sense.
@@ -721,6 +725,15 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.profile');
         }
 
+        // First login since we added the password-reset-via-email flow:
+        // if mail delivery is configured and this student never set an
+        // email, gently prompt them once per login so future forgotten
+        // passwords can be recovered. They can skip and continue —
+        // we only ask once per session.
+        if ($this->shouldPromptForRecoveryEmail($student)) {
+            return redirect()->route('student.email-prompt');
+        }
+
         if ($student->isRep()) {
             return redirect()->route('dashboard.dashboard');
         }
@@ -732,6 +745,90 @@ class StudentDashboardController extends Controller
         }
 
         return redirect()->route('dashboard.dashboard');
+    }
+
+    /**
+     * Decide whether the post-login funnel should pause on the email
+     * prompt. We only ask if the student really has no email saved AND
+     * they haven't already dismissed the prompt in this browser session.
+     */
+    private function shouldPromptForRecoveryEmail(Student $student): bool
+    {
+        if (! \App\Support\SchemaFeatures::hasStudentsEmail()) {
+            return false;
+        }
+
+        if (trim((string) ($student->email ?? '')) !== '') {
+            return false;
+        }
+
+        if (session()->get('recovery_email_prompt_dismissed') === true) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Show a one-question form asking the student for a recovery email.
+     * Optional — the "Skip for now" button just marks the prompt as
+     * dismissed for this session and continues to the dashboard.
+     */
+    public function emailPromptForm(Request $request)
+    {
+        $studentId = $request->session()->get('student_id');
+        if (! $studentId) {
+            return redirect()->route('home')->with('info', 'Please sign in to continue.');
+        }
+
+        $student = Student::find($studentId);
+        if (! $student) {
+            return redirect()->route('home');
+        }
+
+        // If the student already has an email, or the column hasn't
+        // been migrated on this deploy, skip the prompt entirely.
+        if (! \App\Support\SchemaFeatures::hasStudentsEmail()
+            || trim((string) ($student->email ?? '')) !== '') {
+            return redirect()->route('dashboard.dashboard');
+        }
+
+        return view('student.email-prompt', ['student' => $student]);
+    }
+
+    /**
+     * Save the recovery email (or dismiss the prompt) and continue.
+     */
+    public function emailPromptSubmit(Request $request): RedirectResponse
+    {
+        $studentId = $request->session()->get('student_id');
+        if (! $studentId) {
+            return redirect()->route('home')->with('info', 'Please sign in to continue.');
+        }
+
+        $student = Student::find($studentId);
+        if (! $student) {
+            return redirect()->route('home');
+        }
+
+        if ($request->boolean('skip')) {
+            $request->session()->put('recovery_email_prompt_dismissed', true);
+
+            return redirect()->route('dashboard.dashboard')
+                ->with('info', "Got it. You can add an email any time from your profile.");
+        }
+
+        $validated = $request->validate([
+            'email' => 'required|email|max:255',
+        ]);
+
+        if (\App\Support\SchemaFeatures::hasStudentsEmail()) {
+            $student->forceFill(['email' => mb_strtolower(trim($validated['email']))])->save();
+        }
+        $request->session()->put('recovery_email_prompt_dismissed', true);
+
+        return redirect()->route('dashboard.dashboard')
+            ->with('success', 'Email saved. If you forget your password we can email you a reset code.');
     }
 
     public function profileUpdate(Request $request)
