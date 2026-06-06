@@ -323,9 +323,59 @@
     var lngHidden = document.getElementById('location_lng');
     var btnDefaultHtml = btn ? btn.innerHTML : '';
 
-    /** High accuracy first; on POSITION_UNAVAILABLE or TIMEOUT, retry with network/Wi‑Fi (helps macOS Safari / CoreLocation kCLErrorLocationUnknown). */
-    var geoOptionsHigh = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
-    var geoOptionsLow = { enableHighAccuracy: false, timeout: 30000, maximumAge: 120000 };
+    // ---- Robust GPS strategy --------------------------------------
+    // The bare browser geolocation API is brittle (macOS Safari often
+    // takes the full 15s timeout before returning kCLErrorLocationUnknown
+    // even outdoors), so we wrap it in a cascade:
+    //   1. localStorage cache from a recent rep session (instant)
+    //   2. High-accuracy GPS, short 7s timeout
+    //   3. Low-accuracy network/Wi-Fi, 12s timeout
+    //   4. Course's saved coordinates (silent)
+    //   5. Stale cache (better than nothing, marked as such)
+    //   6. Calm manual-entry prompt (no scary CoreLocation jargon)
+    // Cache key is per-origin; we never round/share across reps.
+    var GEO_CACHE_KEY = 'atnda_rep_gps_v1';
+    var GEO_CACHE_FRESH_MS = 30 * 60 * 1000; // 30 min ok without re-fix
+    var GEO_CACHE_STALE_MS = 4 * 60 * 60 * 1000; // 4h still usable as last resort
+
+    var geoOptionsHigh = { enableHighAccuracy: true, timeout: 7000, maximumAge: 30000 };
+    var geoOptionsLow = { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 };
+
+    function readCachedFix(allowStale) {
+        try {
+            var raw = localStorage.getItem(GEO_CACHE_KEY);
+            if (!raw) return null;
+            var d = JSON.parse(raw);
+            if (!d || typeof d.lat !== 'number' || typeof d.lng !== 'number' || !d.ts) return null;
+            var age = Date.now() - d.ts;
+            if (age <= GEO_CACHE_FRESH_MS) return d;
+            if (allowStale && age <= GEO_CACHE_STALE_MS) { d.stale = true; return d; }
+            return null;
+        } catch (e) { return null; }
+    }
+    function writeCachedFix(lat, lng, accuracy) {
+        try {
+            localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({
+                lat: lat, lng: lng, accuracy: accuracy || 0, ts: Date.now()
+            }));
+        } catch (e) { /* private mode / quota — fine, just no caching */ }
+    }
+    function minutesAgo(ts) {
+        return Math.max(1, Math.round((Date.now() - ts) / 60000));
+    }
+    function getPositionPromise(opts) {
+        return new Promise(function(resolve, reject) {
+            navigator.geolocation.getCurrentPosition(resolve, reject, opts);
+        });
+    }
+    function safePermissionState() {
+        if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve(null);
+        try {
+            return navigator.permissions.query({ name: 'geolocation' })
+                .then(function(s) { return s.state; })
+                .catch(function() { return null; });
+        } catch (e) { return Promise.resolve(null); }
+    }
 
     function clearLocationError() {
         if (locationError) {
@@ -388,28 +438,30 @@
     }
 
     function geoErrorMessage(err) {
-        if (!err || err.code === undefined) return 'Could not read your location.';
-        switch (err.code) {
-            case 1:
-                return 'Location permission is blocked. Click the lock or site icon in the address bar, allow location for this site, then try again — or use course location / manual coordinates.';
-            case 2:
-                return 'Your device could not determine a position (common indoors, on some Macs, or when Wi‑Fi location is unavailable — Safari may report CoreLocation “location unknown”). Use “Use course location” or paste coordinates from Google Maps.';
-            case 3:
-                return 'Location request timed out. Try again, or use course location / manual coordinates.';
-            default:
-                return 'Could not read your location. Use course location or manual coordinates below.';
+        // Only the permission-denied case actually needs the user to do
+        // something. Every other code is just "we couldn't get a fix" —
+        // for those we silently fall back, no error needed.
+        if (err && err.code === 1) {
+            return 'Location is blocked for this site. Click the lock icon in the address bar, allow location, then try again. Or pick a course with saved coordinates / paste coordinates below.';
+        }
+        return null; // signal: nothing to surface, the cascade handled it
+    }
+
+    /** Soft hint shown when every auto-fallback (GPS, network, course
+     *  coords, stale cache) has been exhausted. No jargon. */
+    function showManualEntryHint() {
+        if (locationStatus) {
+            locationStatus.textContent = 'Pick a course with saved coordinates, or paste lat/long from Google Maps below.';
         }
     }
 
-    /** One detailed message in the red box; status line stays a short hint (no duplicate paragraphs). */
-    function reportGeoFailure(err) {
-        if (locationStatus) {
-            locationStatus.textContent = 'GPS did not return a fix. Use course location or manual coordinates below.';
-        }
-        if (tryFallbackToCourseLocation()) {
-            return;
-        }
-        showLocationError(geoErrorMessage(err));
+    /** Try the last-known GPS fix from this browser even if it's old. */
+    function tryStaleCache() {
+        var d = readCachedFix(true);
+        if (!d) return false;
+        setLocation(d.lat, d.lng,
+            'Using your last GPS fix from ' + minutesAgo(d.ts) + ' min ago — confirm before opening the session.');
+        return true;
     }
 
     courseSelect?.addEventListener('change', function() {
@@ -441,50 +493,113 @@
         setLocation(lat, lng, 'Using course location from the system.');
     });
 
-    getLocationBtn?.addEventListener('click', function() {
-        clearLocationError();
+    /**
+     * Full cascade. Always resolves — never leaves the rep stuck.
+     * On the unlikely path where *everything* fails, surfaces a calm
+     * manual-entry hint instead of the old CoreLocation jargon.
+     *
+     *  opts.silent = true → no UI status updates while running (used
+     *                       by the page-load pre-warm so we don't
+     *                       hijack the status row before the rep
+     *                       even clicks anything).
+     */
+    async function acquireLocationCascade(opts) {
+        opts = opts || {};
         if (!navigator.geolocation) {
-            if (locationStatus) locationStatus.textContent = 'Geolocation is not available in this browser.';
-            showLocationError('This browser does not support geolocation. Use course location or manual coordinates.');
-            return;
+            if (!opts.silent) showLocationError('This browser does not support geolocation. Pick a course with saved coordinates or paste lat/long below.');
+            return false;
         }
-        if (locationStatus) locationStatus.textContent = 'Requesting precise location…';
+        clearLocationError();
+
+        // 1. Fresh cache
+        var cached = readCachedFix(false);
+        if (cached) {
+            setLocation(cached.lat, cached.lng,
+                'Used cached GPS fix from ' + minutesAgo(cached.ts) + ' min ago (~' + Math.round(cached.accuracy || 0) + 'm).');
+            // Refresh in the background so the next click is fresher
+            (async function() {
+                try {
+                    var p = await getPositionPromise(geoOptionsLow);
+                    writeCachedFix(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+                } catch (e) { /* ignore — cache stays */ }
+            })();
+            return true;
+        }
+
+        // 2. Skip GPS entirely if user previously denied permission
+        var perm = await safePermissionState();
+        if (perm === 'denied') {
+            if (tryFallbackToCourseLocation()) return true;
+            if (tryStaleCache()) return true;
+            if (!opts.silent) {
+                showLocationError(geoErrorMessage({ code: 1 }));
+                showManualEntryHint();
+            }
+            return false;
+        }
+
+        // 3. High-accuracy GPS
+        if (!opts.silent && locationStatus) locationStatus.textContent = 'Getting your location…';
+        try {
+            var p1 = await getPositionPromise(geoOptionsHigh);
+            writeCachedFix(p1.coords.latitude, p1.coords.longitude, p1.coords.accuracy);
+            setLocation(p1.coords.latitude, p1.coords.longitude,
+                'GPS fix (~' + Math.round(p1.coords.accuracy || 0) + 'm accuracy).');
+            return true;
+        } catch (e1) {
+            if (e1 && e1.code === 1) {
+                // Hard deny — same path as step 2.
+                if (tryFallbackToCourseLocation()) return true;
+                if (tryStaleCache()) return true;
+                if (!opts.silent) showLocationError(geoErrorMessage(e1));
+                return false;
+            }
+            // Otherwise (POSITION_UNAVAILABLE / TIMEOUT) — quietly try lower accuracy
+        }
+
+        if (!opts.silent && locationStatus) locationStatus.textContent = 'Trying Wi-Fi / network location…';
+        try {
+            var p2 = await getPositionPromise(geoOptionsLow);
+            writeCachedFix(p2.coords.latitude, p2.coords.longitude, p2.coords.accuracy);
+            setLocation(p2.coords.latitude, p2.coords.longitude,
+                'Network location (~' + Math.round(p2.coords.accuracy || 0) + 'm). Tap GPS again outdoors for a tighter fix.');
+            return true;
+        } catch (e2) { /* fall through silently */ }
+
+        // 4. Course saved coords (silent)
+        if (tryFallbackToCourseLocation()) return true;
+
+        // 5. Stale cache as a last resort (clearly labelled)
+        if (tryStaleCache()) return true;
+
+        // 6. Manual entry hint — no jargon, no red error
+        if (!opts.silent) showManualEntryHint();
+        return false;
+    }
+
+    getLocationBtn?.addEventListener('click', async function() {
         getLocationBtn.disabled = true;
-
-        function finishSuccess(pos) {
-            setLocation(pos.coords.latitude, pos.coords.longitude, 'Location captured (accuracy ~' + Math.round(pos.coords.accuracy || 0) + ' m).');
+        var prevHtml = getLocationBtn.innerHTML;
+        getLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Locating…';
+        try {
+            await acquireLocationCascade({});
+        } finally {
             getLocationBtn.disabled = false;
+            getLocationBtn.innerHTML = prevHtml;
         }
-
-        navigator.geolocation.getCurrentPosition(
-            finishSuccess,
-            function(errFirst) {
-                var retry = (errFirst.code === 2 || errFirst.code === 3);
-                if (retry) {
-                    if (locationStatus) {
-                        locationStatus.textContent = 'Trying approximate location (works better on some Macs / indoors)…';
-                    }
-                    navigator.geolocation.getCurrentPosition(
-                        finishSuccess,
-                        function(errSecond) {
-                            reportGeoFailure(errSecond);
-                            getLocationBtn.disabled = false;
-                        },
-                        geoOptionsLow
-                    );
-                    return;
-                }
-                if (errFirst.code === 1) {
-                    if (locationStatus) locationStatus.textContent = 'Location permission needed, or use the options below.';
-                    showLocationError(geoErrorMessage(errFirst));
-                } else {
-                    reportGeoFailure(errFirst);
-                }
-                getLocationBtn.disabled = false;
-            },
-            geoOptionsHigh
-        );
     });
+
+    // Pre-warm GPS on page load when the user already granted location
+    // for this site. The cascade runs silently; if it succeeds, the
+    // rep clicks "Use device GPS" and gets an instant cached fix
+    // instead of a fresh 7-second wait.
+    (async function preWarm() {
+        if (!navigator.geolocation) return;
+        var perm = await safePermissionState();
+        if (perm !== 'granted') return;
+        // Wait a beat so the UI mounts first.
+        setTimeout(function() { acquireLocationCascade({ silent: true }); }, 400);
+    })();
 
     useManualBtn?.addEventListener('click', function() {
         clearLocationError();
