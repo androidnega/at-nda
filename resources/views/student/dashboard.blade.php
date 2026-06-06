@@ -220,77 +220,284 @@
 
 @else
 
-<div class="space-y-5 sm:space-y-6">
-    @php
-        $lastName = trim((string) $student->last_name);
-        $displayName = $lastName !== ''
-            ? \Illuminate\Support\Str::title($lastName)
-            : $student->index_number;
-        $greeting = collect(['Hello', 'Yo'])->random();
-        $greetingPunct = $greeting === 'Yo' ? '!' : '';
-    @endphp
-    <div class="rounded-2xl {{ $isVioletTheme ? 'bg-gradient-to-br from-indigo-700 to-indigo-900 border-indigo-800' : ($isMidnightTheme ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200') }} border p-5 sm:p-6">
-        <p class="{{ $isVioletTheme ? 'text-indigo-100' : ($isMidnightTheme ? 'text-cyan-300' : 'text-amber-700') }} text-xs font-semibold uppercase tracking-wider">Student</p>
-        <h1 class="text-xl sm:text-2xl font-bold mt-1 {{ ($isVioletTheme || $isMidnightTheme) ? 'text-white' : 'text-slate-900' }} truncate">{{ $greeting }} {{ $displayName }}{{ $greetingPunct }}</h1>
-        <p class="{{ $isVioletTheme ? 'text-indigo-100/90' : ($isMidnightTheme ? 'text-slate-300' : 'text-slate-600') }} text-sm mt-1 font-mono">{{ $student->index_number }}</p>
+@php
+    // Display-name preference: surname (title-cased) if we have one,
+    // otherwise the index number so the header is never blank.
+    $lastName = trim((string) $student->last_name);
+    $displayName = $lastName !== ''
+        ? \Illuminate\Support\Str::title($lastName)
+        : $student->index_number;
+    $initials = strtoupper(substr(trim($student->first_name ?? $displayName), 0, 1) . substr($lastName, 0, 1));
+    if ($initials === '' || strlen($initials) < 2) {
+        $initials = strtoupper(substr($student->index_number, 0, 2));
+    }
+    // Card accent colours rotate per course so the carousel doesn't
+    // turn into a wall of identical white cards. Borrowed from
+    // Tailwind palettes that we already use elsewhere.
+    $cardPalette = [
+        ['from' => 'from-sky-50',     'ring' => 'ring-sky-200',     'accent' => 'text-sky-700',     'bar' => 'bg-sky-500'],
+        ['from' => 'from-emerald-50', 'ring' => 'ring-emerald-200', 'accent' => 'text-emerald-700', 'bar' => 'bg-emerald-500'],
+        ['from' => 'from-amber-50',   'ring' => 'ring-amber-200',   'accent' => 'text-amber-700',   'bar' => 'bg-amber-500'],
+        ['from' => 'from-rose-50',    'ring' => 'ring-rose-200',    'accent' => 'text-rose-700',    'bar' => 'bg-rose-500'],
+        ['from' => 'from-indigo-50',  'ring' => 'ring-indigo-200',  'accent' => 'text-indigo-700',  'bar' => 'bg-indigo-500'],
+    ];
+@endphp
+
+<div class="max-w-md mx-auto w-full lg:max-w-3xl space-y-5 sm:space-y-6 pb-24 lg:pb-6">
+
+    {{-- ─── HEADER · avatar + greeting + bell ───────────────────────── --}}
+    <div class="flex items-center justify-between gap-3 pt-1">
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center text-sm font-bold ring-2 ring-white shadow-sm select-none">
+                {{ $initials }}
+            </div>
+            <div class="min-w-0">
+                <p class="text-[11px] text-slate-500 leading-tight">Welcome back,</p>
+                <p class="text-base font-bold text-slate-900 leading-tight truncate">{{ $displayName }}</p>
+            </div>
+        </div>
+        <a href="{{ route('student.attendance.history') }}" aria-label="View attendance history"
+           class="relative shrink-0 w-11 h-11 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:border-slate-300 transition-colors">
+            <i class="fas fa-bell text-base"></i>
+            @if(($todayCount ?? 0) > 0)
+                <span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+            @endif
+        </a>
+    </div>
+
+    {{-- ─── SECTION TITLE · "Courses" ────────────────────────────────── --}}
+    <div class="flex items-end justify-between gap-3 px-1">
+        <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Courses</h1>
         @if($student->department?->name)
-            <p class="{{ $isVioletTheme ? 'text-indigo-100' : ($isMidnightTheme ? 'text-slate-300' : 'text-slate-600') }} text-sm mt-2 flex items-center gap-2">
-                <i class="fas fa-building-columns {{ $isVioletTheme ? 'text-indigo-200' : ($isMidnightTheme ? 'text-cyan-300' : 'text-amber-600') }}"></i>
-                {{ $student->department->name }}
-            </p>
+            <p class="text-[11px] text-slate-500 truncate max-w-[55%] text-right">{{ $student->department->name }}</p>
         @endif
     </div>
 
-    @if($isVioletTheme)
-    <div class="rounded-2xl bg-white border border-indigo-100 p-4 sm:p-5">
-        <div class="flex items-center justify-between mb-3">
-            <h2 class="text-lg font-bold text-slate-900">Calendar view</h2>
-            <a href="{{ route('student.attendance.history') }}" class="text-sm text-indigo-700 font-semibold hover:underline">Open history</a>
+    {{-- ─── COURSE CARDS · horizontal swipe (mobile) / grid (desktop) ──
+         Snap-scroll on touch devices, grid on desktops. Each card
+         shows attendance % (the "balance"), the course code (the
+         "account number"), and lecturer / venue (the "valid thru"). --}}
+    @if(($courseSummaries ?? collect())->isNotEmpty())
+        <div class="-mx-1">
+            <div class="flex lg:grid lg:grid-cols-2 gap-3 overflow-x-auto lg:overflow-visible snap-x snap-mandatory no-scrollbar px-1 pb-2">
+                @foreach($courseSummaries as $i => $cs)
+                    @php $p = $cardPalette[$i % count($cardPalette)]; @endphp
+                    <div class="snap-start shrink-0 w-[85%] sm:w-[60%] lg:w-auto rounded-2xl bg-gradient-to-br {{ $p['from'] }} to-white border border-slate-200 ring-1 {{ $p['ring'] }} p-4 sm:p-5 shadow-sm">
+                        <div class="flex items-start justify-between gap-3 mb-3">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="shrink-0 w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center {{ $p['accent'] }}">
+                                    <i class="fas fa-book-open text-sm"></i>
+                                </span>
+                                <p class="font-semibold text-slate-900 text-sm leading-tight line-clamp-2 break-words">{{ $cs['name'] }}</p>
+                            </div>
+                            @if($cs['code'])
+                                <span class="shrink-0 text-[10px] font-mono font-semibold text-slate-500 uppercase whitespace-nowrap">{{ $cs['code'] }}</span>
+                            @endif
+                        </div>
+                        <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Your attendance</p>
+                        <div class="flex items-baseline gap-2 mt-1">
+                            <p class="text-3xl sm:text-4xl font-bold text-slate-900 tabular-nums leading-none">{{ $cs['pct'] }}<span class="text-xl text-slate-400">%</span></p>
+                            <p class="text-xs text-slate-500 tabular-nums">{{ $cs['present'] }} / {{ $cs['weeks'] }} wks</p>
+                        </div>
+                        <div class="mt-2 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                            <div class="h-full {{ $p['bar'] }} rounded-full transition-all" style="width: {{ max(2, $cs['pct']) }}%"></div>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-slate-200/70 grid grid-cols-2 gap-2 text-[11px]">
+                            <div>
+                                <p class="text-slate-400 uppercase tracking-wide text-[9px] font-semibold">Lecturer</p>
+                                <p class="text-slate-700 font-medium truncate">{{ $cs['lecturer'] ?? '—' }}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-400 uppercase tracking-wide text-[9px] font-semibold">Venue</p>
+                                <p class="text-slate-700 font-medium truncate">{{ $cs['venue'] ?? '—' }}</p>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
         </div>
-        <p class="text-sm text-slate-600">This theme mirrors the mobile violet calendar layout for timetable-focused usage.</p>
+    @else
+        <div class="rounded-2xl bg-white border border-slate-200 p-5 text-center text-sm text-slate-500">
+            No courses linked to your class yet. Ask your rep to enrol you.
+        </div>
+    @endif
+
+    {{-- ─── ACTION PILLS · Mark / Timetable / + ──────────────────────── --}}
+    <div class="flex items-center gap-3 px-1">
+        <a href="{{ route('student.attendance.web') }}"
+           class="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-white border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 hover:border-slate-300 shadow-sm">
+            <i class="fas fa-arrow-down-to-bracket text-slate-500"></i> Mark
+        </a>
+        <a href="{{ route('dashboard.timetable') }}"
+           class="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-white border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 hover:border-slate-300 shadow-sm">
+            <i class="fas fa-calendar-alt text-slate-500"></i> Timetable
+        </a>
+        <a href="{{ route('dashboard.materials.index') }}" aria-label="Course materials"
+           class="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 shadow-sm">
+            <i class="fas fa-plus text-base"></i>
+        </a>
+    </div>
+
+    {{-- ─── QUICK STATS · denser strip ──────────────────────────────── --}}
+    <div class="grid grid-cols-4 gap-2 sm:gap-3 px-1">
+        <div class="rounded-2xl bg-white border border-slate-200 p-3 text-center">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Today</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5">{{ $todayCount }}</p>
+        </div>
+        <div class="rounded-2xl bg-white border border-slate-200 p-3 text-center">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Week</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5">{{ $weekCount }}</p>
+        </div>
+        <div class="rounded-2xl bg-white border border-slate-200 p-3 text-center">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Present</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5">{{ $totalPresent }}</p>
+        </div>
+        <div class="rounded-2xl bg-white border border-slate-200 p-3 text-center">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Courses</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5">
+                {{ $coursesAttended }}@if(($totalCoursesEnrolled ?? 0) > 0)<span class="text-xs text-slate-400 font-medium">/{{ $totalCoursesEnrolled }}</span>@endif
+            </p>
+        </div>
+    </div>
+
+    {{-- ─── ACTIVITY · recent attendance marks (like "Transaction") ──── --}}
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 flex items-center justify-between">
+            <h2 class="text-lg font-bold text-slate-900 tracking-tight">Activity</h2>
+            <a href="{{ route('student.attendance.history') }}" class="text-xs font-semibold text-sky-700 hover:underline">View all</a>
+        </div>
+        @if(($recentActivity ?? collect())->isNotEmpty())
+            @php
+                $tz = config('app.timezone');
+                $grouped = $recentActivity->groupBy(function ($r) use ($tz) {
+                    $t = $r['time']?->timezone($tz);
+                    if (!$t) return 'EARLIER';
+                    if ($t->isToday()) return 'TODAY';
+                    if ($t->isYesterday()) return 'YESTERDAY';
+                    return strtoupper($t->format('D, M j'));
+                });
+            @endphp
+            @foreach($grouped as $label => $rows)
+                <p class="px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold text-slate-400 bg-slate-50/60">{{ $label }}</p>
+                <ul class="divide-y divide-slate-100">
+                    @foreach($rows as $r)
+                        @php
+                            $st = $r['status'];
+                            [$icnBg, $icnFg, $icn, $amount, $amountClass] = match ($st) {
+                                'present'    => ['bg-emerald-100', 'text-emerald-700', 'fa-arrow-down-left',  'Present',  'text-emerald-600'],
+                                'late'       => ['bg-amber-100',   'text-amber-700',   'fa-clock',            'Late',     'text-amber-600'],
+                                'absent'     => ['bg-rose-100',    'text-rose-700',    'fa-xmark',            'Absent',   'text-rose-600'],
+                                'pending'    => ['bg-slate-100',   'text-slate-600',   'fa-hourglass-half',   'Pending',  'text-slate-500'],
+                                default      => ['bg-slate-100',   'text-slate-600',   'fa-circle',           ucfirst($st), 'text-slate-500'],
+                            };
+                        @endphp
+                        <li class="px-4 py-3 flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <span class="shrink-0 w-10 h-10 rounded-full {{ $icnBg }} {{ $icnFg }} flex items-center justify-center">
+                                    <i class="fas {{ $icn }} text-sm"></i>
+                                </span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-900 truncate">{{ $r['course_name'] }}</p>
+                                    <p class="text-[11px] text-slate-500 truncate">
+                                        @if($r['course_code'])<span class="font-mono">{{ $r['course_code'] }}</span> · @endif
+                                        {{ $r['time']?->timezone($tz)?->format('g:i A') }}
+                                    </p>
+                                </div>
+                            </div>
+                            <span class="shrink-0 text-sm font-bold tabular-nums {{ $amountClass }}">{{ $amount }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endforeach
+        @else
+            <p class="px-4 py-8 text-center text-sm text-slate-500">No attendance marks yet.</p>
+        @endif
+    </div>
+
+    {{-- ─── TODAY'S SCHEDULE (only when there are slots) ───────────── --}}
+    @if(($todaysClasses ?? collect())->isNotEmpty())
+    <div class="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-slate-900 tracking-tight">Today’s classes</h2>
+                <p class="text-[11px] text-slate-500">{{ now()->format('l, F j') }} · {{ $todaysClasses->count() }} {{ $todaysClasses->count() === 1 ? 'slot' : 'slots' }}</p>
+            </div>
+        </div>
+        <ul class="divide-y divide-slate-100">
+            @foreach($todaysClasses as $slot)
+                @php $course = $slot['course']; @endphp
+                <li class="px-4 py-3 flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <p class="font-semibold text-slate-900 text-sm">
+                            {{ $course->course_name }}
+                            @if($course->course_code)
+                                <span class="text-slate-400 font-normal">· {{ $course->course_code }}</span>
+                            @endif
+                        </p>
+                        <p class="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            @if($slot['start'])
+                                <span class="inline-flex items-center gap-1"><i class="far fa-clock text-slate-400 text-[10px]"></i>{{ $slot['start'] }}@if($slot['end']) – {{ $slot['end'] }}@endif</span>
+                            @endif
+                            @if(!empty($slot['lecturer']))
+                                <span class="inline-flex items-center gap-1"><i class="fas fa-chalkboard-teacher text-slate-400 text-[10px]"></i>{{ $slot['lecturer'] }}</span>
+                            @endif
+                            @if(!empty($slot['venue']))
+                                <span class="inline-flex items-center gap-1"><i class="fas fa-map-marker-alt text-slate-400 text-[10px]"></i>{{ $slot['venue'] }}</span>
+                            @endif
+                        </p>
+                    </div>
+                    @php
+                        $slotStatus = $slot['status'] ?? ($slot['marked'] ? 'marked' : 'pending');
+                        $slotLabel  = $slot['status_label'] ?? ($slot['marked'] ? 'Marked' : 'Pending');
+                        $slotClass  = match ($slotStatus) {
+                            'marked'   => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+                            'live'     => 'bg-amber-50 text-amber-800 ring-1 ring-amber-200 animate-pulse',
+                            'upcoming' => 'bg-sky-50 text-sky-700 ring-1 ring-sky-200',
+                            'missed'   => 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
+                            default    => 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+                        };
+                    @endphp
+                    <span class="shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide {{ $slotClass }}">
+                        {{ $slotLabel }}
+                    </span>
+                </li>
+            @endforeach
+        </ul>
     </div>
     @endif
 
-    {{-- Quick stats — Today / This week first, since they're the most
-         actionable for a student. "Present" is the lifetime total of
-         non-cancelled marks; "Courses" is how many distinct class
-         courses the student has been marked present in so far. --}}
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
-            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-700"><i class="fas fa-sun text-sm"></i></span>
-                Today
+</div>
+
+{{-- ─── BOTTOM-NAV (mobile only) · Home / History / SCAN / Materials / Profile ─── --}}
+<div class="fixed bottom-0 inset-x-0 z-30 lg:hidden">
+    <div class="mx-auto max-w-md px-4 pb-safe pb-3">
+        <div class="relative flex items-end justify-between rounded-2xl bg-white border border-slate-200 shadow-lg shadow-slate-900/5 px-3 pt-2 pb-2">
+            <a href="{{ route('dashboard.dashboard') }}" class="flex-1 flex flex-col items-center gap-0.5 py-1 text-sky-700">
+                <i class="fas fa-house text-base"></i>
+                <span class="text-[10px] font-bold">Home</span>
+            </a>
+            <a href="{{ route('student.attendance.history') }}" class="flex-1 flex flex-col items-center gap-0.5 py-1 text-slate-500 hover:text-slate-800">
+                <i class="fas fa-chart-line text-base"></i>
+                <span class="text-[10px] font-bold">History</span>
+            </a>
+            {{-- Center action: open scanner / mark attendance --}}
+            <div class="relative -mt-7 mx-1">
+                <a href="{{ route('student.attendance.web') }}" aria-label="Mark attendance"
+                   class="flex items-center justify-center w-14 h-14 rounded-full bg-amber-400 text-slate-900 shadow-lg shadow-amber-400/40 ring-4 ring-white hover:bg-amber-300 transition-colors">
+                    <i class="fas fa-qrcode text-xl"></i>
+                </a>
             </div>
-            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $todayCount }}</p>
-            <p class="text-[11px] text-slate-500 mt-0.5">marks · {{ now()->format('D, M j') }}</p>
-        </div>
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
-            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-700"><i class="fas fa-calendar-week text-sm"></i></span>
-                This week
-            </div>
-            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $weekCount }}</p>
-            <p class="text-[11px] text-slate-500 mt-0.5">since {{ now()->startOfWeek()->format('D, M j') }}</p>
-        </div>
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
-            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-700"><i class="fas fa-check-double text-sm"></i></span>
-                Present
-            </div>
-            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{{ $totalPresent }}</p>
-            <p class="text-[11px] text-slate-500 mt-0.5">total marks</p>
-        </div>
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
-            <div class="flex items-center gap-2 text-slate-500 text-xs font-medium uppercase tracking-wide mb-1">
-                <span class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-700"><i class="fas fa-book text-sm"></i></span>
-                Courses
-            </div>
-            <p class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">
-                {{ $coursesAttended }}@if(($totalCoursesEnrolled ?? 0) > 0)<span class="text-base text-slate-400 font-medium"> / {{ $totalCoursesEnrolled }}</span>@endif
-            </p>
-            <p class="text-[11px] text-slate-500 mt-0.5">attended at least once</p>
+            <a href="{{ route('dashboard.materials.index') }}" class="flex-1 flex flex-col items-center gap-0.5 py-1 text-slate-500 hover:text-slate-800">
+                <i class="fas fa-folder-open text-base"></i>
+                <span class="text-[10px] font-bold">Materials</span>
+            </a>
+            <a href="{{ route('student.profile') }}" class="flex-1 flex flex-col items-center gap-0.5 py-1 text-slate-500 hover:text-slate-800">
+                <i class="fas fa-circle-user text-base"></i>
+                <span class="text-[10px] font-bold">Profile</span>
+            </a>
         </div>
     </div>
+</div>
 
     {{-- Today's schedule — straight from the per-class timetable.
          Each row shows the slot's time, lecturer, venue, and whether

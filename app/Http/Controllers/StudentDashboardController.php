@@ -5,14 +5,24 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceWeek;
+use App\Models\ClassTimetable;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Services\AuditLogService;
+use App\Services\StudentAttendanceHistoryBuilder;
+use App\Services\StudentSessionGuardService;
+use App\Support\AttendanceSessionClassScope;
+use App\Support\CacheVersions;
+use App\Support\SchemaFeatures;
+use App\Support\StudentSignOutLock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\View\View;
@@ -37,7 +47,7 @@ class StudentDashboardController extends Controller
         $indexNumber = strtoupper(trim($validated['index_number']));
 
         $student = Student::findByIndex($indexNumber);
-        if (!$student) {
+        if (! $student) {
             return redirect()->route('home')->with('error', 'We couldn’t find a student account for that ID. Double-check and try again.');
         }
 
@@ -52,8 +62,8 @@ class StudentDashboardController extends Controller
             }
             $request->session()->regenerate();
             session(['student_id' => $student->id, 'student_index' => $student->index_number]);
-            app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+            app(StudentSessionGuardService::class)->startSession($student->id, $request);
+            AuditLogService::record(AuditLogService::STUDENT_LOGIN, [
                 'request' => $request,
                 'subject_type' => 'student',
                 'subject_id' => $student->id,
@@ -76,7 +86,7 @@ class StudentDashboardController extends Controller
         }
 
         $indexNumber = $request->session()->get('pending_password_login_index');
-        if (!$indexNumber || ! Student::findByIndex($indexNumber)) {
+        if (! $indexNumber || ! Student::findByIndex($indexNumber)) {
             $request->session()->forget('pending_password_login_index');
 
             return redirect()->route('home')->with('info', 'Please start from the sign-in page.');
@@ -98,7 +108,7 @@ class StudentDashboardController extends Controller
         ]);
 
         $indexNumber = $request->session()->get('pending_password_login_index');
-        if (!$indexNumber) {
+        if (! $indexNumber) {
             return redirect()->route('home')->with('info', 'Please start from the sign-in page.');
         }
 
@@ -119,8 +129,8 @@ class StudentDashboardController extends Controller
         $request->session()->regenerate();
         session(['student_id' => $student->id, 'student_index' => $student->index_number]);
 
-        app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+        app(StudentSessionGuardService::class)->startSession($student->id, $request);
+        AuditLogService::record(AuditLogService::STUDENT_LOGIN, [
             'request' => $request,
             'subject_type' => 'student',
             'subject_id' => $student->id,
@@ -152,25 +162,25 @@ class StudentDashboardController extends Controller
         $studentId = $request->session()->get('student_id');
         if ($studentId) {
             $student = Student::find($studentId);
-            if ($student && \App\Support\StudentSignOutLock::isSignOutBlocked($student)) {
+            if ($student && StudentSignOutLock::isSignOutBlocked($student)) {
                 // Keep the student inside their authenticated area while a
                 // class is in session, so they cannot sign back in as a
                 // different account during the attendance window.
                 return redirect()->route('dashboard.dashboard')->with(
                     'error',
-                    \App\Support\StudentSignOutLock::blockMessage($student)
+                    StudentSignOutLock::blockMessage($student)
                         ?? 'Sign out is unavailable while a class is in session.'
                 );
             }
         }
 
         if ($studentId) {
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGOUT, [
+            AuditLogService::record(AuditLogService::STUDENT_LOGOUT, [
                 'request' => $request,
                 'subject_type' => 'student',
                 'subject_id' => (int) $studentId,
             ]);
-            app(\App\Services\StudentSessionGuardService::class)->revoke((int) $studentId, $request);
+            app(StudentSessionGuardService::class)->revoke((int) $studentId, $request);
         }
 
         $request->session()->forget([
@@ -183,16 +193,17 @@ class StudentDashboardController extends Controller
         return redirect()->route('home');
     }
 
-    public function dashboard(Request $request): View|\Illuminate\Http\RedirectResponse
+    public function dashboard(Request $request): View|RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to open your dashboard.');
         }
 
         $student = Student::with('department.faculty')->find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
+
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
@@ -200,7 +211,7 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.onboarding');
         }
 
-        if (!$student->hasCompletedProfile()) {
+        if (! $student->hasCompletedProfile()) {
             return redirect()->route('student.profile');
         }
 
@@ -215,11 +226,12 @@ class StudentDashboardController extends Controller
                 ->where('student_id', $student->id)
                 ->activeWeeksOnly();
             if ($student->class_id) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
                     $q,
                     [(int) $student->class_id]
                 );
             }
+
             return $q;
         };
 
@@ -227,14 +239,14 @@ class StudentDashboardController extends Controller
         // entry keyed by student. Marks made by this student bump the
         // 'attendance:student:{id}' namespace, so the next read fetches
         // fresh numbers without hammering the DB on every refresh.
-        $countsCacheKey = \App\Support\CacheVersions::key(
+        $countsCacheKey = CacheVersions::key(
             'student_tiles:'.(int) $student->id.':'.now()->toDateString(),
             ['attendance:student:'.(int) $student->id]
         );
         $weekStart = now()->startOfWeek();
         $todayDate = now()->toDateString();
         try {
-            $tiles = \Illuminate\Support\Facades\Cache::remember(
+            $tiles = Cache::remember(
                 $countsCacheKey,
                 30,
                 function () use ($baseAttendance, $weekStart, $todayDate): array {
@@ -302,6 +314,87 @@ class StudentDashboardController extends Controller
                 ->get();
         }
 
+        // ---- Per-course attendance summary cards ------------------------
+        // Used by the new mobile-first "Account-style" carousel on the
+        // student dashboard. Each entry contains the course, the
+        // student's lifetime attendance count for it, and a percentage
+        // versus the number of distinct weeks that have already happened
+        // (capped so brand-new courses don't all show 0%).
+        $courseSummaries = collect();
+        if ($student->class_id) {
+            try {
+                $enrolledCourses = Course::query()
+                    ->forManagedClasses([(int) $student->class_id])
+                    ->with(['lecturer:id,name', 'venueRelation:id,name'])
+                    ->orderBy('course_name')
+                    ->limit(8)
+                    ->get();
+
+                if ($enrolledCourses->isNotEmpty()) {
+                    $courseIds = $enrolledCourses->pluck('id')->all();
+                    $presentByCourse = Attendance::query()
+                        ->where('student_id', $student->id)
+                        ->whereIn('course_id', $courseIds)
+                        ->countedAsPresent()
+                        ->select('course_id', DB::raw('COUNT(*) as n'))
+                        ->groupBy('course_id')
+                        ->pluck('n', 'course_id');
+
+                    $weeksByCourse = AttendanceWeek::query()
+                        ->whereIn('course_id', $courseIds)
+                        ->whereNull('cancelled_at')
+                        ->where('week_date', '<=', now()->endOfDay())
+                        ->select('course_id', DB::raw('COUNT(*) as n'))
+                        ->groupBy('course_id')
+                        ->pluck('n', 'course_id');
+
+                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $weeksByCourse) {
+                        $present = (int) ($presentByCourse[$c->id] ?? 0);
+                        $weeks = max(1, (int) ($weeksByCourse[$c->id] ?? 0));
+                        $pct = min(100, (int) round(($present / $weeks) * 100));
+
+                        return [
+                            'id' => $c->id,
+                            'name' => $c->course_name,
+                            'code' => $c->course_code,
+                            'lecturer' => $c->lecturer?->name ?: null,
+                            'venue' => $c->venueRelation?->name,
+                            'present' => $present,
+                            'weeks' => $weeks,
+                            'pct' => $pct,
+                        ];
+                    })->values();
+                }
+            } catch (\Throwable $e) {
+                report($e);
+                $courseSummaries = collect();
+            }
+        }
+
+        // ---- Recent activity feed (last 8 attendance marks) -------------
+        $recentActivity = collect();
+        try {
+            $recentActivity = Attendance::query()
+                ->where('student_id', $student->id)
+                ->with(['course:id,course_name,course_code'])
+                ->latest('attendance_time')
+                ->limit(8)
+                ->get()
+                ->map(function (Attendance $a) {
+                    $status = (string) ($a->status ?? 'present');
+
+                    return [
+                        'id' => $a->id,
+                        'course_name' => $a->course?->course_name ?? 'Course',
+                        'course_code' => $a->course?->course_code,
+                        'status' => $status,
+                        'time' => $a->attendance_time,
+                    ];
+                });
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         return view('student.dashboard', compact(
             'student',
             'totalPresent',
@@ -312,7 +405,9 @@ class StudentDashboardController extends Controller
             'todaysClasses',
             'liveAttendanceSessions',
             'cancelledWeeks',
-            'studentDashboardTheme'
+            'studentDashboardTheme',
+            'courseSummaries',
+            'recentActivity'
         ));
     }
 
@@ -345,8 +440,8 @@ class StudentDashboardController extends Controller
         $classId = (int) $student->class_id;
         $rows = collect();
 
-        if (\App\Support\SchemaFeatures::hasClassTimetables()) {
-            $timetableRows = \App\Models\ClassTimetable::query()
+        if (SchemaFeatures::hasClassTimetables()) {
+            $timetableRows = ClassTimetable::query()
                 ->where('class_id', $classId)
                 ->whereRaw('LOWER(day_of_week) = ?', [$today])
                 ->with(['course', 'lecturer', 'venueRelation'])
@@ -412,7 +507,7 @@ class StudentDashboardController extends Controller
             ->whereDate('attendance_time', now()->toDateString())
             ->whereIn('course_id', $courseIds);
         if ($student->class_id) {
-            \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+            AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
                 $presentTodayQuery,
                 [(int) $student->class_id]
             );
@@ -437,6 +532,7 @@ class StudentDashboardController extends Controller
             if ($marked) {
                 $r['status'] = 'marked';
                 $r['status_label'] = 'Marked';
+
                 return $r;
             }
 
@@ -453,18 +549,21 @@ class StudentDashboardController extends Controller
             if ($hasLiveSession) {
                 $r['status'] = 'live';
                 $r['status_label'] = 'Open now';
+
                 return $r;
             }
 
             if ($start !== null && $now->lt($start)) {
                 $r['status'] = 'upcoming';
                 $r['status_label'] = 'Upcoming';
+
                 return $r;
             }
 
             if ($end !== null && $now->gt($end)) {
                 $r['status'] = 'missed';
                 $r['status_label'] = 'Missed';
+
                 return $r;
             }
 
@@ -472,6 +571,7 @@ class StudentDashboardController extends Controller
             // as Pending so the student knows they still have a chance.
             $r['status'] = 'pending';
             $r['status_label'] = 'Pending';
+
             return $r;
         });
     }
@@ -481,13 +581,14 @@ class StudentDashboardController extends Controller
      * datetime anchored on TODAY. Returns null if the value can't be
      * parsed — caller treats that as "no boundary".
      */
-    private function scheduleTimeForToday(mixed $value): ?\Illuminate\Support\Carbon
+    private function scheduleTimeForToday(mixed $value): ?Carbon
     {
         if (! $value) {
             return null;
         }
         try {
-            $parsed = \Illuminate\Support\Carbon::parse((string) $value);
+            $parsed = Carbon::parse((string) $value);
+
             return now()->copy()
                 ->setTime($parsed->hour, $parsed->minute, $parsed->second);
         } catch (\Throwable $e) {
@@ -501,22 +602,23 @@ class StudentDashboardController extends Controller
             return null;
         }
         try {
-            return \Illuminate\Support\Carbon::parse((string) $value)->format('g:i A');
+            return Carbon::parse((string) $value)->format('g:i A');
         } catch (\Throwable $e) {
             return null;
         }
     }
 
-    public function attendanceHistory(Request $request): View|\Illuminate\Http\RedirectResponse
+    public function attendanceHistory(Request $request): View|RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to view attendance history.');
         }
 
         $student = Student::with('department.faculty')->find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
+
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
@@ -524,11 +626,11 @@ class StudentDashboardController extends Controller
             return redirect()->route('student.onboarding');
         }
 
-        if (!$student->hasCompletedProfile()) {
+        if (! $student->hasCompletedProfile()) {
             return redirect()->route('student.profile');
         }
 
-        $built = app(\App\Services\StudentAttendanceHistoryBuilder::class)->build($student);
+        $built = app(StudentAttendanceHistoryBuilder::class)->build($student);
         $history = $built['history'];
         $presentCount = $built['presentCount'];
         $absentCount = $built['absentCount'];
@@ -544,7 +646,7 @@ class StudentDashboardController extends Controller
         // (legacy rep auto-mark across all assigned classes).
         $applyClassScope = function ($q) use ($student) {
             if ($student->class_id) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
                     $q,
                     [(int) $student->class_id]
                 );
@@ -594,23 +696,25 @@ class StudentDashboardController extends Controller
         ));
     }
 
-    public function profileForm(Request $request): View|\Illuminate\Http\RedirectResponse
+    public function profileForm(Request $request): View|RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to manage your profile.');
         }
 
         $student = Student::with(['department.faculty', 'schoolClass.department', 'schoolClass.faculty'])->find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
+
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
-        if ($student->class_id && !$student->department_id) {
+        if ($student->class_id && ! $student->department_id) {
             $class = $student->schoolClass;
             if ($class?->department_id) {
                 $student->update(['department_id' => $class->department_id]);
+
                 return redirect()->route('dashboard.dashboard')->with('success', 'Profile updated from your class.');
             }
         }
@@ -631,15 +735,15 @@ class StudentDashboardController extends Controller
         return view('student.profile', compact('student', 'faculties', 'prefillFacultyId', 'prefillDepartmentId', 'profileLayout'));
     }
 
-    public function onboardingForm(Request $request): View|\Illuminate\Http\RedirectResponse
+    public function onboardingForm(Request $request): View|RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to continue.');
         }
 
         $student = Student::find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
 
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
@@ -648,7 +752,7 @@ class StudentDashboardController extends Controller
         $settings = SystemSetting::get();
         $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
 
-        if (!$student->needsBasicOnboarding($requirePhoto)) {
+        if (! $student->needsBasicOnboarding($requirePhoto)) {
             return redirect()->route(
                 $student->hasCompletedProfile()
                     ? 'dashboard.dashboard'
@@ -665,12 +769,12 @@ class StudentDashboardController extends Controller
     public function onboardingStore(Request $request): RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to continue.');
         }
 
         $student = Student::find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
 
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
@@ -710,13 +814,13 @@ class StudentDashboardController extends Controller
             $student->phone_number = preg_replace('/[^0-9+]/', '', $validated['phone_number']);
         }
         if (in_array('profile_image', $missing, true) && $request->hasFile('profile_photo')) {
-            if (!$student->saveProfileImageFromUpload($request->file('profile_photo'))) {
+            if (! $student->saveProfileImageFromUpload($request->file('profile_photo'))) {
                 return redirect()->back()->withInput()->with('error', 'Could not process that profile image. Use a clear JPG, PNG, or WEBP photo.');
             }
         }
         $student->save();
 
-        if (!$student->hasCompletedProfile()) {
+        if (! $student->hasCompletedProfile()) {
             return redirect()->route('student.profile')->with('success', 'Now choose your faculty and department.');
         }
 
@@ -787,7 +891,7 @@ class StudentDashboardController extends Controller
                     ->orWhereHas('attendanceWeek', fn ($w) => $w->whereNull('cancelled_at'));
             });
 
-        \App\Support\AttendanceSessionClassScope::applyForClass($query, (int) $student->class_id);
+        AttendanceSessionClassScope::applyForClass($query, (int) $student->class_id);
 
         return $query
             ->with(['course.lecturer', 'course.venueRelation', 'attendanceWeek'])
@@ -852,7 +956,7 @@ class StudentDashboardController extends Controller
      */
     private function shouldPromptForRecoveryEmail(Student $student): bool
     {
-        if (! \App\Support\SchemaFeatures::hasStudentsEmail()) {
+        if (! SchemaFeatures::hasStudentsEmail()) {
             return false;
         }
 
@@ -886,7 +990,7 @@ class StudentDashboardController extends Controller
 
         // If the student already has an email, or the column hasn't
         // been migrated on this deploy, skip the prompt entirely.
-        if (! \App\Support\SchemaFeatures::hasStudentsEmail()
+        if (! SchemaFeatures::hasStudentsEmail()
             || trim((string) ($student->email ?? '')) !== '') {
             return redirect()->route('dashboard.dashboard');
         }
@@ -913,14 +1017,14 @@ class StudentDashboardController extends Controller
             $request->session()->put('recovery_email_prompt_dismissed', true);
 
             return redirect()->route('dashboard.dashboard')
-                ->with('info', "Got it. You can add an email any time from your profile.");
+                ->with('info', 'Got it. You can add an email any time from your profile.');
         }
 
         $validated = $request->validate([
             'email' => 'required|email|max:255',
         ]);
 
-        if (\App\Support\SchemaFeatures::hasStudentsEmail()) {
+        if (SchemaFeatures::hasStudentsEmail()) {
             $student->forceFill(['email' => mb_strtolower(trim($validated['email']))])->save();
         }
         $request->session()->put('recovery_email_prompt_dismissed', true);
@@ -932,13 +1036,14 @@ class StudentDashboardController extends Controller
     public function profileUpdate(Request $request)
     {
         $studentId = $request->session()->get('student_id');
-        if (!$studentId) {
+        if (! $studentId) {
             return redirect()->route('home')->with('info', 'Please sign in to update your profile.');
         }
 
         $student = Student::find($studentId);
-        if (!$student) {
+        if (! $student) {
             $request->session()->forget('student_id');
+
             return redirect()->route('home')->with('error', 'Your session ended. Please sign in again.');
         }
 
@@ -952,22 +1057,22 @@ class StudentDashboardController extends Controller
             'faculty_id' => 'required|exists:faculties,id',
             'department_id' => 'required|exists:departments,id',
             'phone_number' => 'nullable|string|max:30',
-            'profile_photo' => ($requirePhoto && !$student->profile_image)
+            'profile_photo' => ($requirePhoto && ! $student->profile_image)
                 ? ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
                 : ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ];
-        if (\App\Support\SchemaFeatures::hasStudentsEmail()) {
+        if (SchemaFeatures::hasStudentsEmail()) {
             $rules['email'] = 'nullable|email|max:255';
         }
         $validated = $request->validate($rules);
 
-        $department = \App\Models\Department::find($validated['department_id']);
+        $department = Department::find($validated['department_id']);
         if ($department && $department->faculty_id != $validated['faculty_id']) {
             return redirect()->back()->with('error', 'That department doesn’t match the faculty you selected.');
         }
 
         if ($request->hasFile('profile_photo')) {
-            if (!$student->saveProfileImageFromUpload($request->file('profile_photo'))) {
+            if (! $student->saveProfileImageFromUpload($request->file('profile_photo'))) {
                 return redirect()->back()->withInput()->with('error', 'Could not process that profile image. Use a clear JPG, PNG, or WEBP photo.');
             }
         }
@@ -983,7 +1088,7 @@ class StudentDashboardController extends Controller
             'last_name' => $validated['last_name'],
             'department_id' => $validated['department_id'],
         ];
-        if (\App\Support\SchemaFeatures::hasStudentsEmail() && array_key_exists('email', $validated)) {
+        if (SchemaFeatures::hasStudentsEmail() && array_key_exists('email', $validated)) {
             $email = $validated['email'] !== null ? trim((string) $validated['email']) : '';
             $payload['email'] = $email !== '' ? mb_strtolower($email) : null;
         }
@@ -993,7 +1098,7 @@ class StudentDashboardController extends Controller
         return redirect()->route('dashboard.dashboard')->with('success', 'Profile updated');
     }
 
-    private function getUniqueFacultiesWithDepartments(): \Illuminate\Support\Collection
+    private function getUniqueFacultiesWithDepartments(): Collection
     {
         return Faculty::with('departments')->orderBy('name')->get()->map(function ($f) {
             return (object) [
@@ -1004,7 +1109,7 @@ class StudentDashboardController extends Controller
         });
     }
 
-    private function resolveCanonicalFacultyId(?\Illuminate\Support\Collection $faculties, ?int $facultyId): ?int
+    private function resolveCanonicalFacultyId(?Collection $faculties, ?int $facultyId): ?int
     {
         return $facultyId;
     }
@@ -1012,6 +1117,7 @@ class StudentDashboardController extends Controller
     public function departmentsByFaculty(int $facultyId)
     {
         $departments = Department::where('faculty_id', $facultyId)->orderBy('name')->get(['id', 'name']);
+
         return response()->json($departments);
     }
 
@@ -1060,8 +1166,8 @@ class StudentDashboardController extends Controller
         $request->session()->forget('pending_set_password_index');
         $request->session()->regenerate();
         session(['student_id' => $student->id, 'student_index' => $student->index_number]);
-        app(\App\Services\StudentSessionGuardService::class)->startSession($student->id, $request);
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::STUDENT_LOGIN, [
+        app(StudentSessionGuardService::class)->startSession($student->id, $request);
+        AuditLogService::record(AuditLogService::STUDENT_LOGIN, [
             'request' => $request,
             'subject_type' => 'student',
             'subject_id' => $student->id,
