@@ -972,24 +972,44 @@ class ClassRepController extends Controller
         // resources/views/classrep/attendance-course.blade.php hides
         // the whole control. Cached for 60s under the 'students'
         // namespace so admin roster changes refresh on the next read.
+        // We cache plain stdClass rows (via the query builder) instead of
+        // Eloquent models. Eloquent collections don't round-trip cleanly
+        // through every cache driver / serializer combo (especially the
+        // freshly-flipped Redis store on shared hosting), and we only
+        // need 5 scalar columns to render the dropdown anyway.
         try {
             if ($repClassIds === []) {
                 $classmates = collect();
             } else {
                 $cacheKey = \App\Support\CacheVersions::key(
-                    'rep_classmates:'.implode('-', $repClassIds),
+                    'rep_classmates_v2:'.implode('-', $repClassIds),
                     ['students']
                 );
                 $classmates = \Illuminate\Support\Facades\Cache::remember(
                     $cacheKey,
                     60,
-                    fn () => Student::query()
+                    fn () => \Illuminate\Support\Facades\DB::table('students')
                         ->whereIn('class_id', $repClassIds)
                         ->orderBy('last_name')
                         ->orderBy('first_name')
                         ->orderBy('index_number')
                         ->get(['id', 'index_number', 'first_name', 'middle_name', 'last_name'])
                 );
+
+                // Defensive: if the cache backend handed us back something
+                // unexpected (string, null, broken serialize blob), drop
+                // it and rebuild from the DB so the view never tries to
+                // dereference ->id on a string.
+                if (! $classmates instanceof \Illuminate\Support\Collection
+                    || ($classmates->isNotEmpty() && ! is_object($classmates->first()))) {
+                    \Illuminate\Support\Facades\Cache::forget($cacheKey);
+                    $classmates = \Illuminate\Support\Facades\DB::table('students')
+                        ->whereIn('class_id', $repClassIds)
+                        ->orderBy('last_name')
+                        ->orderBy('first_name')
+                        ->orderBy('index_number')
+                        ->get(['id', 'index_number', 'first_name', 'middle_name', 'last_name']);
+                }
             }
         } catch (\Throwable $e) {
             report($e);
