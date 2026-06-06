@@ -38,17 +38,26 @@
                         </div>
                         <p class="mt-3 text-center text-[10px] uppercase tracking-wider text-emerald-700/70 font-semibold">
                             <i class="fas fa-arrows-rotate text-emerald-600/70 mr-1"></i>
-                            Rotates every <span id="qr-rotate-window">{{ (int) ($qrRotateSeconds ?? 8) }}</span>s — each student sees a different code
+                            Rotates every <span id="qr-rotate-window">{{ (int) ($rotatingCodeWindow ?? 8) }}</span>s — each student sees a different code
                         </p>
-                        @if($session->session_code)
-                        <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-center">
-                            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Session code (manual entry)</span>
-                            <span class="font-mono text-lg font-bold tracking-tight text-emerald-900">{{ $session->session_code }}</span>
-                            <p class="mt-1.5 text-[10px] text-slate-500 leading-snug">
-                                This code is fixed for the whole session — read it out for any student who can&rsquo;t scan.
-                                Only the QR rotates (anti-screenshot).
+
+                        {{-- Rotating manual-entry code: same window as the QR.
+                             Reps read this out for students who can't scan.
+                             Server validates against this window + 2 previous
+                             (≈24s of validity) so the student isn't punished
+                             if it rotated while they were typing. --}}
+                        <div class="mt-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/80 px-4 py-3 text-center">
+                            <span class="block text-[10px] font-semibold uppercase tracking-wider text-emerald-800/80 mb-1">Session code (rotates with QR)</span>
+                            <span id="qr-rotating-code" class="font-mono text-2xl sm:text-3xl font-extrabold tracking-[0.18em] text-emerald-900 select-all">{{ $rotatingCode ?? '------' }}</span>
+                            <p class="mt-1.5 text-[10px] text-emerald-700/80 leading-snug">
+                                Read this out for any student who can&rsquo;t scan. Both the QR <em>and</em> this code rotate together — leaked codes stop working in seconds.
                             </p>
                         </div>
+
+                        @if($session->session_code)
+                        <p class="mt-2 text-center text-[10px] text-slate-400">
+                            Backup (static): <span class="font-mono text-slate-600">{{ $session->session_code }}</span>
+                        </p>
                         @endif
                         <p class="mt-5 text-center text-xs text-slate-400 leading-relaxed">
                             Scan from another device when possible · <span class="text-slate-600 font-medium">a-tenda</span> app or web check-in
@@ -119,9 +128,13 @@
     var payloadUrl = @json(route('dashboard.live-sessions.qr-payload', $session));
     var el = document.getElementById('qr-scanned-count');
     var qrImg = document.getElementById('qr-rotating-image');
+    var rotatingCodeEl = document.getElementById('qr-rotating-code');
     var rotateWindowEl = document.getElementById('qr-rotate-window');
-    var rotateSeconds = parseInt({{ (int) ($qrRotateSeconds ?? 8) }}, 10);
-    if (!rotateSeconds || rotateSeconds < 5) rotateSeconds = 8;
+    // Poll cadence. Defaulted server-side from
+    // SecureQrToken::ROTATION_WINDOW_SECONDS / 2 so the screen catches a
+    // new rotation within one window. Was 18s before — felt frozen.
+    var pollSeconds = parseInt({{ (int) ($qrRotateSeconds ?? 4) }}, 10);
+    if (!pollSeconds || pollSeconds < 2) pollSeconds = 4;
 
     function refreshStats() {
         if (!el) return;
@@ -132,18 +145,27 @@
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (typeof d.scanned_count === 'number') {
+                    var prev = parseInt(el.textContent || '0', 10) || 0;
                     el.textContent = String(d.scanned_count);
+                    // A scan just landed — refresh the QR + manual code
+                    // immediately so the next student can't reuse what
+                    // the previous student just submitted. Cheap: one
+                    // extra payload poll, server is already optimised.
+                    if (d.scanned_count > prev) {
+                        refreshQr();
+                    }
                 }
             })
             .catch(function() {});
     }
-    setInterval(refreshStats, 15000);
+    // Faster stats poll → faster "rotate on scan" reactivity.
+    setInterval(refreshStats, 4000);
 
-    // Rotate the QR image every (TTL - 2)s so each student gets a fresh
-    // signed token. Screenshots stop validating once the previous token
-    // expires.
+    // Refresh the QR image + rotating manual-entry code on every poll.
+    // Each server call returns a freshly signed token AND the current
+    // rotating short code, so the visible code matches whatever the
+    // server will accept right now.
     function refreshQr() {
-        if (!qrImg) return;
         fetch(payloadUrl, {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             credentials: 'same-origin',
@@ -151,17 +173,19 @@
         })
             .then(function(r) { if (!r.ok) throw new Error('http_'+r.status); return r.json(); })
             .then(function(d) {
-                if (d && typeof d.image_url === 'string') {
+                if (d && typeof d.image_url === 'string' && qrImg) {
                     qrImg.src = d.image_url;
                 }
-                if (rotateWindowEl && typeof d.rotates_in_seconds === 'number') {
-                    rotateWindowEl.textContent = String(d.rotates_in_seconds);
+                if (rotatingCodeEl && typeof d.rotating_code === 'string') {
+                    rotatingCodeEl.textContent = d.rotating_code;
+                }
+                if (rotateWindowEl && typeof d.rotating_code_window_seconds === 'number') {
+                    rotateWindowEl.textContent = String(d.rotating_code_window_seconds);
                 }
             })
             .catch(function() { /* keep last image on failure */ });
     }
-    var iv = Math.max(5, rotateSeconds) * 1000;
-    setInterval(refreshQr, iv);
+    setInterval(refreshQr, Math.max(2, pollSeconds) * 1000);
 })();
 </script>
 @endpush

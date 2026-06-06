@@ -8,7 +8,11 @@ use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Services\AttendanceFraudGuard;
 use App\Services\AttendanceOfflineSyncService;
+use App\Services\AuditLogService;
+use App\Support\AttendanceMarkLock;
+use App\Support\AttendanceSessionClassScope;
 use App\Support\SecureQrToken;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -82,7 +86,7 @@ class AttendanceController extends Controller
         $ip = $request->ip();
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student) {
+        if (! $student) {
             return response()->json(['verified' => false, 'message' => 'Student not found'], 404);
         }
 
@@ -100,7 +104,7 @@ class AttendanceController extends Controller
             return response()->json(['verified' => false, 'message' => 'Device mismatch. Contact admin.'], 403);
         }
 
-        if ($settings->enable_ip_binding && !$settings->allow_multiple_index_on_device && $student->bound_ip) {
+        if ($settings->enable_ip_binding && ! $settings->allow_multiple_index_on_device && $student->bound_ip) {
             $other = Student::where('bound_ip', $ip)->where('id', '!=', $student->id)->first();
             if ($other && $other->index_number !== $student->index_number) {
                 return response()->json(['verified' => false, 'message' => 'This device is linked to another student.'], 403);
@@ -132,7 +136,7 @@ class AttendanceController extends Controller
         // Venue is anchored when the session opens; students are not required to send coordinates.
         // Optional lat/lng still validate against the session geofence when both are provided.
         if (! $supplementalRepMark && $session->requiresLocation()) {
-            if (!$session->hasLocation()) {
+            if (! $session->hasLocation()) {
                 return response()->json(['verified' => false, 'message' => 'Session has no location set'], 422);
             }
             $lat = $validated['latitude'] ?? null;
@@ -166,7 +170,6 @@ class AttendanceController extends Controller
         ]);
     }
 
-
     public function success(Course $course): View
     {
         return view('attendance.success', compact('course'));
@@ -196,7 +199,7 @@ class AttendanceController extends Controller
         $ip = $request->ip();
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student) {
+        if (! $student) {
             return response()->json(['success' => false, 'message' => 'Student not found'], 404);
         }
 
@@ -214,7 +217,7 @@ class AttendanceController extends Controller
             return response()->json(['success' => false, 'message' => 'Device mismatch. Contact admin.'], 403);
         }
 
-        if ($settings->enable_ip_binding && !$settings->allow_multiple_index_on_device && $student->bound_ip) {
+        if ($settings->enable_ip_binding && ! $settings->allow_multiple_index_on_device && $student->bound_ip) {
             $other = Student::where('bound_ip', $ip)->where('id', '!=', $student->id)->first();
             if ($other && $other->index_number !== $student->index_number) {
                 return response()->json(['success' => false, 'message' => 'This device is linked to another student.'], 403);
@@ -232,6 +235,12 @@ class AttendanceController extends Controller
         $sessionCode = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
 
         if ($sessionCode !== '') {
+            // First try the legacy static `session_code` column. Falls
+            // back to the new rotating 6-char code (deterministic per
+            // active session + current window). We have to do the static
+            // lookup first because admins/lecturers may still issue the
+            // long static codes; the rotating code is matched by trying
+            // every *currently active* session for this course.
             $session = AttendanceSession::query()
                 ->where('course_id', $course->id)
                 ->where(function ($q) use ($sessionCode) {
@@ -239,10 +248,32 @@ class AttendanceController extends Controller
                         ->orWhereRaw('LOWER(session_code) = ?', [strtolower($sessionCode)]);
                 })
                 ->first();
+
+            if (! $session) {
+                $candidate = strtoupper(trim($sessionCode));
+                // Rotating codes are exactly 6 chars from our restricted
+                // alphabet — cheap test before we touch the DB.
+                if (strlen($candidate) === 6 && preg_match('/^[A-Z2-9]{6}$/', $candidate)) {
+                    $activeSessions = AttendanceSession::query()
+                        ->where('course_id', $course->id)
+                        ->where('is_active', true)
+                        ->where(function ($q) {
+                            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        })
+                        ->get();
+                    foreach ($activeSessions as $candidateSession) {
+                        if (SecureQrToken::isValidRotatingCode($candidate, $candidateSession)) {
+                            $session = $candidateSession;
+                            break;
+                        }
+                    }
+                }
+            }
+
             if (! $session || ! $session->isValid()) {
                 return response()->json(['success' => false, 'message' => 'Invalid or expired session code'], 422);
             }
-            if ($student->class_id && ! \App\Support\AttendanceSessionClassScope::sessionBelongsToClass($session, (int) $student->class_id)) {
+            if ($student->class_id && ! AttendanceSessionClassScope::sessionBelongsToClass($session, (int) $student->class_id)) {
                 return response()->json(['success' => false, 'message' => 'This session is not for your class'], 403);
             }
         } else {
@@ -265,14 +296,14 @@ class AttendanceController extends Controller
         $mode = $session->mode;
 
         if (! $supplementalRepMark && $mode === 'qr') {
-            if (!$isClassRep) {
+            if (! $isClassRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated);
                 if ($qrErr !== null) {
                     return $qrErr;
                 }
             }
         } elseif (! $supplementalRepMark && $mode === 'hybrid') {
-            if (!$session->hasLocation()) {
+            if (! $session->hasLocation()) {
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
             if (! empty($validated['latitude']) && ! empty($validated['longitude'])) {
@@ -291,14 +322,14 @@ class AttendanceController extends Controller
                     ], 422);
                 }
             }
-            if (!$isClassRep) {
+            if (! $isClassRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated);
                 if ($qrErr !== null) {
                     return $qrErr;
                 }
             }
         } elseif (! $supplementalRepMark && $mode === 'location') {
-            if (!$session->hasLocation()) {
+            if (! $session->hasLocation()) {
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
             if (! empty($validated['latitude']) && ! empty($validated['longitude'])) {
@@ -346,9 +377,9 @@ class AttendanceController extends Controller
                     $status = 'late';
                 }
 
-                $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+                $collision = AttendanceFraudGuard::detectCollision($student, $session, $request);
                 if ($collision !== null) {
-                    \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+                    AuditLogService::record(AuditLogService::FRAUD_DETECTED, [
                         'request' => $request,
                         'subject_type' => 'student',
                         'subject_id' => $student->id,
@@ -365,7 +396,7 @@ class AttendanceController extends Controller
                     ], 403);
                 }
 
-                $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+                $capture = AttendanceFraudGuard::captureFromRequest($request);
 
                 Attendance::create([
                     'student_id' => $student->id,
@@ -448,9 +479,9 @@ class AttendanceController extends Controller
         // on a 1-year persistent cookie, so it survives the obvious
         // bypass attempts (Wi-Fi → mobile data, private window, browser
         // restart). When triggered we audit-log and refuse the mark.
-        $collision = \App\Services\AttendanceFraudGuard::detectCollision($student, $session, $request);
+        $collision = AttendanceFraudGuard::detectCollision($student, $session, $request);
         if ($collision !== null) {
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+            AuditLogService::record(AuditLogService::FRAUD_DETECTED, [
                 'request' => $request,
                 'subject_type' => 'student',
                 'subject_id' => $student->id,
@@ -467,7 +498,7 @@ class AttendanceController extends Controller
             ], 403);
         }
 
-        $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
+        $capture = AttendanceFraudGuard::captureFromRequest($request);
         $deviceIp = $capture['device_ip'];
         $userAgent = $capture['user_agent'];
         $deviceFingerprint = $capture['device_fingerprint'];
@@ -478,7 +509,7 @@ class AttendanceController extends Controller
         // moment the duplicate-key fence + lock keep us to a single insert
         // per (session, student) pair. Use CACHE_STORE=redis on production
         // so all PHP workers share the same lock.
-        \App\Support\AttendanceMarkLock::run(
+        AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
             function () use ($student, $course, $session, $deviceIp, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
@@ -504,7 +535,7 @@ class AttendanceController extends Controller
         );
 
         if ($created) {
-            \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_CREATED, [
+            AuditLogService::record(AuditLogService::MARK_CREATED, [
                 'request' => $request,
                 'course_id' => (int) $course->id,
                 'class_id' => $session->class_id ? (int) $session->class_id : null,
@@ -562,8 +593,17 @@ class AttendanceController extends Controller
     private function validateQrProofJson(AttendanceSession $session, array $validated): ?JsonResponse
     {
         $manual = isset($validated['session_code']) ? trim((string) $validated['session_code']) : '';
-        if ($manual !== '' && strcasecmp($manual, (string) ($session->session_code ?? '')) === 0) {
-            return null;
+        if ($manual !== '') {
+            // Legacy static session code.
+            if (strcasecmp($manual, (string) ($session->session_code ?? '')) === 0) {
+                return null;
+            }
+            // New rotating code (6-char) — checked against current
+            // window + 2 previous windows inside the helper, so a
+            // student who reads it during a rotation still gets in.
+            if (SecureQrToken::isValidRotatingCode($manual, $session)) {
+                return null;
+            }
         }
 
         $tok = isset($validated['session_token']) ? trim((string) $validated['session_token']) : '';
@@ -592,6 +632,7 @@ class AttendanceController extends Controller
             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
             sin($dLng / 2) * sin($dLng / 2);
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
         return $R * $c;
     }
 }

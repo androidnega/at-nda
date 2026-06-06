@@ -128,4 +128,88 @@ class SecureQrToken
 
         return true;
     }
+
+    // ---- Rotating short code (manual entry) ----------------------------
+    //
+    // Reps used to have to read out a long static session_code (e.g.
+    // "DTM202-7173"). That worked but anyone with a screenshot of the
+    // QR display had a permanent way in. The rotating code below is a
+    // 6-char alphanumeric value derived from (session_id, current
+    // window, QR_SECRET) and changes every ROTATION_WINDOW_SECONDS so
+    // a student who can't scan but can read can still get in within
+    // the live window, and a leaked code becomes useless in <30s.
+
+    /** Seconds per rotating-code window. Keep small for snappy rotation. */
+    public const ROTATION_WINDOW_SECONDS = 8;
+
+    /** How many *past* windows we still accept as valid. Gives the
+     *  student a small grace window if the rep just rotated while they
+     *  were typing. 2 windows ≈ 16 seconds of validity after rotation.
+     */
+    private const ROTATION_GRACE_WINDOWS = 2;
+
+    /**
+     * Deterministic short code for the rotating manual-entry display.
+     * The same (session, window, secret) always yields the same code so
+     * the server can verify without persisting anything.
+     *
+     * Falls back to the session row's static session_code (uppercased,
+     * truncated) when QR_SECRET isn't configured so dev / legacy
+     * installs still get a sensible display.
+     */
+    public static function rotatingCode(AttendanceSession $session, int $windowOffset = 0): string
+    {
+        $secret = self::secret();
+        if (! $secret) {
+            $static = strtoupper(preg_replace('/[^A-Z0-9]/i', '', (string) ($session->session_code ?? '')) ?? '');
+
+            return $static !== '' ? substr($static, 0, 6) : '------';
+        }
+
+        $window = intdiv(Carbon::now()->timestamp, max(1, self::ROTATION_WINDOW_SECONDS)) + $windowOffset;
+        $payload = (int) $session->id.'|'.$window;
+        $hash = hash_hmac('sha256', $payload, $secret);
+        // Convert hex → uppercase base36-ish: drop letters that look like
+        // digits / each other (0/O, 1/I/L) so reps can read it aloud
+        // without phonetic ambiguity.
+        $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        $code = '';
+        for ($i = 0; $i < 6; $i++) {
+            $byte = hexdec(substr($hash, $i * 2, 2));
+            $code .= $alphabet[$byte % strlen($alphabet)];
+        }
+
+        return $code;
+    }
+
+    /** Seconds until the current rotating-code window ends (always 1..ROTATION_WINDOW_SECONDS). */
+    public static function rotatingCodeSecondsRemaining(): int
+    {
+        $win = max(1, self::ROTATION_WINDOW_SECONDS);
+        $elapsed = Carbon::now()->timestamp % $win;
+
+        return $win - $elapsed;
+    }
+
+    /**
+     * True if `$submitted` matches any of the last few rotating codes for
+     * this session. The grace windows mean a code that JUST rotated is
+     * still accepted, so a student typing in good faith doesn't get
+     * stuck.
+     */
+    public static function isValidRotatingCode(string $submitted, AttendanceSession $session): bool
+    {
+        $submitted = strtoupper(trim($submitted));
+        if ($submitted === '' || strlen($submitted) !== 6) {
+            return false;
+        }
+
+        for ($offset = 0; $offset >= -self::ROTATION_GRACE_WINDOWS; $offset--) {
+            if (hash_equals(self::rotatingCode($session, $offset), $submitted)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

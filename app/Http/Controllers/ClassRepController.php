@@ -3,26 +3,39 @@
 namespace App\Http\Controllers;
 
 use App\Events\SessionLiveEvent;
+use App\Imports\StudentsImport;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceWeek;
+use App\Models\ClassTimetable;
 use App\Models\Course;
-use Carbon\Carbon;
-use App\Support\SessionQrPng;
 use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Models\Venue;
+use App\Services\AuditLogService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Support\AttendanceSessionClassScope;
+use App\Support\CacheVersions;
+use App\Support\ClassTimetableAccess;
+use App\Support\LiveAttendanceCache;
 use App\Support\RepCourseAccess;
 use App\Support\SchemaFeatures;
+use App\Support\SecureQrToken;
+use App\Support\SessionQrPng;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\View\View;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ClassRepController extends Controller
@@ -30,20 +43,24 @@ class ClassRepController extends Controller
     private function getStudent(Request $request): ?Student
     {
         $id = $request->session()->get('student_id');
-        if (!$id) return null;
+        if (! $id) {
+            return null;
+        }
+
         return Student::find($id);
     }
 
-    private function requireClassRep(Request $request): Student|\Illuminate\Http\RedirectResponse
+    private function requireClassRep(Request $request): Student|RedirectResponse
     {
         $student = $this->getStudent($request);
-        if (!$student) {
+        if (! $student) {
             return redirect()->route('home')->with('info', 'Please sign in to continue.');
         }
         $classIds = $this->getRepClassIds($student);
         if ($classIds->isEmpty()) {
             return redirect()->route('dashboard.dashboard')->with('error', 'You are not a class rep');
         }
+
         return $student;
     }
 
@@ -59,7 +76,7 @@ class ClassRepController extends Controller
         return RepCourseAccess::canAccessCourse($rep, $course);
     }
 
-    private function getRepClassIds(Student $rep): \Illuminate\Support\Collection
+    private function getRepClassIds(Student $rep): Collection
     {
         return $rep->repManagedClassIds();
     }
@@ -79,6 +96,7 @@ class ClassRepController extends Controller
     private function canAccessStudent(Student $rep, Student $target): bool
     {
         $classIds = $this->getRepClassIds($rep);
+
         return $target->class_id && $classIds->contains($target->class_id);
     }
 
@@ -117,7 +135,7 @@ class ClassRepController extends Controller
 
         $timetableCourseIds = $useClassTimetable
             ? $this->safeCall(
-                fn () => \App\Models\ClassTimetable::query()
+                fn () => ClassTimetable::query()
                     ->whereIn('class_id', $classIdsArr)
                     ->whereNotNull('course_id')
                     ->pluck('course_id')
@@ -158,7 +176,7 @@ class ClassRepController extends Controller
                     ->activeWeeksOnly();
 
             if ($marksBase !== null) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
             }
         } catch (\Throwable $e) {
             report($e);
@@ -212,7 +230,7 @@ class ClassRepController extends Controller
             return (int) $fn();
         } catch (\Throwable $e) {
             report($e);
-            \Illuminate\Support\Facades\Log::warning(
+            Log::warning(
                 'rep_overview_safe_count_failed',
                 ['context' => $context, 'error' => $e->getMessage()]
             );
@@ -237,7 +255,7 @@ class ClassRepController extends Controller
             return $fn();
         } catch (\Throwable $e) {
             report($e);
-            \Illuminate\Support\Facades\Log::warning(
+            Log::warning(
                 'rep_overview_safe_call_failed',
                 ['context' => $context, 'error' => $e->getMessage()]
             );
@@ -251,14 +269,14 @@ class ClassRepController extends Controller
      * preferring per-class timetable entries and falling back to the legacy
      * course-level day/time columns when no per-class entries exist.
      *
-     * @return \Illuminate\Support\Collection<int, object>
+     * @return Collection<int, object>
      */
-    private function buildRepTodayCourses(Student $student, array $classIdsArr, bool $useClassTimetable): \Illuminate\Support\Collection
+    private function buildRepTodayCourses(Student $student, array $classIdsArr, bool $useClassTimetable): Collection
     {
         $todayName = strtolower(now()->format('l'));
 
         if ($useClassTimetable && $classIdsArr !== []) {
-            $slots = \App\Models\ClassTimetable::query()
+            $slots = ClassTimetable::query()
                 ->whereIn('class_id', $classIdsArr)
                 ->whereRaw('LOWER(TRIM(day_of_week)) = ?', [$todayName])
                 ->with(['course', 'venueRelation', 'lecturer'])
@@ -267,12 +285,12 @@ class ClassRepController extends Controller
                 ->get();
 
             if ($slots->isNotEmpty()) {
-                return $slots->map(function (\App\Models\ClassTimetable $slot) {
+                return $slots->map(function (ClassTimetable $slot) {
                     $course = $slot->course;
                     $scheduleParts = [];
                     try {
-                        $start = \Carbon\Carbon::parse($slot->start_time)->format('H:i');
-                        $end = \Carbon\Carbon::parse($slot->end_time)->format('H:i');
+                        $start = Carbon::parse($slot->start_time)->format('H:i');
+                        $end = Carbon::parse($slot->end_time)->format('H:i');
                         $scheduleParts[] = $start.'–'.$end;
                     } catch (\Throwable $e) {
                         // Ignore unparsable times — they'll just be omitted from the label.
@@ -312,7 +330,9 @@ class ClassRepController extends Controller
     public function dashboard(Request $request): View|RedirectResponse
     {
         $student = $this->requireClassRep($request);
-        if ($student instanceof RedirectResponse) return $student;
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
 
         // /dashboard/session — same hardening as overview(). Each of the
         // three queries below can independently fail (corrupted Cache,
@@ -329,6 +349,7 @@ class ClassRepController extends Controller
                 ->get()
                 ->map(function (Course $c) use ($student) {
                     $repClassId = $this->resolveRepClassId($student, $c);
+
                     return (object) [
                         'course' => $c,
                         'class_id' => $repClassId,
@@ -377,7 +398,7 @@ class ClassRepController extends Controller
         // Venues let the rep override the timetable default for one session
         // (e.g. when class meets in a different room today).
         $venues = $this->safeCall(
-            fn () => \App\Models\Venue::query()->orderBy('name')->get(),
+            fn () => Venue::query()->orderBy('name')->get(),
             'rep_dashboard.venues',
             collect()
         );
@@ -395,7 +416,9 @@ class ClassRepController extends Controller
     public function openSession(Request $request): RedirectResponse
     {
         $student = $this->requireClassRep($request);
-        if ($student instanceof RedirectResponse) return $student;
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
 
         $settings = SystemSetting::get();
         $attendanceMode = SystemSetting::hasAttendanceModeColumns()
@@ -433,12 +456,12 @@ class ClassRepController extends Controller
         if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only open sessions for courses in your class.');
         }
-        if (!$this->requireMainRep($student, $course->id)) {
+        if (! $this->requireMainRep($student, $course->id)) {
             return back()->with('error', 'Only main reps can open sessions');
         }
 
         $repClassId = $this->resolveRepClassId($student, $course);
-        if (!$course->hasScheduleForClass($repClassId)) {
+        if (! $course->hasScheduleForClass($repClassId)) {
             return back()->with('error', 'Add this course to your class timetable (day, time, lecturer) first.');
         }
 
@@ -469,7 +492,7 @@ class ClassRepController extends Controller
             }
         }
 
-        $snapshot = \App\Support\ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
+        $snapshot = ClassTimetableAccess::resolveScheduleSnapshot($course, $repClassId);
         $sessionLecturerId = $snapshot['lecturer_id'] ?? $course->lecturer_id;
         // Optional venue override from the rep wins over the timetable default
         // for this single session (does not rewrite the timetable row).
@@ -510,8 +533,8 @@ class ClassRepController extends Controller
             ->count();
         event(new SessionLiveEvent($sessionModel->fresh(['course']), $wasReopened ? 'session_reopened' : 'session_opened', ['present_count' => $presentCount]));
 
-        \App\Services\AuditLogService::record(
-            $wasReopened ? \App\Services\AuditLogService::SESSION_REOPENED : \App\Services\AuditLogService::SESSION_OPENED,
+        AuditLogService::record(
+            $wasReopened ? AuditLogService::SESSION_REOPENED : AuditLogService::SESSION_OPENED,
             [
                 'request' => $request,
                 'course_id' => (int) $course->id,
@@ -533,7 +556,7 @@ class ClassRepController extends Controller
         $verb = $wasReopened ? 'Session reopened' : 'Session opened';
         $msg = $verb.'. Week '.$week->week_number.'. Active for ~'.$activeMinutes.' min.';
         if ($overrideVenueId !== null) {
-            $venueName = optional(\App\Models\Venue::find($overrideVenueId))->name;
+            $venueName = optional(Venue::find($overrideVenueId))->name;
             if ($venueName) {
                 $msg .= ' Venue overridden to '.$venueName.' for this session.';
             }
@@ -569,14 +592,16 @@ class ClassRepController extends Controller
     public function closeSession(Request $request, AttendanceSession $session): RedirectResponse
     {
         $student = $this->requireClassRep($request);
-        if ($student instanceof RedirectResponse) return $student;
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
 
         $course = $session->course;
         $classIds = $this->getRepClassIds($student);
         if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only manage sessions for courses in your class.');
         }
-        if (!$this->requireMainRep($student, $session->course_id)) {
+        if (! $this->requireMainRep($student, $session->course_id)) {
             return back()->with('error', 'Only main reps can close sessions');
         }
         if ($session->isCheckInCheckoutMode()) {
@@ -595,7 +620,7 @@ class ClassRepController extends Controller
             ->count();
         event(new SessionLiveEvent($session, 'session_closed', ['present_count' => $presentCount]));
 
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::SESSION_CLOSED, [
+        AuditLogService::record(AuditLogService::SESSION_CLOSED, [
             'request' => $request,
             'course_id' => (int) $session->course_id,
             'class_id' => $session->class_id ? (int) $session->class_id : null,
@@ -671,7 +696,7 @@ class ClassRepController extends Controller
         // student dashboards / Flutter app see the new window immediately
         // instead of waiting for the 5s TTL.
         try {
-            \App\Support\LiveAttendanceCache::bump();
+            LiveAttendanceCache::bump();
         } catch (\Throwable $e) {
             report($e);
         }
@@ -684,7 +709,7 @@ class ClassRepController extends Controller
             'expires_at' => $newExpiry->toIso8601String(),
         ]));
 
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::SESSION_EXTENDED, [
+        AuditLogService::record(AuditLogService::SESSION_EXTENDED, [
             'request' => $request,
             'course_id' => (int) $session->course_id,
             'class_id' => $session->class_id ? (int) $session->class_id : null,
@@ -705,13 +730,15 @@ class ClassRepController extends Controller
     public function qr(AttendanceSession $session, Request $request)
     {
         $student = $this->requireClassRep($request);
-        if ($student instanceof RedirectResponse) return $student;
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
 
         $course = $session->course;
         if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only view QR for courses in your class.');
         }
-        if (!$session->isValid()) {
+        if (! $session->isValid()) {
             return back()->with('error', 'Session expired');
         }
         $session->load(['course', 'attendanceWeek']);
@@ -720,7 +747,7 @@ class ClassRepController extends Controller
         // qr-display page polls qr-payload every few seconds to refresh
         // the image, which is what gives every student a "different code".
         $payload = $this->buildRotatingQrPayload($session);
-        $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload);
+        $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='.urlencode($payload);
         $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($student, $course);
         $scannedCount = $session->attendances()
             ->whereHas('student', fn ($q) => $q->whereIn('class_id', $scopedClassIds))
@@ -731,23 +758,31 @@ class ClassRepController extends Controller
             'session' => $session,
             'qrUrl' => $qrUrl,
             'scannedCount' => $scannedCount,
-            'qrRotateSeconds' => max(5, (int) config('qr.ttl_seconds', 20)) - 2,
+            // Used as the JS setInterval cadence. Halved relative to the
+            // rotating-code window so the screen updates well within one
+            // rotation — feels reactive instead of laggy.
+            'qrRotateSeconds' => max(3, (int) ceil(SecureQrToken::ROTATION_WINDOW_SECONDS / 2)),
+            'rotatingCode' => SecureQrToken::rotatingCode($session),
+            'rotatingCodeWindow' => SecureQrToken::ROTATION_WINDOW_SECONDS,
         ]);
     }
 
     /**
      * Build a freshly signed QR payload for this session — a different
      * payload on every call (because the issued/expiry timestamps move),
-     * so screenshots stop working once the TTL elapses.
+     * so screenshots stop working once the TTL elapses. The same rotating
+     * short code that the rep reads aloud is embedded so an offline
+     * scanner could verify it without a second round-trip.
      */
     private function buildRotatingQrPayload(AttendanceSession $session): string
     {
-        $signed = \App\Support\SecureQrToken::encode($session);
+        $signed = SecureQrToken::encode($session);
 
         return json_encode([
             'session_id' => $session->id,
             'token' => $signed,
             'course_id' => $session->course_id,
+            'code' => SecureQrToken::rotatingCode($session),
             'iat' => now()->timestamp,
         ]);
     }
@@ -827,7 +862,7 @@ class ClassRepController extends Controller
         if (! $this->repCanAccessCourse($student, $course)) {
             abort(403, 'You can only view QR for courses in your class.');
         }
-        if (!$session->isValid()) {
+        if (! $session->isValid()) {
             return response()->json(['message' => 'Session expired'], 410);
         }
 
@@ -836,15 +871,23 @@ class ClassRepController extends Controller
         return response()->json([
             'payload' => json_decode($payload, true),
             'payload_raw' => $payload,
-            'image_url' => 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($payload),
-            'rotates_in_seconds' => max(5, (int) config('qr.ttl_seconds', 20)) - 2,
+            'image_url' => 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='.urlencode($payload),
+            // Rep page polls this endpoint at this cadence — kept short
+            // so the visible QR + rotating code stay close to the actual
+            // rotation window (no more 18s waits).
+            'rotates_in_seconds' => max(3, (int) ceil(SecureQrToken::ROTATION_WINDOW_SECONDS / 2)),
+            'rotating_code' => SecureQrToken::rotatingCode($session),
+            'rotating_code_seconds_left' => SecureQrToken::rotatingCodeSecondsRemaining(),
+            'rotating_code_window_seconds' => SecureQrToken::ROTATION_WINDOW_SECONDS,
         ]);
     }
 
     public function studentsIndex(Request $request): View|RedirectResponse
     {
         $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) return $rep;
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
 
         $classIds = $this->getRepClassIds($rep);
         $query = Student::with('schoolClass')->whereIn('class_id', $classIds)->orderBy('last_name')->orderBy('first_name');
@@ -889,8 +932,8 @@ class ClassRepController extends Controller
             abort(403, 'You may only import students into a class you rep.');
         }
 
-        $import = new \App\Imports\StudentsImport([$classId], $classId);
-        \Maatwebsite\Excel\Facades\Excel::import($import, $request->file('file'));
+        $import = new StudentsImport([$classId], $classId);
+        Excel::import($import, $request->file('file'));
 
         return redirect()
             ->route('dashboard.students.index', ['class_id' => $classId])
@@ -900,9 +943,11 @@ class ClassRepController extends Controller
     public function studentShow(Request $request, Student $student): View|RedirectResponse
     {
         $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) return $rep;
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
 
-        if (!$this->canAccessStudent($rep, $student)) {
+        if (! $this->canAccessStudent($rep, $student)) {
             abort(403, 'You can only view students in your classes.');
         }
 
@@ -940,7 +985,7 @@ class ClassRepController extends Controller
                 ->whereIn('course_id', $courseIds)
                 ->activeWeeksOnly();
             if ($allowedClassIds !== []) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($arQuery, $allowedClassIds);
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses($arQuery, $allowedClassIds);
             }
             $attendanceRecordsCount = (int) $arQuery->count();
         }
@@ -954,7 +999,7 @@ class ClassRepController extends Controller
                 ->selectRaw('course_id, COUNT(*) as cnt')
                 ->groupBy('course_id');
             if ($allowedClassIds !== []) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses($countsQuery, $allowedClassIds);
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses($countsQuery, $allowedClassIds);
             }
             $countsByCourseId = $countsQuery->pluck('cnt', 'course_id');
         }
@@ -989,7 +1034,7 @@ class ClassRepController extends Controller
         } else {
             $recentAttendancesQuery->whereIn('course_id', $courseIds);
             if ($allowedClassIds !== []) {
-                \App\Support\AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses(
                     $recentAttendancesQuery,
                     $allowedClassIds
                 );
@@ -1024,7 +1069,9 @@ class ClassRepController extends Controller
     public function classShow(Request $request): View|RedirectResponse
     {
         $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) return $rep;
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
 
         $classIds = $this->getRepClassIds($rep);
         $classes = SchoolClass::with(['faculty', 'department'])
@@ -1134,7 +1181,7 @@ class ClassRepController extends Controller
             $query->whereDate('attendance_time', '<=', $request->query('date_to'));
         }
         if ($request->filled('search')) {
-            $term = '%' . str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->query('search'))) . '%';
+            $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->query('search'))).'%';
             $query->whereHas('student', function ($q) use ($term) {
                 $q->where('index_number', 'like', $term)
                     ->orWhere('first_name', 'like', $term)
@@ -1150,7 +1197,7 @@ class ClassRepController extends Controller
         try {
             $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
             $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
-            if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
+            if (SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
                 $weeksQuery->where(function ($q) use ($repClassIds) {
                     $q->whereIn('class_id', $repClassIds)->orWhereNull('class_id');
                 });
@@ -1195,14 +1242,14 @@ class ClassRepController extends Controller
             if ($repClassIds === []) {
                 $classmates = collect();
             } else {
-                $cacheKey = \App\Support\CacheVersions::key(
+                $cacheKey = CacheVersions::key(
                     'rep_classmates_v2:'.implode('-', $repClassIds),
                     ['students']
                 );
-                $classmates = \Illuminate\Support\Facades\Cache::remember(
+                $classmates = Cache::remember(
                     $cacheKey,
                     60,
-                    fn () => \Illuminate\Support\Facades\DB::table('students')
+                    fn () => DB::table('students')
                         ->whereIn('class_id', $repClassIds)
                         ->orderBy('last_name')
                         ->orderBy('first_name')
@@ -1214,10 +1261,10 @@ class ClassRepController extends Controller
                 // unexpected (string, null, broken serialize blob), drop
                 // it and rebuild from the DB so the view never tries to
                 // dereference ->id on a string.
-                if (! $classmates instanceof \Illuminate\Support\Collection
+                if (! $classmates instanceof Collection
                     || ($classmates->isNotEmpty() && ! is_object($classmates->first()))) {
-                    \Illuminate\Support\Facades\Cache::forget($cacheKey);
-                    $classmates = \Illuminate\Support\Facades\DB::table('students')
+                    Cache::forget($cacheKey);
+                    $classmates = DB::table('students')
                         ->whereIn('class_id', $repClassIds)
                         ->orderBy('last_name')
                         ->orderBy('first_name')
@@ -1249,9 +1296,9 @@ class ClassRepController extends Controller
      *
      * @param  \Illuminate\Database\Eloquent\Collection<int, AttendanceWeek>  $weeks
      * @param  list<int>  $repClassIds
-     * @return \Illuminate\Support\Collection<int, array{week: AttendanceWeek, present: \Illuminate\Support\Collection<int, Attendance>, present_count: int, absent_count: int}>
+     * @return Collection<int, array{week: AttendanceWeek, present: Collection<int, Attendance>, present_count: int, absent_count: int}>
      */
-    private function buildWeeklyAttendees(Student $rep, Course $course, $weeks, array $repClassIds): \Illuminate\Support\Collection
+    private function buildWeeklyAttendees(Student $rep, Course $course, $weeks, array $repClassIds): Collection
     {
         if ($weeks->isEmpty() || $repClassIds === []) {
             return collect();
@@ -1259,12 +1306,12 @@ class ClassRepController extends Controller
         // Enrolled count rarely changes; keep it cached for 60s and let
         // the 'students' namespace version bump invalidate it when an
         // admin adds/removes students from a class.
-        $enrolledCacheKey = \App\Support\CacheVersions::key(
+        $enrolledCacheKey = CacheVersions::key(
             'rep_enrolled:'.implode('-', $repClassIds),
             ['students']
         );
         try {
-            $enrolled = (int) \Illuminate\Support\Facades\Cache::remember(
+            $enrolled = (int) Cache::remember(
                 $enrolledCacheKey,
                 60,
                 fn () => Student::query()->whereIn('class_id', $repClassIds)->count()
@@ -1285,6 +1332,7 @@ class ClassRepController extends Controller
         return collect($weeks)->map(function (AttendanceWeek $week) use ($byWeek, $enrolled): array {
             $present = $byWeek->get((int) $week->id, collect());
             $presentCount = $present->pluck('student_id')->unique()->count();
+
             return [
                 'week' => $week,
                 'present' => $present,
@@ -1422,7 +1470,7 @@ class ClassRepController extends Controller
         $session = AttendanceSession::query()
             ->where('course_id', $course->id)
             ->where('attendance_week_id', $attendanceWeek->id)
-            ->when(\App\Support\SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
+            ->when(SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
                 $q->where('class_id', $repClassId);
             })
             ->orderByDesc('id')
@@ -1457,7 +1505,7 @@ class ClassRepController extends Controller
             ]));
         }
 
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_MANUAL, [
+        AuditLogService::record(AuditLogService::MARK_MANUAL, [
             'request' => $request,
             'course_id' => (int) $course->id,
             'class_id' => $repClassId ? (int) $repClassId : null,
@@ -1511,7 +1559,7 @@ class ClassRepController extends Controller
             'attendance_time' => $attendance->attendance_time?->toIso8601String(),
         ];
 
-        \App\Services\AuditLogService::record(\App\Services\AuditLogService::MARK_DELETED, [
+        AuditLogService::record(AuditLogService::MARK_DELETED, [
             'request' => $request,
             'course_id' => (int) $attendance->course_id,
             'class_id' => $this->resolveRepClassId($rep, $course),
@@ -1545,10 +1593,10 @@ class ClassRepController extends Controller
             $rep,
             $course
         )->with([
-                'student:id,index_number',
-                'attendanceSession:id,session_index,course_id',
-                'attendanceWeek:id,week_number',
-            ])
+            'student:id,index_number',
+            'attendanceSession:id,session_index,course_id',
+            'attendanceWeek:id,week_number',
+        ])
             ->orderBy('id')
             ->get()
             ->map(function (Attendance $a) {
@@ -1885,14 +1933,17 @@ class ClassRepController extends Controller
     public function resetPassword(Request $request, Student $student): RedirectResponse
     {
         $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) return $rep;
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
 
-        if (!$this->canAccessStudent($rep, $student)) {
+        if (! $this->canAccessStudent($rep, $student)) {
             abort(403, 'You can only reset passwords for students in your classes.');
         }
 
-        $password = \Illuminate\Support\Str::password(12);
+        $password = Str::password(12);
         $student->update(['password' => Hash::make($password)]);
-        return back()->with('success', 'Password generated for ' . $student->index_number . '. New password: ' . $password);
+
+        return back()->with('success', 'Password generated for '.$student->index_number.'. New password: '.$password);
     }
 }

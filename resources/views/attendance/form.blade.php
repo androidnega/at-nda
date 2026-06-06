@@ -167,11 +167,18 @@
                 <i class="fas fa-keyboard text-slate-500 mr-1"></i>
                 Can't scan? Enter the session code instead
             </p>
-            <p class="text-xs text-gray-600">Ask the lecturer or rep to read out the code on screen.</p>
+            <p class="text-xs text-gray-600">
+                Ask the rep to read out the 6-character code on screen.
+                <span class="block mt-0.5 text-[10px] text-amber-700 font-medium">
+                    <i class="fas fa-stopwatch mr-0.5"></i>
+                    The code rotates every few seconds &mdash; type it in fast.
+                </span>
+            </p>
             <label for="manual_session_code" class="sr-only">Session code</label>
             <input type="text" id="manual_session_code" autocomplete="off" inputmode="text"
-                class="w-full border border-gray-200 rounded-lg px-3 py-2.5 font-mono text-sm uppercase tracking-wide"
-                placeholder="e.g. CSC101-4821" maxlength="48">
+                class="w-full border border-gray-200 rounded-lg px-3 py-2.5 font-mono text-base uppercase tracking-[0.18em] text-center"
+                placeholder="e.g. K7HM2P" maxlength="48"
+                style="text-transform:uppercase">
             <button type="button" id="btn-session-code-mark"
                 class="w-full bg-slate-800 text-white py-3 rounded-xl text-sm font-semibold touch-manipulation">
                 Mark with session code
