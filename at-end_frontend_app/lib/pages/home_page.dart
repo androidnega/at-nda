@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -481,8 +482,10 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
           }
         }
       } catch (e) {
-        // ignore: avoid_print
-        print('SESSION ERROR: $e');
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('SESSION ERROR: $e');
+        }
         nextLiteUiMode = true;
         if (!mounted) return;
         final cached = await cachedSessionsForCurrentStudent();

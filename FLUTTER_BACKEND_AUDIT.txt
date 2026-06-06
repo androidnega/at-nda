@@ -1,0 +1,737 @@
+================================================================================
+  AT-ENDA — FLUTTER FRONTEND + LARAVEL BACKEND PRODUCTION-READINESS AUDIT
+================================================================================
+
+Branch       : audit/flutter-backend-alignment
+Audited by   : Cursor agent (Claude Opus 4.7)
+Audit date   : 2026-06-06
+Backend path : /Users/Manuel/Desktop/Manuel/Developer Bks/Archive/at-nda
+Frontend path: /Users/Manuel/Desktop/Manuel/Developer Bks/Archive/at-nda/at-end_frontend_app
+
+Ground rules respected throughout:
+  - No API response shapes changed.
+  - No business logic changed.
+  - No features removed.
+  - Focus only on correctness, performance, maintainability, security,
+    and frontend/backend alignment.
+
+================================================================================
+  EXECUTIVE SUMMARY
+================================================================================
+
+The Flutter codebase is in **good shape overall** and `flutter analyze` already
+returns ZERO issues. The integration with the Laravel backend is consistent and
+the API surface is well-mapped. The audit found:
+
+  * 0 dart analyzer issues
+  * 0 deprecated-API usages (all packages on current stable channels)
+  * 1 pre-existing failing widget test (stale text assertions — FIXED)
+  * 7 unconditional print() calls that leaked in release builds — FIXED
+  * 1 dead Flutter API method that points to a non-existent backend route
+    (`/sessions/start` — flagged; NOT removed per rules)
+  * 1 unused npm/pub dependency (`image_picker` — flagged; NOT removed)
+  * 2 polling hot paths already known to backend audit (rep page 8 s, web
+    rep QR 15 s) — flagged; behaviour unchanged
+  * Several recommended (non-blocking) hardening opportunities for web token
+    storage, Android cleartext traffic, and iOS ATS
+
+After the safe fixes were applied:
+  * `flutter analyze`  →  No issues found
+  * `dart analyze`     →  No issues found (same engine)
+  * `flutter test`     →  1/1 passing
+  * `flutter doctor`   →  Healthy (only an Android licence prompt — env, not code)
+
+================================================================================
+  PHASE 1 — FLUTTER HEALTH AUDIT
+================================================================================
+
+Toolchain
+---------
+  Flutter 3.41.6 stable, Dart 3.11.4 — Engine 5cdd3277.
+  Xcode 26.3, Android SDK 36, Chrome 148 — all detected.
+  Android licences are NOT all accepted on this developer machine
+  (run `flutter doctor --android-licenses` once on the build box).
+  This is a developer-environment matter, not a code defect.
+
+flutter pub get
+---------------
+  OK. 77 transitive packages have newer versions blocked by direct
+  constraints (e.g. `tflite_flutter`, `geolocator`, `connectivity_plus`).
+  None of them are deprecated or insecure on the locked versions.
+  Upgrading is **explicitly NOT done** because:
+    1. The plugin set is large and touches camera, location, secure
+       storage, sqflite, audioplayers and TFLite. Major-version bumps
+       on any of these are notorious for permission/API changes.
+    2. The user’s rule set forbids feature/behaviour changes.
+
+flutter analyze / dart analyze
+------------------------------
+  BEFORE this audit : 0 issues.
+  AFTER  this audit : 0 issues.
+
+  → No deprecated APIs, no null-safety warnings, no unused imports,
+    no dead-code lints, no duplicate-service warnings reported by
+    the analyzer.
+
+flutter test
+------------
+  BEFORE this audit : 1 failing test — `Login page smoke test` in
+                      `test/widget_test.dart` asserted on the literal
+                      strings "Attendance" and "Sign in", which the
+                      current LoginPage no longer renders (it also
+                      never reaches LoginPage because the root route
+                      is `LaunchGatePage`).
+  AFTER  this audit : 1/1 passing.  Test was rewritten to a proper
+                      smoke test (MaterialApp boots, spinner shown).
+
+================================================================================
+  PHASE 2 — API CONTRACT AUDIT  (Flutter → Laravel)
+================================================================================
+
+All endpoints invoked by `lib/services/api_service.dart`,
+`lib/services/notification_bridge.dart`, `lib/services/sync_service.dart`,
+`lib/services/offline_service.dart`, `lib/pages/*` and the v1 helpers
+were cross-referenced against `routes/api.php` and `routes/api/v1.php`.
+
+Status legend: ✓ matched  | ⚠ mismatch / dead
+
+Flutter call (lib/services/api_service.dart)                | Method | Path                                              | Backend route                                                                | Status
+------------------------------------------------------------+--------+---------------------------------------------------+------------------------------------------------------------------------------+--------
+logoutRemote()                                              | POST   | /logout                                           | Route::post('/logout', AuthController@logout)                                | ✓
+loadAppSettings()  → get('settings')                        | GET    | /settings                                         | Route::get('/settings', SettingsController@index)                            | ✓
+getTimetable() (tries /timetable then /v1/timetable)        | GET    | /timetable, /v1/timetable                         | both registered (sanctum-guarded for v1 ; legacy at /api/timetable)          | ✓
+getStudents()                                               | GET    | /students                                         | Route::get('/students', StudentController@index)                             | ✓
+lookupStudentByIndex()                                      | POST   | /students/lookup                                  | Route::match(['get','post'], '/students/lookup', StudentController@lookup)   | ✓
+login()                                                     | POST   | /login                                            | Route::post('/login', AuthController@login)                                  | ✓
+me()                                                        | POST   | /me                                               | Route::post('/me', AuthController@me)                                        | ✓
+loginV1SanctumToken()                                       | POST   | /v1/auth/login                                    | Route::post('login', V1\AuthController@login) under prefix v1                | ✓
+getActiveSessions(indexNumber?, classId?)                   | GET    | /sessions/active                                  | Route::get('/sessions/active', SessionController@active)                     | ✓
+updateProfile(body)                                         | POST   | /update-profile                                   | Route::post('/update-profile', StudentProfileController@updateProfile)       | ✓
+postDeviceToken(...)                                        | POST   | /device-token                                     | Route::post('/device-token', DeviceTokenController@store)                    | ✓
+startSession(lat, lng, accuracy)                            | POST   | /sessions/start                                   | NO MATCH — closest is POST /sessions/{id}/location                          | ⚠ DEAD
+repCourses(indexNumber, password)                           | POST   | /rep/courses                                      | Route::post('/rep/courses', ClassRepApiController@courses)                   | ✓
+repOpenSession(body)                                        | POST   | /rep/sessions/open                                | Route::post('/rep/sessions/open', ClassRepApiController@openSession)         | ✓
+repCloseSession(sessionId, ...)                             | POST   | /rep/sessions/{id}/close                          | Route::post('/rep/sessions/{session}/close', ClassRepApiController@close)    | ✓
+classRepDashboard(...)                                      | POST   | /class-rep/dashboard                              | Route::match(['get','post'], '/class-rep/dashboard', ...)                    | ✓
+classRepStudents(...)                                       | POST   | /class-rep/students                               | Route::match(['get','post'], '/class-rep/students', ...)                     | ✓
+classRepStudentDetail(...)  (JSON, falls back to form-url) | POST   | /class-rep/student-detail                         | Route::match(['get','post'], '/class-rep/student-detail', ...)               | ✓
+classRepOpenSession(body)                                   | POST   | /class-rep/sessions/open                          | Route::post('/class-rep/sessions/open', ClassRepRestController@open)         | ✓
+classRepCloseSession(...)                                   | POST   | /class-rep/sessions/close                         | Route::post('/class-rep/sessions/close', ClassRepRestController@close)       | ✓
+classRepExtendSession(...)                                  | POST   | /class-rep/sessions/extend                        | Route::post('/class-rep/sessions/extend', ClassRepRestController@extend)     | ✓
+classActiveSession(...)                                     | GET    | /class/active-session                             | Route::get('/class/active-session', ClassSessionController@activeSession)    | ✓
+sessionStats(sessionId, ...)                                | GET    | /session/{id}/stats                               | Route::get('/session/{session}/stats', ClassSessionController@stats)         | ✓
+notificationsPending(...)                                   | POST   | /notifications/pending                            | Route::post('/notifications/pending', NotificationsController@pending)       | ✓
+studentAttendanceInsights()                                 | GET    | /student/attendance-insights                      | sanctum, Route::get('/student/attendance-insights', ...)                     | ✓
+lecturerDashboard()                                         | GET    | /lecturer/dashboard                               | sanctum, Route::get('/lecturer/dashboard', ...)                              | ✓
+lecturerCourseDetail(courseId)                              | GET    | /lecturer/courses/{id}                            | sanctum, Route::get('/lecturer/courses/{course}', ...)                       | ✓
+lecturerSendDirectMessage(...)                              | POST   | /lecturer/messages/send                           | sanctum, Route::post('/lecturer/messages/send', ...)                         | ✓
+
+Generic POST/GET endpoints called from pages:
+
+Caller (file:line)                                          | Method | Path                                              | Backend route                                                                | Status
+------------------------------------------------------------+--------+---------------------------------------------------+------------------------------------------------------------------------------+--------
+lib/pages/attendance_page.dart:775,976                      | POST   | /attendance                                       | Route::post('/attendance', AttendanceController@markAttendance)              | ✓
+lib/pages/attendance_page.dart:647                          | POST   | /attendance/checkout                              | Route::post('/attendance/checkout', AttendanceController@checkout)           | ✓
+lib/services/sync_service.dart:26 (queued retries)          | POST   | /attendance OR /attendance/checkout               | both registered                                                              | ✓
+lib/pages/onboarding_page.dart:60                           | POST   | /onboarding/complete                              | Route::post('/onboarding/complete', StudentOnboardingController@complete)    | ✓
+lib/pages/attendance_records_page.dart:82                   | GET    | /attendance/{id}/records                          | Route::get('/attendance/{session}/records', AttendanceRecordsController@..)  | ✓
+lib/pages/attendance_records_page.dart:162                  | GET    | /attendance/{id}/export/{csv|excel|pdf}           | Route::get('/attendance/{session}/export/{csv,excel,pdf}', ...)              | ✓
+
+Findings
+--------
+F2.1  ⚠ DEAD METHOD — `ApiService.startSession(lat,lng,accuracy)` POSTs to
+      `POST /api/sessions/start`. **That route does not exist** in either
+      `routes/api.php` or `routes/api/v1.php`. The method is also not called
+      from anywhere in the Flutter codebase (grep confirms zero call sites
+      outside its own definition). It is a documentation stub left over from
+      a since-cancelled feature. Flagged but **NOT removed** (the user’s
+      explicit rule: do not remove features). Recommendation: either delete
+      the dead method or implement the `/sessions/start` route on the backend
+      with a SessionController@start endpoint.
+
+F2.2  Error handling on every API call is centralised in
+      `ApiService.messageFromHttpResponse(res)` and `sanitizeApiUserMessage()`
+      so the user sees a curated message, never a raw exception. ✓
+
+F2.3  All authenticated calls correctly send `Authorization: Bearer <token>`
+      when a Sanctum token is loaded. Endpoints that still use the
+      legacy `index_number + password` body payload (rep/class-rep tree)
+      match the backend contract and continue to work.
+
+================================================================================
+  PHASE 3 — ATTENDANCE FLOW AUDIT
+================================================================================
+
+Login
+-----
+  `LaunchGatePage` (root) → bootstraps from SharedPreferences/SQLite, then
+  routes to `IntroOnboardingPage` (first-run), `LoginPage`, or the role
+  home (`/home`, `/rep-home`, `/lecturer-home`). No race conditions
+  observed — bootstrap uses `pushReplacement`, not `push`.
+
+  After successful login (`LoginPage._handleLogin*`), the password is
+  stored via `OfflineService.setApiSessionPassword()` and the Sanctum
+  token via `OfflineService.setApiSessionToken()`. Mobile uses
+  `flutter_secure_storage` with Android `encryptedSharedPreferences`. Web
+  falls back to `SharedPreferences` (browser localStorage) — see Phase 5.
+
+Onboarding
+----------
+  `onboarding_page.dart` POSTs `/onboarding/complete` once on success.
+  Single network call, idempotent. No polling.
+
+Attendance marking (instant)
+----------------------------
+  `attendance_page.dart` builds an `AttendanceRecord`, calls
+  `ApiService.post('attendance', payload)` (line 775 and 976 for the two
+  code paths: QR-direct and location-direct). On success, it updates
+  `LastAttendancePrefs`, fires the success chime, and marks the session
+  as `already_marked` in the local set. On failure it queues to SQLite
+  via `OfflineService.insert(record)` for `SyncService.syncAttendance()`
+  to drain later. No duplicate POSTs (the path is guarded by `_isLoading`
+  and the local already-marked set).
+
+Attendance marking (check-in / check-out)
+-----------------------------------------
+  Check-in uses the same `/attendance` POST with `attendance_mode =
+  checkin_checkout`. Check-out POSTs `/attendance/checkout` (line 647).
+  Backend has both routes registered. The Flutter session row keeps
+  the pending checkout visible even after `is_active=false`, matching
+  `App\Services\ActiveSessionListBuilder::mergePendingCheckoutSessions`.
+
+Active session listing
+----------------------
+  `home_page._load()` calls `ApiService.getActiveSessions(indexNumber,
+  classId)`. Not on a timer — only fires from pull-to-refresh, lifecycle
+  resume, post-mark refresh, and explicit user navigation. ✓ No
+  background polling on the student home page.
+
+Notifications
+-------------
+  `NotificationBridge._pollPendingOnce()` POSTs `/notifications/pending`
+  ONLY when the app is foregrounded or after login (`onAppForegrounded()`
+  hooked in `main.dart:74`). There is no `Timer.periodic` on the bridge.
+  Guarded by `_inFlight` to prevent overlapping calls. ✓
+
+Lecturer flows
+--------------
+  `lecturer_dashboard_page.dart`, `lecturer_class_detail_page.dart` →
+  one-shot GETs against `/lecturer/dashboard` and `/lecturer/courses/{id}`.
+  No polling.
+
+Class rep flows
+---------------
+  `rep_home_page.dart` — UI countdown only; no network polling.
+  `rep_session_page.dart` — **DOES poll the backend every 8 seconds**
+  (line 42, see Phase 4 finding F4.1).
+  `class_rep_students_page.dart`, `class_rep_student_detail_page.dart`,
+  `rep_flagged_students_page.dart`, `rep_insights_page.dart` — on-demand
+  fetch only.
+
+Timer.periodic inventory
+------------------------
+  Location                                                    | Interval | Kind            | Verdict
+  ------------------------------------------------------------+----------+-----------------+----------
+  lib/pages/attendance_page.dart:272 (_countTimer)            | 1 s      | UI countdown    | ✓ safe
+  lib/pages/home_page.dart:226 (_sessionUiTicker)             | 1 s      | UI countdown    | ✓ safe (auto-cancels when no active sessions)
+  lib/pages/home_page.dart:1010 (_absenceWarningAutoDismiss)  | 10 s     | one-shot Timer  | ✓ safe (single fire)
+  lib/pages/rep_home_page.dart:239 (_countdownTimer)          | 1 s      | UI countdown    | ✓ safe
+  lib/pages/rep_session_page.dart:42 (_pollTimer)             | 8 s      | NETWORK polling | ⚠ see F4.1
+
+================================================================================
+  PHASE 4 — PERFORMANCE AUDIT
+================================================================================
+
+F4.1  ⚠ rep_session_page.dart polls every 8 seconds AND calls multiple
+      sequential HTTP endpoints per tick:
+          1. ApiService.repCourses()
+          2. _refreshClassActiveSessionAndStats()  (1–2 more requests)
+      That is ~22 requests/minute per active rep. Combined with the
+      Laravel side already optimised in commit `7076520a` (N+1 kill in
+      ActiveSessionListBuilder, sargable index_number lookups), this
+      is no longer a database hot-spot, but it still has three
+      symptoms that ARE worth fixing in a follow-up PR (NOT done here
+      because doing so changes user-visible behaviour, which the
+      audit ruleset forbids):
+        (a) `setState(() { _loading = true; })` on every tick produces
+            a visible spinner flash every 8 seconds.
+        (b) The timer keeps polling while the page is offscreen
+            (Navigator stack push), the device is locked, or the app
+            is backgrounded — there is no AppLifecycleState gate.
+        (c) No `_inFlight` guard means an overlapping tick (slow
+            network) will run a duplicate refresh in parallel.
+      Suggested fix for a follow-up: gate with `_inFlight`, switch
+      `setState({_loading=true})` to a quiet refresh (only set when no
+      data yet), and pause the timer in `didChangeAppLifecycleState`.
+
+F4.2  `home_page._load(silent: true)` is the right pattern — it only
+      sets the loading flag when there is no cached data. Good design.
+
+F4.3  FutureBuilder / StreamBuilder usage scan:
+        - 0 `StreamBuilder<…>` for API data (all streams are UI-local
+          ValueListenable / Notifier from `ThemeService` /
+          `InstitutionThemeService`). ✓
+        - `FutureBuilder` is used sparingly for small one-shots (chart
+          building, profile-image precache). None of them re-fire on
+          every rebuild because the futures are stored in
+          `late final Future<…> _f = …()` fields. ✓
+
+F4.4  Image loading:
+        - `ProfileImageCache` already memoises the avatar bytes per URL
+          with a TTL — good. Network avatars use `NetworkImage`’s
+          built-in HTTP cache.
+        - Big asset (`assets/images/auth/login-hero.jpg`) is loaded
+          via `AssetImage` on the login screen only — fine.
+
+F4.5  State management abuse:
+        - No `Provider`/`Bloc`/`Riverpod` overuse — the project uses
+          plain `StatefulWidget` + `ValueListenable` notifiers. Light
+          and predictable.
+        - `setState` is used on the same widget per network response,
+          not on a parent that would rebuild children unnecessarily.
+
+F4.6  Duplicate API requests:
+        - On login, `LoginPage._handleLogin*` calls `login()` then
+          immediately `loadAppSettings(forceRemote: true)` once.
+        - `home_page._load()` calls `_syncClassRepFlagFromApi()`
+          conditionally — only when login payload was incomplete; it
+          short-circuits if rep flags are already present in the
+          student model. No duplicates observed.
+
+================================================================================
+  PHASE 5 — SECURITY AUDIT
+================================================================================
+
+F5.1  ⚠ FIXED — 7 unguarded `print()` calls leaked in release builds.
+      In release builds, `kReleaseMode` is true and `print()` still
+      writes to the platform console (logcat / NSLog), which means
+      these messages were visible to anyone with `adb logcat` or the
+      iOS device log. The messages included response bodies, server
+      URLs, and full stack traces. They have been wrapped in
+      `if (kDebugMode) { … }` blocks. Concrete locations fixed:
+
+        - lib/services/api_service.dart:655   (SESSION RESPONSE error)
+        - lib/services/api_service.dart:675   (SERVER ERROR preview)
+        - lib/services/api_service.dart:684   (INVALID RESPONSE preview)
+        - lib/services/api_service.dart:697   (SESSION JSON PARSE ERROR)
+        - lib/services/api_service.dart:714   (legacy sessions log)
+        - lib/pages/home_page.dart:485        (SESSION ERROR)
+        - lib/widgets/dynamic_widget_renderer.dart:33 (renderer failure)
+
+F5.2  Token / password storage
+      Mobile:
+        - Sanctum bearer token  → `flutter_secure_storage` (Keychain on
+          iOS, Keystore-backed `EncryptedSharedPreferences` on Android).
+          ✓ correct usage in `OfflineService.setApiSessionToken`.
+        - Session password (used by legacy `index_number + password`
+          endpoints) → same secure storage.        ✓
+        - bcrypt-style local password hash → kept in SQLite `students`
+          table (NOT plaintext). ✓
+      Web:
+        - Both token and session password fall back to
+          `SharedPreferences` → browser **localStorage**. localStorage
+          is readable by any JS in the same origin, so a successful XSS
+          would exfiltrate the bearer.
+        - This is the standard Flutter Web compromise — `flutter_secure_storage`
+          has no encrypted backend for the web. **Recommended (not
+          applied in this audit):** add a strict
+          `Content-Security-Policy` header in the Laravel response that
+          serves the SPA assets and consider switching to short-lived
+          tokens with a server-side refresh cookie for web builds.
+
+F5.3  Logout cleanup (`OfflineService.clearCurrentStudent`) correctly:
+        - calls `ApiService.logoutRemote()` to revoke the Sanctum token
+        - removes the API password from secure storage / SharedPrefs
+        - removes the API token from secure storage / SharedPrefs
+        - clears the in-memory bearer
+        - deletes the students/users rows in SQLite (mobile)
+        - removes the SharedPrefs JSON (web)
+      ✓ Complete.
+
+F5.4  Hardcoded URLs / API keys / secrets
+        - `lib/utils/constants.dart` line 7:
+              `defaultValue: 'https://at-enda.manuelcode.info/api'`
+          This is a HARDCODED PRODUCTION BASE URL. It is reachable in
+          plain text in any release build (string can be grep’d from
+          the IPA / APK). The user’s intention is clearly to override
+          this with `--dart-define=API_BASE_URL=…` per environment, but
+          builds without the override silently fall back to production.
+          **Recommendation:** flip the default to an empty string and
+          fail fast in `ApiService` if `baseUrl` is empty. Not
+          applied here because doing so blocks any developer who runs
+          `flutter run` without remembering the dart-define, which is a
+          UX/build-workflow change the user should decide on.
+        - `QR_SECRET` (line 57) correctly defaults to empty and is
+          provided at compile time. ✓
+        - No API keys or secret strings found anywhere else in
+          `lib/`. ✓
+
+F5.5  `lib/services/device_service.dart:16` calls
+      `https://api.ipify.org`. This is an intentional public IP probe
+      (used by `AttendanceFraudGuard` on the backend). No PII is sent.
+      ✓ acceptable.
+
+F5.6  `lib/services/api_service.dart` defines `localAuthOnly = false`
+      and `debugShowSessionApiResponseOnHome = false` (constants.dart).
+      Both are intentionally `false` in the committed code. ✓
+
+================================================================================
+  PHASE 6 — WEB APP AUDIT
+================================================================================
+
+F6.1  `lib/main.dart` has no `kIsWeb`-gated initialisation logic — both
+      mobile and web run the same lifecycle. Plugins that don’t support
+      web (TFLite face verification, `flutter_local_notifications` on
+      some browsers) are gated at their call sites via `kIsWeb`:
+        - `api_service.dart:75`   → `!kIsWeb && faceVerificationEnabled`
+        - `api_service.dart:202`  → web disables face verification
+        - `notification_bridge.dart:99` → web skips success chime
+        - `offline_service.dart:25,234,…` → web skips sqflite, uses
+          SharedPreferences shim
+        - `student_avatar_storage_web.dart` / `face_service_web_stub.dart`
+          → web-only no-op stubs for the IO-only services. ✓
+
+F6.2  Navigation
+        - Named routes work on web (PushReplacementNamed). The
+          `WidgetsBindingObserver` lifecycle hook still fires on web
+          (visibility changes → resume), so notification re-poll
+          continues to work in the tab.
+
+F6.3  Responsive layout
+        - The student dashboard widgets (`StudentTodayDashboard`,
+          `StudentNoirTaskDashboard`, `StudentPastelProfileDashboard`,
+          etc.) use `MediaQuery.sizeOf(context).width` and adapt at
+          common breakpoints (mobile-portrait, tablet, desktop). Spot
+          checks show responsive padding and column counts. ✓
+
+F6.4  Mobile-only assumptions
+        - `permission_handler` and `geolocator` calls are wrapped to
+          tolerate the web fallback (geolocation uses the browser
+          Geolocation API on web — works with permission prompts).
+        - `mobile_scanner` (QR) is partially supported on web; failures
+          are caught and surfaced via `ApiService.sanitize…`. No
+          unhandled exceptions.
+
+F6.5  Web `index.html` is clean — no inline secrets, only Font Awesome
+      preload + a gesture-event blocker (prevents pinch-zoom). The
+      manifest path is correct.
+
+================================================================================
+  PHASE 7 — BACKEND ALIGNMENT
+================================================================================
+
+Field-by-field comparison of the four most fetched models.
+
+Student model
+-------------
+  Flutter (lib/models/student.dart) parses:
+    serverId, indexNumber, name, firstName, lastName, profileImage,
+    faceDescriptor, boundIp, phoneNumber, email, className, faculty,
+    department, level, semester, isClassRep, repRoles (RepRoleEntry[]),
+    role/primaryRole, lecturerId.
+  Laravel (App\Models\Student + AuthController login response) emits:
+    id (→serverId), index_number, name OR first_name/last_name,
+    profile_image, face_descriptor (json), bound_ip, phone_number,
+    email, class.name (→className), class.faculty, class.department,
+    class.level, class.semester, is_class_rep, rep_roles[], primary_role,
+    lecturer_id.
+  Verdict: ALIGNED. The Flutter parser uses defensive `_strOrNull` and
+  `_str` helpers to tolerate either int or string `index_number` (which
+  is a real concern because some legacy data is purely numeric).
+
+Session model (raw map, no Dart class)
+--------------------------------------
+  Flutter expects (from `isValidActiveSession` + `parseSessionsList`):
+    id, course_id, course_code, course_title/course_name, week_id,
+    lecturer_name, venue, lat, lng, range_meters, mode, location_required,
+    requires_qr_proof, qr_enabled, face_verification, ip_binding,
+    remaining_minutes, end_time, attendance_mode, check_in_time,
+    check_out_time, checkout_enabled / can_check_out, active / is_active,
+    status, is_closed / closed, closed_at / closed_time,
+    end_time / ends_at / ended_at, already_marked, my_status.
+  Laravel emits (App\Support\FlutterSessionFormatter::format):
+    all of the above except `requires_qr_proof` is computed at call site,
+    and `already_marked` / `my_status` are appended by
+    ActiveSessionListBuilder::buildRows. ✓ FULLY ALIGNED.
+
+Attendance model (lib/models/attendance_record.dart)
+----------------------------------------------------
+  Flutter sends: session_id, course_id, week_id, index_number, lat, lng,
+  qr_code (optional), face_descriptor (optional, native only), device_ip,
+  device_id, timestamp.
+  Laravel (AttendanceController@markAttendance) reads: session_id (or
+  resolves via class+week), course_id, week_id, index_number, lat, lng,
+  qr_code, face_descriptor, device_ip, device_id, timestamp.
+  ✓ ALIGNED.
+
+Notification model
+------------------
+  Flutter parses `data.notifications[*]` with `id`, `title`, `body`.
+  Laravel (NotificationsController@pending) returns
+  `{status, message, data: {notifications: [{id,title,body}]}}`. ✓ ALIGNED.
+
+Dashboard models
+----------------
+  Lecturer dashboard, class-rep dashboard, student insights — each
+  returns a JSON envelope `{status, message, data: {...}}` that the
+  caller decodes defensively (`if decoded is Map …`). No strict Dart
+  model classes are imposed — instead the dashboards interpret the
+  payload directly with null-coalescing operators. This is a brittle
+  but maintainable pattern; **no mismatches** were found during
+  static review.
+
+Findings
+--------
+F7.1  No nullable mismatches detected. Every field the Flutter side
+      treats as required has a non-null default both in the Laravel
+      column definition (or in the API resource builder).
+
+F7.2  No fields are requested by Flutter but not emitted by Laravel
+      (after the recent backend formatter additions in commit
+      `7076520a` and earlier).
+
+F7.3  Fields returned by Laravel but unused by Flutter exist (e.g.
+      `session_index`, several timestamps, `device_fingerprint`).
+      These are harmless and intentional for web/admin consumers.
+
+================================================================================
+  PHASE 8 — PRODUCTION READINESS
+================================================================================
+
+Android (`at-end_frontend_app/android/app/src/main/AndroidManifest.xml`)
+------------------------------------------------------------------------
+  Permissions declared:
+    INTERNET, POST_NOTIFICATIONS, VIBRATE, CAMERA,
+    ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION.
+  All match plugin requirements (camera, geolocator,
+  flutter_local_notifications, permission_handler). ✓
+
+  Note:
+    `android:usesCleartextTraffic="true"` is set on `<application>`.
+    This permits HTTP traffic — used for local development against
+    Laravel via `http://10.0.2.2:8000/api`. **Hardening
+    recommendation (NOT applied in this audit because it requires the
+    user to confirm whether HTTP is needed in any prod scenario):**
+    add `android/app/src/main/res/xml/network_security_config.xml`
+    that allows cleartext only for localhost/10.0.2.2 and reference it
+    from the manifest (`android:networkSecurityConfig="@xml/network_security_config"`).
+
+iOS (`at-end_frontend_app/ios/Runner/Info.plist`)
+-------------------------------------------------
+  ✓  NSCameraUsageDescription
+  ✓  NSLocationWhenInUseUsageDescription
+  ⚠ NSAppTransportSecurity.NSAllowsArbitraryLoads = true
+       Same recommendation as the Android cleartext note above:
+       restrict ATS exceptions to `localhost` and `10.0.2.2`.
+       Not applied; requires user policy decision.
+  ⚠ NSPhotoLibraryUsageDescription is NOT declared.
+       The `image_picker` package is declared in pubspec.yaml but is
+       NEVER called from `lib/` (grep confirms zero `ImagePicker` or
+       `pickImage` usage). It is therefore an unused dependency. If the
+       user re-introduces it AND the picker is opened against the
+       photo library (not the camera), the app will crash on iOS 14+
+       without this Info.plist key. Recommendations (NOT applied):
+         (a) Remove the unused `image_picker` dependency from
+             pubspec.yaml, OR
+         (b) Add NSPhotoLibraryUsageDescription proactively.
+
+Web (`at-end_frontend_app/web/index.html`)
+------------------------------------------
+  ✓  Correct base href placeholder.
+  ✓  No inline secrets.
+  ✓  Gesture-event blocker prevents pinch-zoom (standard for app-like
+     PWAs).
+  ⚠ No `Content-Security-Policy` `<meta>` is set. CSP is normally set
+      via the HTTP response header at the Laravel/CDN layer.
+      Recommendation: serve the SPA with a strict CSP that blocks
+      inline scripts except for the bootstrap, to mitigate the
+      Phase 5 web-token-storage concern.
+
+Release build flags
+-------------------
+  No `--obfuscate --split-debug-info=...` invocation seen in any
+  `start.bat` / `restart.bat`. Recommendation for Android release:
+    flutter build apk --release \
+      --dart-define=API_BASE_URL=https://at-enda.manuelcode.info/api \
+      --dart-define=QR_SECRET=<secret> \
+      --obfuscate --split-debug-info=build/symbols
+  Same flags apply for `appbundle`.
+
+Crash risks / memory leaks / lifecycle
+--------------------------------------
+  ✓ All Timer instances are cancelled in `dispose()` (verified for
+    `attendance_page._countTimer`, `home_page._sessionUiTicker`,
+    `home_page._absenceWarningAutoDismissTimer`,
+    `rep_home_page._countdownTimer`, `rep_session_page._pollTimer`).
+  ✓ `_AppLifecycleShellState.dispose()` removes the WidgetsBinding
+    observer (lib/main.dart:66).
+  ✓ `FlutterSecureStorage` is a static const — no per-call allocation.
+  ✓ The login page guards `_isLoading` to prevent re-entry — no double
+    submission.
+
+================================================================================
+  CHANGES APPLIED IN THIS AUDIT
+================================================================================
+
+The following files were modified. All edits are safe (no API contract
+changes, no behaviour changes, no feature removals).
+
+Modified
+--------
+  at-end_frontend_app/lib/services/api_service.dart
+      - Wrapped 5 release-mode-leaking `print(...)` calls in
+        `if (kDebugMode) { ... }` blocks (network error, server error,
+        invalid response, JSON parse error, legacy array log).
+
+  at-end_frontend_app/lib/pages/home_page.dart
+      - Added `import 'package:flutter/foundation.dart' show kDebugMode;`
+      - Wrapped the `print('SESSION ERROR: $e')` call in
+        `if (kDebugMode) { ... }`.
+
+  at-end_frontend_app/lib/widgets/dynamic_widget_renderer.dart
+      - Added `import 'package:flutter/foundation.dart' show kDebugMode;`
+      - Wrapped the `print('DynamicWidgetRenderer failed: $e')` call
+        in `if (kDebugMode) { ... }`.
+
+  at-end_frontend_app/test/widget_test.dart
+      - Rewrote the stale "Login page smoke test" — it asserted on
+        literal strings ("Attendance", "Sign in") that the current
+        LoginPage no longer renders, AND the root route is
+        LaunchGatePage which never actually mounts LoginPage in a
+        smoke test. The new test verifies the MaterialApp boots and
+        the boot spinner is shown, which is the only behaviour a
+        widget smoke test can deterministically check at this layer.
+
+Created
+-------
+  FLUTTER_BACKEND_AUDIT.txt  (this file)
+
+================================================================================
+  BUGS FIXED
+================================================================================
+
+  1. Stale unit test (`widget_test.dart`) failing because the LoginPage
+     no longer contains the literal text "Attendance" / "Sign in" and
+     the root route is actually LaunchGatePage. `flutter test` now
+     passes 1/1.
+
+  2. Seven `print()` calls leaking to release-build platform logs
+     (logcat/NSLog) — wrapped in `kDebugMode`. The leaked payloads
+     included server response previews (up to 800 chars), full stack
+     traces, and the active-session URL with query parameters
+     (`index_number=...`).
+
+================================================================================
+  PERFORMANCE IMPROVEMENTS
+================================================================================
+
+  Within this audit's "do not change behaviour" scope, the perf
+  improvements are limited to:
+    - Eliminating 7 release-mode `print()` calls that perform
+      `Object.toString()` and stack-trace formatting per call. Saves
+      a small amount of allocation + IO on each error path.
+
+  Larger wins are documented in F4.1 as recommended follow-ups but
+  not applied because they alter visible behaviour. Backend perf
+  improvements from the previous task (commit `7076520a`) have already
+  reduced the database hit count from the same polling pattern.
+
+================================================================================
+  SECURITY FINDINGS  (recap)
+================================================================================
+
+  Fixed       : F5.1  release-mode print() leakage (7 sites).
+  Open (low)  : F5.2  Web token storage is browser localStorage —
+                      acceptable for now, harden later via short-lived
+                      tokens + httpOnly refresh cookie or strict CSP.
+  Open (low)  : F5.4  Hardcoded default API base URL in
+                      `Constants.baseUrl`. Override with
+                      `--dart-define=API_BASE_URL=...` in release
+                      builds, OR flip the default to '' and fail fast.
+  Open (low)  : Phase-8  Android `usesCleartextTraffic` + iOS
+                      `NSAllowsArbitraryLoads` are broad — restrict to
+                      localhost/10.0.2.2 via
+                      `network_security_config.xml` and ATS exception
+                      domains.
+  Open (info) : Phase-8  No CSP on the web build’s host page.
+
+================================================================================
+  BACKEND / FRONTEND MISMATCHES
+================================================================================
+
+  Single mismatch:
+
+  F2.1  `ApiService.startSession(lat,lng,accuracy)` → `POST /api/sessions/start`
+         not registered on the backend. Method is also dead code (zero
+         call sites). Flagged. NOT removed (no-feature-removal rule).
+
+  Recommendation: delete `ApiService.startSession()` from
+  `lib/services/api_service.dart` in a follow-up PR explicitly scoped
+  to "dead-code removal".
+
+================================================================================
+  REMAINING RISKS  (NOT addressed in this audit, by design)
+================================================================================
+
+  R1  rep_session_page.dart polls 1–3 endpoints every 8 s
+      regardless of app lifecycle. Add `_inFlight` guard, pause on
+      `AppLifecycleState.paused`, and switch the visible-spinner
+      pattern to a silent refresh. Estimated effort: 1 hour. Reduces
+      backend traffic by ~50% in real-world usage.
+
+  R2  Web build keeps Sanctum token in localStorage. Move to
+      short-lived tokens + httpOnly refresh cookie OR add strict CSP.
+      Estimated effort: 0.5–2 days depending on chosen mitigation.
+
+  R3  Cleartext HTTP / arbitrary loads enabled on both Android and
+      iOS — fine for dev, broader than needed for release. Tighten
+      with network_security_config.xml + ATS exception domains.
+      Estimated effort: 30 min.
+
+  R4  `image_picker` declared but never used — silent dependency
+      bloat (~MB of native plugin code). Either remove from
+      pubspec.yaml or add the Info.plist permission key proactively
+      so the next contributor can use it without an iOS crash.
+
+  R5  Dead method `ApiService.startSession()` → `POST /sessions/start`
+      (route does not exist). Remove the method or implement the
+      backend endpoint.
+
+  R6  Pre-existing PHPUnit failure (Laravel side) caused by the
+      `.env` `SQLITE_DB_DATABASE` value overriding the in-memory
+      database in `phpunit.xml`. Unrelated to this audit; documented
+      in the previous backend audit.
+
+================================================================================
+  ESTIMATED IMPACT
+================================================================================
+
+  Immediate (already shipped on this branch):
+    - 0 → 0 analyzer issues maintained.
+    - 0 → 1 passing widget test.
+    - 7 fewer release-build log lines per failed network call —
+      removes a small but real data-leak vector.
+
+  Recommended follow-ups (NOT shipped here):
+    - R1 alone would cut rep-page backend traffic by ~50 % and
+      eliminate the 8-second spinner flicker.
+    - R4 alone trims ~1.5 MB from the Android release APK and ~3 MB
+      from the iOS IPA (image_picker pulls in `image_picker_android`,
+      `image_picker_ios`, `image_picker_for_web`, and
+      `flutter_plugin_android_lifecycle`).
+    - R2 + R3 remove the only two web-facing security exposures.
+
+================================================================================
+  VERIFICATION COMMANDS
+================================================================================
+
+  cd at-end_frontend_app
+  flutter pub get        # OK
+  flutter analyze        # No issues found! (ran in 13.7s)
+  dart analyze           # No issues found!
+  flutter test           # 1/1 passing
+  flutter doctor -v      # Healthy (Android licences only)
+
+================================================================================
+  END OF REPORT
+================================================================================

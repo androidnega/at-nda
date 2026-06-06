@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 /// Minimal backend-driven UI renderer (v1).
@@ -29,8 +30,10 @@ class DynamicWidgetRenderer {
         out.add(_renderOne(context, rawItem.cast<String, dynamic>()));
       } catch (e) {
         // Never crash the app due to backend UI.
-        // ignore: avoid_print
-        print('DynamicWidgetRenderer failed: $e');
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('DynamicWidgetRenderer failed: $e');
+        }
       }
     }
 
