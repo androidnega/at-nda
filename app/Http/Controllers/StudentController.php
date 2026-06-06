@@ -214,6 +214,32 @@ class StudentController extends Controller
         }
         $recentAttendance = $recentAttendanceQuery->get();
 
+        // Pull the latest 40 audit events touching this student so the
+        // admin can see the full security trail (logins, marks, manual
+        // marks, fraud flags, deletions) without leaving the profile.
+        // Matches:
+        //   - actions performed BY the student / their rep account
+        //   - actions performed AGAINST the student (target/subject)
+        $studentLogs = collect();
+        $auditAvailable = \App\Support\SchemaFeatures::hasAuditLogs();
+        if ($auditAvailable) {
+            $sid = (int) $student->id;
+            $studentLogs = \App\Models\AuditLog::query()
+                ->where(function ($q) use ($sid) {
+                    $q->where(function ($qq) use ($sid) {
+                        $qq->whereIn('actor_role', ['student', 'rep'])
+                            ->where('actor_id', $sid);
+                    })->orWhere(function ($qq) use ($sid) {
+                        $qq->where('subject_type', 'student')
+                            ->where('subject_id', $sid);
+                    });
+                })
+                ->orderByDesc('id')
+                ->limit(40)
+                ->get();
+        }
+        $auditActions = AuditLogController::knownActions();
+
         return view('admin.student-detail', compact(
             'student',
             'coursesCount',
@@ -221,7 +247,10 @@ class StudentController extends Controller
             'absentCount',
             'totalWeeks',
             'repAssignableClasses',
-            'recentAttendance'
+            'recentAttendance',
+            'studentLogs',
+            'auditAvailable',
+            'auditActions'
         ));
     }
 

@@ -287,9 +287,24 @@
         });
 
         fetch('{{ route("dashboard.students.index") }}?' + params, {
-            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
         })
-        .then(r => r.json())
+        .then(function (r) {
+            // Session expired? Server redirected the AJAX request to a
+            // non-JSON page (login). Don't silently show "no students" —
+            // do a real form submit so the user lands on login or
+            // gets the server-rendered results back.
+            var ct = (r.headers && r.headers.get('Content-Type')) || '';
+            if (!r.ok || ct.indexOf('application/json') === -1) {
+                if (reset && form && typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                    throw new Error('fallback_form_submit');
+                }
+                throw new Error('non_json_response');
+            }
+            return r.json();
+        })
         .then(function(data) {
             if (data.students && data.students.length) {
                 data.students.forEach(function(s) {
@@ -297,16 +312,27 @@
                     tbody.insertAdjacentHTML('beforeend', renderRow(s, nextSerial));
                     nextSerial += 1;
                 });
+                empty.classList.add('hidden');
             }
             if (reset && (!data.students || !data.students.length)) {
                 var initialEmpty = document.getElementById('students-empty-initial');
                 if (initialEmpty) initialEmpty.remove();
+                var term = (searchInput?.value || '').trim();
+                empty.textContent = term
+                    ? 'No students match "' + term + '". Try a different name or index number — search runs across every class.'
+                    : 'No students found.';
                 empty.classList.remove('hidden');
             }
             hasMore = data.has_more || false;
             page = data.next_page || page + 1;
         })
-        .catch(function() { if (reset) empty.classList.remove('hidden'); })
+        .catch(function (err) {
+            if (err && err.message === 'fallback_form_submit') return;
+            if (reset) {
+                empty.textContent = 'Could not search right now. Tap "Search" to refresh, or check your connection.';
+                empty.classList.remove('hidden');
+            }
+        })
         .finally(function() { loadingData = false; loading.classList.add('hidden'); });
     }
 

@@ -374,8 +374,22 @@
             <p class="text-xs text-gray-500 -mt-2">
                 On shared hosting many simultaneous attendance scans can exhaust connection / file-cache pools.
                 Switch the cache driver to Redis to clear the bottleneck. When Redis is unreachable the
-                system silently falls back to the database driver, so you never lose attendance.
+                system silently falls back to the file driver, so reps and admins always have a slot to log in.
             </p>
+
+            @if(\App\Support\RedisRuntimeConfig::isDegradedToFile())
+                <div class="p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 flex items-start gap-2.5">
+                    <i class="fas fa-triangle-exclamation mt-0.5 text-amber-700"></i>
+                    <div class="text-sm leading-snug">
+                        <p class="font-semibold">Redis is currently unreachable — running on file cache.</p>
+                        <p class="text-amber-900/80 text-xs mt-1">
+                            We auto-fell back to the file driver so the site stays up and reps / admins can keep logging in.
+                            Once Redis is healthy again, run <strong>Auto-configure</strong> below to reconnect, or
+                            switch the driver to <strong>database</strong> permanently.
+                        </p>
+                    </div>
+                </div>
+            @endif
 
             <div class="p-4 rounded-xl border border-rose-100 bg-rose-50/30 space-y-3">
                 <div>

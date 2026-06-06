@@ -227,10 +227,21 @@ class SettingsController extends Controller
                             (int) ($autoRedisResult['database'] ?? 0)
                         );
                     } else {
+                        // Auto-discover failed. Switch the cache driver to
+                        // 'database' (always safe) so the site keeps working
+                        // and rep/admin can keep logging in. The admin can
+                        // manually re-enable Redis later from this same
+                        // page once the host activates it.
                         $tried = collect($autoRedisResult['attempts'] ?? [])
                             ->map(fn ($a) => "{$a['label']} ({$a['host']}:{$a['port']}) → {$a['error']}")
                             ->implode('; ');
-                        return back()->with('error', 'Redis auto-configure failed. Tried: '.($tried !== '' ? $tried : 'no candidates available').'. Other settings on this page were still saved.');
+
+                        $settings->update(['cache_driver' => 'database']);
+                        \App\Support\RedisRuntimeConfig::reapply();
+
+                        $hint = 'Cache driver was switched to database so the site stays responsive. Once your host enables Redis you can come back and run auto-configure again.';
+
+                        return back()->with('error', 'Redis auto-configure failed. Tried: '.($tried !== '' ? $tried : 'no candidates available').'. '.$hint);
                     }
                 }
             }

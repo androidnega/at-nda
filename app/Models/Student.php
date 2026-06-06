@@ -170,11 +170,15 @@ class Student extends Model implements AuthenticatableContract
         $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $raw).'%';
         $normalized = preg_replace('/[\s\/\-]/', '', strtoupper($raw));
 
-        return $query->where(function (Builder $q) use ($term, $normalized, $raw): void {
+        // Strip non-digits for a phone-style match (handles "0244 123 456" → "0244123456").
+        $digitsOnly = preg_replace('/\D+/', '', $raw);
+
+        return $query->where(function (Builder $q) use ($term, $normalized, $raw, $digitsOnly): void {
             $q->where('index_number', 'like', $term)
                 ->orWhere('first_name', 'like', $term)
                 ->orWhere('middle_name', 'like', $term)
                 ->orWhere('last_name', 'like', $term)
+                ->orWhere('phone_number', 'like', $term)
                 ->orWhereRaw(
                     "LOWER(CONCAT(COALESCE(first_name,''), ' ', COALESCE(middle_name,''), ' ', COALESCE(last_name,''))) LIKE ?",
                     ['%'.strtolower($raw).'%']
@@ -185,6 +189,18 @@ class Student extends Model implements AuthenticatableContract
                     ['%'.$normalized.'%']
                 );
             }
+            // Phone match: e.g. "0244123456" stripped from any input.
+            if (strlen((string) $digitsOnly) >= 4) {
+                $q->orWhereRaw(
+                    "REPLACE(REPLACE(REPLACE(COALESCE(phone_number,''), ' ', ''), '-', ''), '+', '') LIKE ?",
+                    ['%'.$digitsOnly.'%']
+                );
+            }
+            // Class name match — admins often type a class label like
+            // "BTECH GROUP B" expecting that class's students.
+            $q->orWhereHas('schoolClass', function (Builder $sub) use ($term): void {
+                $sub->where('name', 'like', $term);
+            });
         });
     }
 

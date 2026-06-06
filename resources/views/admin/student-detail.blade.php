@@ -214,6 +214,35 @@
 </div>
 @endif
 
+{{-- Audit trail for this student: every login, mark, manual mark, fraud
+     flag, deletion, etc. Only admins land on this page so we can show
+     IPs / device fingerprints without privacy concerns. Click any row
+     for the full detail modal. --}}
+@if(($auditAvailable ?? false) && isset($studentLogs))
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <h2 class="font-semibold text-gray-900 flex items-center gap-2">
+                <i class="fas fa-shield-halved text-primary/80"></i>
+                Security &amp; activity log
+            </h2>
+            <p class="text-sm text-gray-500 mt-0.5">
+                Latest {{ $studentLogs->count() }} events for this student — logins, marks, manual marks, fraud flags and deletions. Tap any row for the full detail.
+            </p>
+        </div>
+        @if($studentLogs->isNotEmpty() && \Illuminate\Support\Facades\Route::has('dashboard.audit-logs.index'))
+            <a href="{{ route('dashboard.audit-logs.index', ['search' => $student->index_number]) }}"
+               class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+                Open in full audit log <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
+            </a>
+        @endif
+    </div>
+    <div class="p-3 sm:p-4">
+        @include('_partials.audit-log-table', ['logs' => $studentLogs, 'available' => true, 'actions' => $auditActions ?? []])
+    </div>
+</div>
+@endif
+
 @if(isset($recentAttendance) && $recentAttendance->isNotEmpty())
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
     <div class="px-5 py-4 border-b border-gray-100">

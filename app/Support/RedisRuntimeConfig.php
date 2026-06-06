@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Redis;
 final class RedisRuntimeConfig
 {
     private static bool $applied = false;
+    private static ?bool $degradedToFile = null;
 
     public static function applyOnce(): bool
     {
@@ -55,6 +56,18 @@ final class RedisRuntimeConfig
         $host = trim((string) ($settings->redis_host ?? ''));
         $port = (int) ($settings->redis_port ?? 0);
         if ($host === '' || $port <= 0) {
+            // Misconfigured — keep the site up by silently using file cache.
+            self::degradeToFile('redis_host_or_port_missing');
+
+            return false;
+        }
+
+        // No client extension/library installed? Falling back is the only
+        // way to keep dashboards / login working — Cache::* would throw on
+        // every request otherwise.
+        if (! extension_loaded('redis') && ! class_exists(\Predis\Client::class)) {
+            self::degradeToFile('no_redis_client_installed');
+
             return false;
         }
 
@@ -92,6 +105,104 @@ final class RedisRuntimeConfig
         } catch (\Throwable $e) {
             // Older Laravel versions or already-purged store — safe to ignore.
         }
+
+        // Health check: connect with a tight timeout. If Redis is down,
+        // automatically fall back to file cache so reps/admins can still
+        // log in and manage the system. The result is cached on the
+        // filesystem for 30 s so we don't ping Redis on every request.
+        if (! self::isHealthyCached()) {
+            self::degradeToFile('redis_health_check_failed');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Was Redis configured but unreachable on this request?
+     * Used by the settings page to surface a friendly banner.
+     */
+    public static function isDegradedToFile(): bool
+    {
+        // Triggers applyOnce() so the flag is populated even on first read.
+        self::applyOnce();
+
+        return self::$degradedToFile === true;
+    }
+
+    /**
+     * Pick a safe driver and surface a single warning log entry. We keep
+     * the route working — admins/reps can never be locked out because
+     * Redis is having a bad day.
+     */
+    private static function degradeToFile(string $reason): void
+    {
+        config(['cache.default' => 'file']);
+        self::$degradedToFile = true;
+        try {
+            Cache::purge('redis');
+        } catch (\Throwable) {
+            // best effort
+        }
+        Log::warning('redis_unavailable_falling_back_to_file', [
+            'reason' => $reason,
+        ]);
+    }
+
+    /**
+     * Cache-stamped health check: probes Redis at most once every 30 s
+     * (status remembered on the filesystem) so a single Redis outage
+     * doesn't translate into one connect-attempt per page load. Uses a
+     * cheap TCP probe (500 ms timeout) — if the port isn't accepting
+     * connections, no point doing a real Redis ping.
+     */
+    private static function isHealthyCached(): bool
+    {
+        $cacheFile = storage_path('framework/cache/atenda-redis-status.txt');
+        try {
+            if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 30) {
+                $contents = trim((string) @file_get_contents($cacheFile));
+
+                return $contents === 'ok';
+            }
+        } catch (\Throwable) {
+            // Fall through to a live probe.
+        }
+
+        $host = (string) config('database.redis.default.host', '');
+        $port = (int) config('database.redis.default.port', 0);
+        $ok = $host !== '' && $port > 0 && self::tcpProbe($host, $port, 0.5);
+        if ($ok) {
+            // TCP is open — confirm with an actual SET/GET. ping() respects
+            // the connection's read timeout, so it'll fail fast too.
+            $err = self::ping();
+            $ok = $err === null;
+        }
+
+        try {
+            @file_put_contents($cacheFile, $ok ? 'ok' : 'fail');
+        } catch (\Throwable) {
+            // best effort — health caching is non-essential
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Cheap port-open check that returns within `timeoutSeconds` even when
+     * the host is a network black hole. We use it before the real Redis
+     * ping so a misconfigured / down Redis can never hang a page load.
+     */
+    private static function tcpProbe(string $host, int $port, float $timeoutSeconds): bool
+    {
+        $errno = 0;
+        $errstr = '';
+        $fp = @fsockopen($host, $port, $errno, $errstr, $timeoutSeconds);
+        if ($fp === false) {
+            return false;
+        }
+        @fclose($fp);
 
         return true;
     }
