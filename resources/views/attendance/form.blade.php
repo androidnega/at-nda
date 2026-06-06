@@ -14,47 +14,29 @@
     $requireFaceVerification = (bool) (($settings->enable_face_verification ?? true) && $activeSession);
 @endphp
 <div class="max-w-lg mx-auto w-full space-y-4">
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
-        <a href="{{ url('/') }}" class="inline-flex items-center text-gray-500 hover:text-gray-700 text-sm mb-4">
-            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Back
+    {{-- Minimal top strip: back arrow + course code chip. All the
+         previously-on-page chatter (course title, mode description,
+         signed-in line, face-check warning) was redundant — the big
+         tap button below now carries the entire intent. --}}
+    <div class="flex items-center justify-between gap-3 pt-1">
+        <a href="{{ url('/') }}" aria-label="Back"
+           class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
         </a>
-        <h1 class="text-xl sm:text-2xl font-bold text-gray-800">{{ $course->course_name }}</h1>
-        @if($activeSession)
-        <p class="text-gray-600 text-sm mt-2">
-            @switch($sessionMode)
-                @case('qr')
-                    Scan the session QR (camera opens after you continue).
-                    @break
-                @case('hybrid')
-                    Confirm you’re at the venue, then scan the session QR.
-                    @break
-                @case('location')
-                    Tap below when you’re at the session location.
-                    @break
-                @case('wifi')
-                    Connect to the class network, then tap below to check in.
-                    @break
-                @default
-                    Follow the steps below.
-            @endswitch
-        </p>
-        @endif
-        @if($loggedInStudent ?? null)
-        <p class="mt-2 text-xs text-slate-500">Signed in as <span class="font-mono font-medium text-slate-700">{{ $loggedInStudent->index_number }}</span></p>
-        @endif
-        @if($activeSession && $requireFaceVerification)
-        <p class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Face check uses your profile photo — allow the camera (HTTPS or localhost).</p>
-        @endif
-
-        @if(!$activeSession)
-            <div class="mt-4 p-4 bg-amber-50 text-amber-800 rounded-xl text-sm font-medium">
-                Session closed. Attendance cannot be marked.
-            </div>
-        @endif
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-white border border-slate-200 px-3 py-1.5 text-[11px] font-mono font-semibold text-slate-700 truncate max-w-[70%]">
+            <i class="fas fa-book-open text-slate-400 text-[10px]"></i>
+            {{ $course->course_code ?? $course->course_name }}
+        </span>
     </div>
 
+    @if(!$activeSession)
+    <div class="p-4 bg-amber-50 text-amber-800 rounded-xl text-sm font-medium border border-amber-100">
+        Session closed. Attendance cannot be marked.
+    </div>
+    @endif
+
     @if($activeSession)
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <div class="rounded-xl px-4 sm:px-6 pt-2 pb-6">
         <input type="hidden" id="wifi_ssid" value="">
 
         @unless($loggedInStudent ?? null)
@@ -90,57 +72,45 @@
         </div>
 
         @if($loggedInStudent ?? null)
-        {{-- Big tap CTA. Same visual across every attendance mode
-             (location / qr / hybrid / wifi / check-in-out) — only the
-             label + sub-hint changes. Solid emerald (no gradient) so
-             the design reads the same on every kind of session. --}}
+        {{-- Single morphing CTA: idle → locating → got-it → opening-camera
+             → marking → done / error. The button itself communicates
+             every state; no extra panels, no chatty paragraphs. --}}
         @php
             $isCheckInOut = $activeSession?->isCheckInCheckoutMode() ?? false;
-            [$ctaLabel, $ctaHint] = match (true) {
-                $sessionMode === 'qr'     => ['Scan QR',  'Tap to open the scanner'],
-                $sessionMode === 'wifi'   => ['Check In', "Tap once you're on the class Wi-Fi"],
-                $sessionMode === 'hybrid' => ['Check In', "We'll verify location, then scan"],
-                $isCheckInOut             => ['Clock In', 'Tap to record your check-in'],
-                default                   => ['Check In', "Tap when you're at the venue"],
+            $ctaLabel = match (true) {
+                $sessionMode === 'qr'     => 'Scan QR',
+                $sessionMode === 'wifi'   => 'Check In',
+                $sessionMode === 'hybrid' => 'Check In',
+                $isCheckInOut             => 'Clock In',
+                default                   => 'Check In',
             };
         @endphp
-        <div class="my-6 flex flex-col items-center select-none">
+        <div class="my-8 flex flex-col items-center select-none">
             <button type="button" id="btn-start-checkin"
+                data-mode="{{ $sessionMode }}"
+                data-state="idle"
+                data-default-label="{{ $ctaLabel }}"
                 aria-label="{{ $ctaLabel }}"
-                class="group relative h-44 w-44 sm:h-48 sm:w-48 rounded-[2rem] bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 transition-transform duration-150 ease-out active:scale-95 hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 overflow-hidden touch-manipulation">
-                {{-- Soft pulse ring inside the button to hint that it
-                     is tappable. Subtle and slow on purpose so it
-                     doesn't feel like an alert. --}}
-                <span class="pointer-events-none absolute inset-2 rounded-[1.75rem] ring-2 ring-white/30 animate-[ping_2.4s_cubic-bezier(0,0,0.2,1)_infinite]"></span>
+                class="cta-tap relative h-48 w-48 sm:h-52 sm:w-52 rounded-[2rem] text-white shadow-xl transition-all duration-200 ease-out active:scale-95 focus:outline-none focus:ring-4 overflow-hidden touch-manipulation">
+                {{-- Pulse ring (auto-paused in non-idle states via CSS) --}}
+                <span class="cta-ring pointer-events-none absolute inset-2 rounded-[1.75rem] ring-2"></span>
                 <span class="relative z-10 flex h-full flex-col items-center justify-center gap-2 px-4">
-                    <i class="fa-solid fa-hand-pointer text-5xl drop-shadow-sm" aria-hidden="true"></i>
-                    <span class="text-sm font-bold tracking-wider uppercase">{{ $ctaLabel }}</span>
+                    <i id="cta-icon" class="fa-solid fa-hand-pointer text-[3.25rem] drop-shadow-sm leading-none" aria-hidden="true"></i>
+                    <span id="cta-label" class="text-sm font-bold tracking-wider uppercase">{{ $ctaLabel }}</span>
                 </span>
             </button>
-            <p class="mt-3 text-xs text-slate-500">{{ $ctaHint }}</p>
+            {{-- Tiny hint line under the button — also state-driven. --}}
+            <p id="cta-hint" class="mt-3 text-xs text-slate-500 min-h-[1rem]"></p>
         </div>
         @endif
 
-        {{-- Step 2: Location or session verify — visible immediately when signed in so the page is never blank; guests see it after Continue --}}
-        <div id="step-2" class="space-y-4 hidden">
-            <p id="step-2-title" class="text-base font-semibold text-gray-900">Confirming…</p>
-            <div id="location-checking" class="hidden p-4 rounded-xl bg-blue-50 text-blue-800 border border-blue-100 flex items-center gap-3">
-                <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-                    <i class="fa-solid fa-location-crosshairs animate-location-scan" aria-hidden="true"></i>
-                </span>
-                <div class="flex-1">
-                    <p id="location-checking-msg" class="font-medium">Scanning your location...</p>
-                    <p class="text-xs text-blue-700/80 mt-0.5">Please keep this page open while we verify your location.</p>
-                </div>
-            </div>
-            <div id="location-ok" class="hidden p-4 rounded-xl bg-green-50 text-green-800 border border-green-100 flex items-center gap-3">
-                <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600">
-                    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-                </span>
-                <div class="flex-1">
-                    <p class="font-medium">You're within the session location.</p>
-                    <p id="location-ok-msg" class="text-xs text-green-700/80 mt-0.5">Marking attendance shortly...</p>
-                </div>
+        {{-- Kept for the QR/face-verify flow to keep its existing
+             hooks. step-2 is intentionally empty visually now —
+             every state shows up on the button itself. --}}
+        <div id="step-2" class="hidden">
+            <div id="location-checking" class="hidden"></div>
+            <div id="location-ok" class="hidden">
+                <p id="location-ok-msg" class="sr-only">Marking attendance shortly...</p>
             </div>
         </div>
 
@@ -291,6 +261,51 @@
 .animate-location-scan {
     animation: locationScan 1s ease-in-out infinite;
 }
+
+/* ------- Morphing CTA button states ------------------------------ */
+/* Single source of truth for the big tap button look. Each state
+   only changes 3 things: background colour, ring colour, and whether
+   the soft inner pulse is animating (idle = on, everything else = off
+   so the active state doesn't look like an alert). The icon swap is
+   handled by JS rewriting the <i> class list. */
+.cta-tap                       { background-color: #059669; box-shadow: 0 16px 32px -10px rgba(5,150,105,0.45); }
+.cta-tap .cta-ring             { border-color: rgba(255,255,255,0.30); animation: cta-pulse 2.4s cubic-bezier(0,0,0.2,1) infinite; }
+.cta-tap:hover:not(:disabled)  { background-color: #047857; }
+.cta-tap:focus                 { --tw-ring-color: rgba(110, 231, 183, 1); }
+
+.cta-tap[data-state="idle"]    { background-color: #059669; }
+.cta-tap[data-state="locating"]      { background-color: #0284c7; box-shadow: 0 16px 32px -10px rgba(2,132,199,0.45); }
+.cta-tap[data-state="opening_camera"]{ background-color: #4338ca; box-shadow: 0 16px 32px -10px rgba(67,56,202,0.45); }
+.cta-tap[data-state="marking"]       { background-color: #0d9488; box-shadow: 0 16px 32px -10px rgba(13,148,136,0.45); }
+.cta-tap[data-state="success"]       { background-color: #16a34a; box-shadow: 0 16px 32px -10px rgba(22,163,74,0.45); }
+.cta-tap[data-state="error"]         { background-color: #e11d48; box-shadow: 0 16px 32px -10px rgba(225,29,72,0.45); }
+
+/* Pulse only while idle — feels alive. In every other state we want
+   the user to read it as "working", not "alert me". */
+.cta-tap[data-state="idle"] .cta-ring        { animation: cta-pulse 2.4s cubic-bezier(0,0,0.2,1) infinite; }
+.cta-tap:not([data-state="idle"]) .cta-ring  { animation: none; opacity: 0.4; }
+
+/* While locating, the map crosshairs sweep — gives the "scanning…" feel
+   without needing a separate progress bar / spinner / paragraph. */
+.cta-tap[data-state="locating"] #cta-icon { animation: cta-locating 1.6s ease-in-out infinite; }
+.cta-tap[data-state="opening_camera"] #cta-icon,
+.cta-tap[data-state="marking"] #cta-icon { animation: cta-pulse-soft 1.1s ease-in-out infinite; }
+
+@keyframes cta-pulse {
+    0%   { transform: scale(1);   opacity: 1; }
+    75%  { transform: scale(1.12); opacity: 0; }
+    100% { transform: scale(1.12); opacity: 0; }
+}
+@keyframes cta-locating {
+    0%, 100% { transform: scale(1)    rotate(0deg); opacity: 1; }
+    50%      { transform: scale(0.92) rotate(20deg); opacity: 0.75; }
+}
+@keyframes cta-pulse-soft {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.7; transform: scale(0.94); }
+}
+
+.cta-tap:disabled { cursor: default; }
 </style>
 @endsection
 
@@ -671,24 +686,19 @@ function runAttendanceFlow() {
             }
             if (!res.ok) {
                 var errMsg = data.message || ('Request failed (' + res.status + ')');
+                if (typeof setCtaState === 'function') setCtaState('error', { hint: errMsg });
                 showStatus(errMsg, 'error');
-                // Token expired between scan and submit (TTL ~20s + any
-                // network latency). Clear the stale token + auto-reopen
-                // the camera so the student can scan the now-current QR
-                // without having to click anything. Mirrors the "verify a
-                // fresh frame" UX users expected when this was first
-                // reported as "keeps saying Invalid QR after the first
-                // scan".
                 if (needsQrScan() && /invalid qr|qr code|qr token|expired/i.test(errMsg)) {
                     if (sessionTokenInput) sessionTokenInput.value = '';
                     if (sessionPkInput) sessionPkInput.value = '';
-                    updateFlowStatus('That code expired — opening the camera so you can scan the latest QR.');
+                    if (typeof setCtaState === 'function') setCtaState('opening_camera', { hint: 'Code expired — reopening scanner…' });
                     setTimeout(openQrScanner, 600);
                 }
                 return;
             }
             if (data.success && data.redirect) {
                 attendanceMarked = true;
+                if (typeof setCtaState === 'function') setCtaState('success', { hint: 'Redirecting…' });
                 var nextUrl = String(data.redirect).trim();
                 function go() {
                     try {
@@ -885,41 +895,30 @@ function runAttendanceFlow() {
     }
 
     function applyVerifySuccess(data, indexNumber) {
-        document.getElementById('location-checking').classList.add('hidden');
         if (data.verified) {
             verifiedData = data;
-            document.getElementById('location-ok').classList.remove('hidden');
-            var okMsg = document.getElementById('location-ok-msg');
-            var secondsRemaining = 6;
-            if (okMsg) okMsg.textContent = 'Marking attendance in ' + secondsRemaining + ' seconds...';
-            var countdown = setInterval(function() {
-                secondsRemaining -= 1;
-                if (secondsRemaining <= 0) {
-                    clearInterval(countdown);
-                    if (okMsg) okMsg.textContent = 'Marking attendance now...';
-                    return;
-                }
-                if (okMsg) okMsg.textContent = 'Marking attendance in ' + secondsRemaining + ' seconds...';
-            }, 1000);
+            // Brief "verified" state on the morphing CTA — no separate
+            // green panel anymore, just the button glowing green for a
+            // moment before the next phase starts. Kept short (2s) so
+            // it doesn't feel sluggish; the old 6s countdown was only
+            // needed because the user had to *read* the green panel.
+            setCtaState('got_location', { label: 'Verified', hint: 'Marking attendance…' });
             setTimeout(function() {
-                clearInterval(countdown);
-                document.getElementById('step-2').classList.add('hidden');
                 if (isWifiMode) {
-                    // Wi-Fi mode: auto-mark attendance immediately
-                    updateFlowStatus('Marking attendance…');
+                    setCtaState('marking');
                     autoMarkAttendance(indexNumber);
                     return;
                 }
                 if (needsQrScan()) {
-                    updateFlowStatus('Opening camera to scan the session QR…');
+                    setCtaState('opening_camera', { hint: 'Allow camera if your phone asks.' });
                     openQrScanner();
                 } else {
-                    // Location mode: auto-mark attendance immediately
-                    updateFlowStatus('Marking attendance…');
+                    setCtaState('marking');
                     autoMarkAttendance(indexNumber);
                 }
-            }, 6000);
+            }, 1600);
         } else {
+            setCtaState('error', { hint: data.message || 'Verification failed.' });
             showStatus(data.message || 'Verification failed', 'error');
         }
     }
@@ -961,40 +960,109 @@ function runAttendanceFlow() {
         return { ok: true, data: data };
     }
 
+    // ---- Morphing CTA state machine -----------------------------------
+    // setCtaState(name, { label?, hint? }) — swaps the button's icon,
+    // colour and label. Defined here (not inline at the markup) so the
+    // states stay in sync with the CSS [data-state] selectors and can
+    // be triggered from anywhere in the flow.
+    const ctaStates = {
+        idle:           { icon: 'fa-hand-pointer',         label: null,            hint: '' },
+        locating:       { icon: 'fa-location-crosshairs',  label: 'Locating you…', hint: 'Allow location if your phone asks.' },
+        got_location:   { icon: 'fa-circle-check',         label: 'Got you',       hint: 'Verifying with the server…' },
+        opening_camera: { icon: 'fa-camera',               label: 'Opening camera…', hint: 'Allow camera if your phone asks.' },
+        marking:        { icon: 'fa-spinner fa-spin',      label: 'Marking…',      hint: '' },
+        success:        { icon: 'fa-circle-check',         label: 'Marked',        hint: '' },
+        error:          { icon: 'fa-triangle-exclamation', label: 'Try again',     hint: 'Tap to retry.' },
+    };
+    function setCtaState(name, overrides) {
+        const btn = document.getElementById('btn-start-checkin');
+        if (!btn) return;
+        const cfg = ctaStates[name];
+        if (!cfg) return;
+        btn.dataset.state = name;
+        const iconEl = document.getElementById('cta-icon');
+        if (iconEl) iconEl.className = 'fa-solid ' + cfg.icon + ' text-[3.25rem] drop-shadow-sm leading-none';
+        const labelEl = document.getElementById('cta-label');
+        const labelText = (overrides && overrides.label) || cfg.label || btn.dataset.defaultLabel || 'Check In';
+        if (labelEl) labelEl.textContent = labelText;
+        const hintEl = document.getElementById('cta-hint');
+        if (hintEl) hintEl.textContent = (overrides && overrides.hint != null) ? overrides.hint : cfg.hint;
+        // Re-enable on idle/error so the rep can tap again.
+        btn.disabled = (name !== 'idle' && name !== 'error');
+    }
+    // Expose for legacy callers (e.g. applyVerifySuccess timers).
+    window.attendanceSetCtaState = setCtaState;
+
+    /**
+     * Ask the browser for a GPS fix *up front* (so the OS permission
+     * popup appears in the same tap), with a sensible cascade:
+     *   - high-accuracy GPS, 7 s timeout
+     *   - low-accuracy Wi-Fi/network, 12 s timeout
+     * Resolves with { lat, lng, accuracy } or null if both timed out.
+     * Permission-denied returns { denied: true } so the caller can
+     * surface a clear message instead of looping into low-accuracy.
+     */
+    async function acquireStudentGps() {
+        if (!('geolocation' in navigator)) return null;
+        const getPos = (opts) => new Promise((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, opts));
+        try {
+            const p = await getPos({ enableHighAccuracy: true, timeout: 7000, maximumAge: 30000 });
+            return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy || 0 };
+        } catch (e1) {
+            if (e1 && e1.code === 1) return { denied: true };
+        }
+        try {
+            const p = await getPos({ enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 });
+            return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy || 0 };
+        } catch (e2) {
+            if (e2 && e2.code === 1) return { denied: true };
+        }
+        return null;
+    }
+
     async function runLocationStep(indexNumber) {
         if (sessionMode === 'qr') {
             return;
         }
-        var step2title = document.getElementById('step-2-title');
-        if (step2title) step2title.textContent = 'Confirming your session…';
-        var lcm = document.getElementById('location-checking-msg');
-        if (lcm) lcm.textContent = 'Scanning your location...';
-        document.getElementById('location-checking').classList.remove('hidden');
-        document.getElementById('location-ok').classList.add('hidden');
+        // 1. Ask the OS for location FIRST so the permission popup
+        //    appears in the same gesture the student initiated. Saves a
+        //    round-trip and avoids the old "server says missing coords"
+        //    surprise.
+        setCtaState('locating');
+        const fix = await acquireStudentGps();
+        if (fix && fix.denied) {
+            setCtaState('error', { label: 'Allow location', hint: 'Tap the lock icon in the address bar to allow location, then try again.' });
+            return;
+        }
+        if (fix && typeof fix.lat === 'number') {
+            if (latInput) latInput.value = String(fix.lat);
+            if (lngInput) lngInput.value = String(fix.lng);
+        }
+        // 2. Now verify with the server (it does the geofence check).
+        setCtaState('got_location');
         try {
-            const result = await postVerify(indexNumber, null, null);
+            const result = await postVerify(indexNumber, fix ? fix.lat : null, fix ? fix.lng : null);
             if (!result.ok) {
-                document.getElementById('location-checking').classList.add('hidden');
+                setCtaState('error', { hint: 'Verification failed.' });
                 return;
             }
             const data = result.data;
             if (!data.verified) {
-                document.getElementById('location-checking').classList.add('hidden');
+                setCtaState('error', { hint: data.message || 'Verification failed.' });
                 showStatus(data.message || 'Verification failed', 'error');
                 return;
             }
             if (requireFaceVerification && !data.profile_image_url) {
-                document.getElementById('location-checking').classList.add('hidden');
+                setCtaState('error', { hint: 'Add a profile photo first.' });
                 showStatus('Add a profile photo in your account before marking attendance.', 'error');
                 return;
             }
-            document.getElementById('location-checking').classList.add('hidden');
             if (requireFaceVerification) {
-                var s2hide = document.getElementById('step-2');
-                if (s2hide) s2hide.classList.add('hidden');
                 updateFlowStatus('Face verification');
                 const faceOk = await openFaceVerificationModal(data.profile_image_url);
                 if (!faceOk) {
+                    setCtaState('error', { hint: 'Face check cancelled.' });
                     updateFlowStatus('');
                     showStatus('Face verification was cancelled or did not match your profile.', 'error');
                     return;
@@ -1002,30 +1070,24 @@ function runAttendanceFlow() {
             }
             applyVerifySuccess(data, indexNumber);
         } catch (e) {
-            document.getElementById('location-checking').classList.add('hidden');
+            setCtaState('error', { hint: 'Network error. Tap to retry.' });
             showStatus(e && e.message ? e.message : 'Verification failed', 'error');
         }
     }
 
     function prepareCheckInUi(indexNumber) {
         const btn = document.getElementById('btn-step-1');
-        const startBtn = document.getElementById('btn-start-checkin');
         if (btn) btn.disabled = true;
-        if (startBtn) startBtn.disabled = true;
         hideStatus();
         setIndexLocked(true);
-        showStep(2);
-        var locChk = document.getElementById('location-checking');
-        var locOk = document.getElementById('location-ok');
-        if (locChk) locChk.classList.add('hidden');
-        if (locOk) locOk.classList.add('hidden');
+        // The morphing CTA now carries every state; we don't reveal the
+        // old verbose step-2 panel anymore.
     }
 
     function releaseCheckInUi() {
         const btn = document.getElementById('btn-step-1');
-        const startBtn = document.getElementById('btn-start-checkin');
         if (btn) btn.disabled = false;
-        if (startBtn) startBtn.disabled = false;
+        // Caller decides the CTA's final state via setCtaState().
     }
 
     async function startCheckIn(ev) {
@@ -1035,50 +1097,54 @@ function runAttendanceFlow() {
         }
         const indexNumber = getIndexNumber();
         if (!indexNumber) { showStatus('Enter your index number', 'error'); return; }
-        
-        // QR-only: verify session + face match, then open scanner (never request geolocation here)
+
+        // QR-only: ask the server for session/face checks, then open the
+        // scanner. Camera permission gets requested at scanner-open time
+        // — that *is* upfront from the student's perspective (one tap →
+        // OS popup), no separate location request.
         if (sessionMode === 'qr') {
-            updateFlowStatus('Confirming session…');
+            setCtaState('opening_camera', { hint: 'Confirming session…' });
             try {
                 const result = await postVerify(indexNumber, null, null);
-                if (!result.ok) return;
+                if (!result.ok) { setCtaState('error', { hint: 'Verification failed.' }); return; }
                 const data = result.data;
                 if (!data.verified) {
+                    setCtaState('error', { hint: data.message || 'Verification failed.' });
                     showStatus(data.message || 'Verification failed', 'error');
                     return;
                 }
                 if (requireFaceVerification && !data.profile_image_url) {
+                    setCtaState('error', { hint: 'Add a profile photo first.' });
                     showStatus('Add a profile photo in your account before marking attendance.', 'error');
                     return;
                 }
                 if (requireFaceVerification) {
-                    updateFlowStatus('Face verification');
+                    setCtaState('opening_camera', { label: 'Face check', hint: 'Look at the camera.' });
                     const faceOk = await openFaceVerificationModal(data.profile_image_url);
                     if (!faceOk) {
-                        updateFlowStatus('');
+                        setCtaState('error', { hint: 'Face check cancelled.' });
                         showStatus('Face verification was cancelled or did not match your profile.', 'error');
                         return;
                     }
                 }
-                updateFlowStatus('Opening camera to scan the session QR…');
+                setCtaState('opening_camera', { hint: 'Opening scanner…' });
                 openQrScanner();
             } catch (e) {
+                setCtaState('error', { hint: 'Network error. Tap to retry.' });
                 showStatus(e && e.message ? e.message : 'Verification failed', 'error');
             }
             return;
         }
 
         prepareCheckInUi(indexNumber);
-        updateFlowStatus('Confirming your session…');
-        var locChk2 = document.getElementById('location-checking');
-        if (locChk2) locChk2.classList.remove('hidden');
         try {
+            // runLocationStep now requests GPS itself BEFORE the server
+            // call (so the OS popup lands in the same tap), and morphs
+            // the CTA from "locating…" → "got you" → "marking…".
             await runLocationStep(indexNumber);
         } catch (e) {
+            setCtaState('error', { hint: 'Network error. Tap to retry.' });
             showStatus(e && e.message ? e.message : 'Could not verify your profile. Check your connection and try again.', 'error');
-            var step2El = document.getElementById('step-2');
-            if (step2El) step2El.classList.add('hidden');
-            updateFlowStatus('');
             if (!isLoggedIn) {
                 setIndexLocked(false);
             }
@@ -1092,10 +1158,15 @@ function runAttendanceFlow() {
 
     var startCheckinBtn = document.getElementById('btn-start-checkin');
     if (startCheckinBtn) {
-        startCheckinBtn.addEventListener('click', startCheckIn);
-        console.log('Start check-in button handler attached');
-    } else {
-        console.warn('Start check-in button not found in DOM');
+        startCheckinBtn.addEventListener('click', function(ev) {
+            // After an error the button stays interactive — a fresh tap
+            // resets it to idle and re-runs the whole flow instead of
+            // requiring the student to refresh.
+            if (startCheckinBtn.dataset.state === 'error') {
+                setCtaState('idle');
+            }
+            startCheckIn(ev);
+        });
     }
 
     if (isLoggedIn && loggedInIndex) {
