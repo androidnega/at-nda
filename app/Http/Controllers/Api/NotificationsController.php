@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\InAppNotification;
 use App\Models\Student;
+use App\Support\PasswordPolicy;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 
 class NotificationsController extends Controller
 {
@@ -44,7 +44,7 @@ class NotificationsController extends Controller
             ], 404);
         }
 
-        if (! $this->validatePassword($password, $student->password)) {
+        if (! PasswordPolicy::matches($password, $student->password)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Wrong password',
@@ -85,17 +85,5 @@ class NotificationsController extends Controller
         ]);
     }
 
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
-    }
 }
 

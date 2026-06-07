@@ -16,6 +16,7 @@ use App\Services\StudentAttendanceHistoryBuilder;
 use App\Services\StudentSessionGuardService;
 use App\Support\AttendanceSessionClassScope;
 use App\Support\CacheVersions;
+use App\Support\PasswordPolicy;
 use App\Support\SchemaFeatures;
 use App\Support\StudentSignOutLock;
 use Illuminate\Http\RedirectResponse;
@@ -119,7 +120,7 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('error', 'This step timed out. Please sign in again from the start.');
         }
 
-        if (! Hash::check($validated['password'], $student->password)) {
+        if (! PasswordPolicy::matches($validated['password'], $student->password)) {
             return redirect()->back()->withInput()->with('error', 'That password doesn’t match. Try again.');
         }
 

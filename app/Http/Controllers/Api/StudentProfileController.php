@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Support\PasswordPolicy;
 use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 
 class StudentProfileController extends Controller
 {
@@ -28,7 +28,7 @@ class StudentProfileController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student || !$this->validatePassword($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['success' => false, 'message' => 'Invalid index number or password'], 401);
         }
 
@@ -78,7 +78,7 @@ class StudentProfileController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student || !$this->validatePassword($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['success' => false, 'message' => 'Invalid index number or password'], 401);
         }
 
@@ -103,18 +103,6 @@ class StudentProfileController extends Controller
             'user' => $user,
             'student' => $user,
         ]);
-    }
-
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
     }
 
 }

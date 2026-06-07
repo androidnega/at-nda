@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Student;
 use App\Models\StudentDeviceToken;
+use App\Support\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 
 class DeviceTokenController extends Controller
 {
@@ -24,7 +24,7 @@ class DeviceTokenController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student || !$this->validatePassword($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -43,15 +43,4 @@ class DeviceTokenController extends Controller
         ]);
     }
 
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
-    }
 }

@@ -9,9 +9,9 @@ use App\Models\DeletedStudentIndex;
 use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Support\ApiEnvelope;
+use App\Support\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -53,7 +53,7 @@ class AuthController extends Controller
                     'index_number' => $student->index_number,
                 ]);
             }
-        } elseif (! $this->validatePassword($password, $student->password)) {
+        } elseif (! PasswordPolicy::matches($password, $student->password)) {
             Log::warning('api.v1.login.failed', ['reason' => 'bad_password', 'student_id' => $student->id]);
 
             return ApiEnvelope::errorResponse('Invalid credentials', 401);
@@ -88,15 +88,4 @@ class AuthController extends Controller
         ], 'Profile loaded'));
     }
 
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
-    }
 }
