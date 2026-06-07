@@ -1,0 +1,400 @@
+================================================================================
+P1_T07_DEPENDENCY_ANALYSIS — ClassRepApiService PasswordPolicy migration
+Produced  : 2026-06-07
+Source    : Static read of app/Services/Api/ClassRepApiService.php
+            + repo-wide grep for ClassRepApiService consumers
+            + repo-wide grep for validateApiPassword call sites
+            + routes/api.php  + routes/web.php
+            + at-end_frontend_app/lib/**/*.dart  (Flutter callers)
+            + resources/views/**/*.blade.php     (web callers)
+Purpose   : Decide whether validateApiPassword() can be deleted (clean
+            cut, like P1.T03–T06) or must remain as a thin delegator
+            (defensive, per the Phase 1 spec), and surface every wire
+            contract that P1.T07 must preserve.
+================================================================================
+
+EXECUTIVE SUMMARY
+─────────────────
+P1.T07 changes a single predicate inside one private-path method
+(`ClassRepApiService::authenticate()` at line 75). The Bearer-token
+branch above it is untouched, and the surrounding methods that build
+response shapes (`legacyCoursesPayload`, `openSession`, `closeSession`,
+`closeSessionById`, `extendSession`, `studentsPayload`,
+`buildDashboard`, `buildStudentDetailPayload`) are unaffected.
+
+**Recommendation: keep `validateApiPassword()` as a 3-line PUBLIC
+delegator** that forwards to `PasswordPolicy::matches`. Rationale:
+  - The method is declared `public` on a public service class.
+  - It is unique in the inventory for this reason (every other
+    helper migrated in P1.T03–T06 was `private`).
+  - Static search finds zero external callers TODAY, but deleting a
+    public method on a long-lived service breaks ABI for any
+    not-yet-merged branch, untracked admin script, or future
+    controller. The cost of the shim is 3 lines.
+
+A clean cut (Option B below) is technically defensible because the
+static search is exhaustive within the repository, but it carries
+non-zero ABI risk that the delegator eliminates for the price of three
+lines of obvious code.
+
+
+─────────────────────────────────────────────────────────────────────────
+1. ALL CONTROLLERS USING ClassRepApiService
+─────────────────────────────────────────────────────────────────────────
+
+  Three controllers depend on ClassRepApiService via constructor
+  injection. Two routes mount each of the first two; the third
+  injects it for a single delegated authenticate-flexible call.
+
+  Controller                                                    Inject pattern
+  ──────────────────────────────────────────────────────────    ──────────────
+  app/Http/Controllers/Api/ClassRepApiController.php             readonly DI
+  app/Http/Controllers/Api/ClassRepRestController.php            readonly DI
+  app/Http/Controllers/Api/AttendanceRecordsController.php       readonly DI
+
+  Internal methods that route through the service:
+
+  Controller                       Method                  Calls
+  ─────────────────────────────    ──────────────────      ──────────────────
+  ClassRepApiController            courses                 authenticate
+  ClassRepApiController            openSession             authenticate
+  ClassRepApiController            closeSession            authenticate
+  ClassRepRestController           dashboard               authenticateFlexible
+  ClassRepRestController           students                authenticateFlexible
+  ClassRepRestController           studentDetail           authenticateFlexible
+  ClassRepRestController           openSession             authenticate
+  ClassRepRestController           closeSession            authenticate
+  ClassRepRestController           extendSession           authenticate
+  AttendanceRecordsController      (one method at line 164) authenticateFlexible
+
+  Both `authenticate` and `authenticateFlexible` resolve through the
+  same internal flow — Bearer first, then legacy index+password.
+  Only the legacy index+password sub-path uses validateApiPassword.
+
+
+─────────────────────────────────────────────────────────────────────────
+2. ALL METHODS CALLING validateApiPassword()
+─────────────────────────────────────────────────────────────────────────
+
+  Repo-wide grep for `validateApiPassword` (excluding comments,
+  docs, and the inventory text files):
+
+  File                                                  Line   Context
+  ────────────────────────────────────────────────────  ─────  ────────────────────────────────
+  app/Services/Api/ClassRepApiService.php               75     $this->validateApiPassword
+                                                                (inside authenticate())
+  app/Services/Api/ClassRepApiService.php               108    public function validateApiPassword
+                                                                (method definition)
+
+  Searched and found NO matches in:
+    - app/Http/Controllers/**          (no controller calls it)
+    - app/Services/**                  (no other service calls it)
+    - app/Console/**                   (no command calls it)
+    - app/Listeners/**                 (no listener calls it)
+    - tests/**                         (no test calls it)
+    - resources/views/**               (no blade template calls it)
+    - at-end_frontend_app/**           (no Flutter file references the string)
+
+  Conclusion: the public method has exactly ONE consumer — the
+  immediately-adjacent private flow inside the same class. Public
+  visibility is unused.
+
+
+─────────────────────────────────────────────────────────────────────────
+3. ALL ROUTES DEPENDING ON THESE METHODS
+─────────────────────────────────────────────────────────────────────────
+
+  Every route that mounts a method which transitively calls
+  authenticate() or authenticateFlexible(). The password-validation
+  predicate only fires when the caller omits Bearer and sends
+  index_number + password in body/query.
+
+  Method                              HTTP    Path                              Routes file
+  ──────────────────────────────────  ──────  ───────────────────────────────  ─────────────
+  ClassRepApiController::courses      POST    /api/rep/courses                  routes/api.php:70
+  ClassRepApiController::openSession  POST    /api/rep/sessions/open            routes/api.php:71
+  ClassRepApiController::closeSession POST    /api/rep/sessions/{id}/close      routes/api.php:72
+
+  ClassRepRestController::dashboard       GET|POST  /api/class-rep/dashboard         routes/api.php:60
+  ClassRepRestController::students        GET|POST  /api/class-rep/students          routes/api.php:61
+  ClassRepRestController::studentDetail   GET|POST  /api/class-rep/student-detail    routes/api.php:62
+  ClassRepRestController::openSession     POST      /api/class-rep/sessions/open     routes/api.php:63
+  ClassRepRestController::closeSession    POST      /api/class-rep/sessions/close    routes/api.php:64
+  ClassRepRestController::extendSession   POST      /api/class-rep/sessions/extend   routes/api.php:65
+
+  Aliases that fan into the same handler:
+  ClassRepRestController::openSession     POST      /api/attendance/open             routes/api.php:67
+  ClassRepRestController::closeSession    POST      /api/attendance/close            routes/api.php:68
+
+  AttendanceRecordsController::(line 164)  varies  varies  (admin/lecturer-tier
+                                                            attendance reports;
+                                                            falls through to
+                                                            authenticateFlexible
+                                                            only when caller is a
+                                                            class rep, not an
+                                                            admin/lecturer)
+
+  Middleware: NONE explicit on any of these — they carry their own
+  credential proof inside the body / query. This is the legacy pattern
+  Phase 3 will replace with Sanctum-only.
+
+
+─────────────────────────────────────────────────────────────────────────
+4. FLUTTER ENDPOINTS AFFECTED
+─────────────────────────────────────────────────────────────────────────
+
+  Every wrapper in at-end_frontend_app/lib/services/api_service.dart
+  that POSTs to a path in section 3:
+
+  Flutter helper                       Path                                   Sends password?
+  ──────────────────────────────────   ────────────────────────────────────   ───────────────
+  repCourses(...)                      /api/rep/courses                       YES (index+pw)
+  repOpenSession(body)                 /api/rep/sessions/open                 YES (body)
+  repCloseSession(...)                 /api/rep/sessions/{id}/close           YES (index+pw)
+  classRepDashboard(...)               /api/class-rep/dashboard               YES (index+pw)
+  classRepStudents(...)                /api/class-rep/students                YES (index+pw)
+  classRepStudentDetail(...)           /api/class-rep/student-detail          YES (index+pw)
+  classRepOpenSession(body)            /api/class-rep/sessions/open           YES (body)
+  classRepCloseSession(...)            /api/class-rep/sessions/close          YES (index+pw)
+  classRepExtendSession(...)           /api/class-rep/sessions/extend         YES (index+pw)
+
+  Screens that consume these helpers:
+    - login_page.dart        (_enrichRepFromApi → repCourses)
+    - home_page.dart         (_syncClassRepFlagFromApi → repCourses)
+    - rep_home_page.dart     (dashboard / drawer)
+    - rep_session_page.dart  (open/close/extend session, _extendSession)
+    - class_rep_students_page.dart
+    - class_rep_student_detail_page.dart
+    - profile_page.dart      (drawer link)
+    - main.dart              (named route registration)
+
+  Every helper above sends `index_number` + `password` today. After
+  P1.T07 the predicate becomes PasswordPolicy::matches, which is
+  bit-identical to validateApiPassword while AUTH_ALLOW_LEGACY_PLAINTEXT
+  remains true (P1.T01 default during the migration window). Zero
+  wire-level change for the shipped app during the rollout.
+
+
+─────────────────────────────────────────────────────────────────────────
+5. WEB ENDPOINTS AFFECTED
+─────────────────────────────────────────────────────────────────────────
+
+  None.
+
+  Web rep flows do NOT call /api/rep/* or /api/class-rep/*. They use
+  the parallel web controller `app/Http/Controllers/ClassRepController`
+  with session-cookie auth via the regular admin/lecturer middleware
+  stack (routes/web.php:253-255 — `live-sessions/{session}/close`,
+  `live-sessions/{session}/extend`, `live-sessions/{session}/qr`,
+  etc.).
+
+  Searched resources/views/**/*.blade.php for any literal reference to
+  `/api/rep` or `/api/class-rep` → zero matches.
+
+
+─────────────────────────────────────────────────────────────────────────
+6. RESPONSE CONTRACTS AFFECTED
+─────────────────────────────────────────────────────────────────────────
+
+  Authentication-failure responses (the ONLY surface that changes
+  behaviour with the swap):
+
+  Method                       HTTP   Body                                          Source
+  ───────────────────────────  ─────  ────────────────────────────────────────────  ────────────────────
+  studentFromBearer            401    { "message": "Invalid or expired token" }     line 42
+  authenticate (post-bearer)   403    { "message": "This account is not a class rep" } line 60
+  authenticate (password)      401    { "message": "Invalid credentials" }          line 76  ← TOUCHED
+  authenticate (post-password) 403    { "message": "This account is not a class rep" } line 80
+  authenticateFlexible (gate)  422    { "message": "index_number and password are required" } line 98
+
+  Success-path response bodies (all built by OTHER methods, none of
+  which P1.T07 touches):
+
+  legacyCoursesPayload()       returns { is_class_rep, courses[], (message?) }
+  openSession()                returns { success, message, week_number, session }
+  closeSession()               returns { success, message }
+  closeSessionById()           wraps closeSession()
+  extendSessionById()          returns { success, message, session_id, end_time }
+  studentsPayload()            returns list<ClassRepStudentRow>
+  buildStudentDetailPayload()  returns { student, stats, recent_attendance }
+  buildDashboard()             returns ClassRepDashboardData (role,
+                                managedClassIds, courses, hasActiveSession,
+                                activeSessionsCount, studentsInClassesCount,
+                                notice, attendanceTrend, insights,
+                                flaggedStudents)
+
+  Conclusion: P1.T07 preserves every response shape verbatim. The
+  401 'Invalid credentials' body is byte-identical; only the
+  predicate that decides whether to return it changes.
+
+
+─────────────────────────────────────────────────────────────────────────
+7. BACKWARD COMPATIBILITY RISKS
+─────────────────────────────────────────────────────────────────────────
+
+  CATEGORY A — Predicate behaviour
+  ────────────────────────────────
+  Risk:    PasswordPolicy::matches behaves differently from
+           validateApiPassword.
+  Reality: Bit-identical during the migration window
+           (AUTH_ALLOW_LEGACY_PLAINTEXT=true). Same outcomes
+           everywhere. After the post-rehash flip, plaintext rows
+           lose access uniformly — the intended Phase 1 outcome.
+  Severity: NONE.
+
+  CATEGORY B — ABI risk (the headline question)
+  ─────────────────────────────────────────────
+  Risk:    `validateApiPassword` is PUBLIC. Deleting it could break
+           any external caller that the static search did not see.
+  Reality: Static search of the entire repository (app/, tests/,
+           resources/views/, at-end_frontend_app/) finds NO external
+           caller. But the method is on a public service class
+           registered in the container — any caller via app(), DI
+           injection, or method reflection in code we do not own
+           (vendor packages, hot-fix scripts, generated code) would
+           snap.
+  Severity: LOW with delegator (Option A) — fully eliminated.
+           LOW-to-MEDIUM with clean delete (Option B) — depends on
+           whether you trust the repo-wide static search to be the
+           complete universe of callers.
+
+  CATEGORY C — Response shape
+  ───────────────────────────
+  Risk:    Wire contract drift.
+  Reality: P1.T07 leaves response()->json(['message' => 'Invalid credentials'], 401)
+           bit-identical. Every other response method is untouched.
+  Severity: NONE.
+
+  CATEGORY D — Flutter contract
+  ─────────────────────────────
+  Risk:    Flutter screens read keys that disappear or rename.
+  Reality: Flutter never references the string "validateApiPassword".
+           The success-path keys (is_class_rep, courses, session,
+           students[], dashboard) come from untouched methods.
+  Severity: NONE.
+
+  CATEGORY E — Web blade
+  ──────────────────────
+  Risk:    A blade view AJAX-fetches /api/rep/* or /api/class-rep/*.
+  Reality: Zero blade references found.
+  Severity: NONE.
+
+  CATEGORY F — Race / state
+  ─────────────────────────
+  Risk:    PasswordPolicy::matches is a pure function; removing
+           the helper could alter call ordering.
+  Reality: PasswordPolicy::matches has no DB I/O and no model events.
+           Order of operations in authenticate() remains identical:
+           Bearer first → (if absent) validate request → Student
+           lookup → PREDICATE → isClassRep gate → return.
+  Severity: NONE.
+
+  CATEGORY G — Operational / audit / log alerts
+  ─────────────────────────────────────────────
+  Risk:    Internal grep / log alert keys off the method name.
+  Reality: No matches in logs/, app/Console/, bootstrap/, or
+           config/ for the string "validateApiPassword".
+  Severity: NONE.
+
+
+─────────────────────────────────────────────────────────────────────────
+DECISION RECOMMENDED — DELEGATOR (Option A)
+─────────────────────────────────────────────────────────────────────────
+
+  Recommendation: replace the body of validateApiPassword() with a
+  3-line delegator, keep the PUBLIC method signature intact.
+
+  Proposed replacement:
+
+      public function validateApiPassword(string $input, ?string $stored): bool
+      {
+          return PasswordPolicy::matches($input, (string) $stored);
+      }
+
+  Why:
+    - This is the ONLY public-helper occurrence in P1_PASSWORD_USAGE_INVENTORY
+      (every other migrated helper in P1.T03–T06 was private).
+    - Cost of the shim is three lines.
+    - Eliminates ABI risk for callers the static search cannot see
+      (vendor packages, ops scripts, future controllers in flight).
+    - Matches the Phase 1 spec verbatim.
+    - Future-proof: once it is confirmed safe to delete (or once
+      Phase 3 deprecates the index+password endpoints entirely),
+      the shim can be removed cleanly in a one-line patch.
+
+  Alternative — clean delete (Option B):
+    - Saves three lines of code.
+    - Risks unseen external callers (estimated LOW based on the
+      static search, but non-zero).
+    - Inconsistent with the Phase 1 spec recommendation.
+    - Could be deferred to Phase 3 alongside the broader
+      index+password deprecation.
+
+
+─────────────────────────────────────────────────────────────────────────
+PROPOSED P1.T07 EDIT SET (no code written yet, planning only)
+─────────────────────────────────────────────────────────────────────────
+
+  File: app/Services/Api/ClassRepApiService.php
+
+  Edit 1 — Imports
+    REMOVE:  use Illuminate\Support\Facades\Hash;     (only used inside the
+                                                       method body being
+                                                       replaced)
+    ADD:     use App\Support\PasswordPolicy;
+
+  Edit 2 — authenticate() line 75
+    BEFORE:  if (! $student || ! $this->validateApiPassword($validated['password'], $student->password)) {
+    AFTER :  if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
+
+  Edit 3 — validateApiPassword() lines 108-118
+    REPLACE BODY with a 3-line delegator (Option A, recommended):
+
+      public function validateApiPassword(string $input, ?string $stored): bool
+      {
+          return PasswordPolicy::matches($input, $stored);
+      }
+
+    DO NOT touch the method signature, visibility, or PHPDoc.
+
+  Edit 4 — Leave everything else untouched:
+    - studentFromBearer()                  (Bearer-only path)
+    - authenticateFlexible()               (calls authenticate())
+    - legacyCoursesPayload()               (success-shape author)
+    - buildDashboard() + ClassRepDashboardData
+    - studentsPayload() + ClassRepStudentRow
+    - openSession() + isMainRepForCourse() + resolveRepClassId()
+    - closeSession() + closeSessionById()
+    - extendSessionById()
+    - buildStudentDetailPayload()
+    - ActiveSessionListBuilder / RepCourseAccess / Course /
+      AttendanceSession / AttendanceWeek wiring
+    - AuditLogService, FcmNotificationService, SessionLiveEvent
+      side effects
+
+
+─────────────────────────────────────────────────────────────────────────
+VALIDATION COMMANDS THE OPERATOR CAN RUN AFTER P1.T07 SHIPS
+─────────────────────────────────────────────────────────────────────────
+
+  # No Hash facade in this file:
+  grep -nE "Hash::|use Illuminate\\\\Support\\\\Facades\\\\Hash" app/Services/Api/ClassRepApiService.php
+
+  # PasswordPolicy used at exactly the one former internal call site:
+  grep -nE "PasswordPolicy" app/Services/Api/ClassRepApiService.php
+
+  # validateApiPassword still callable (delegator preserved):
+  php -r "require 'vendor/autoload.php'; \$r = new ReflectionMethod(App\Services\Api\ClassRepApiService::class, 'validateApiPassword'); echo \$r->isPublic() ? 'public-preserved' : 'BROKEN'.PHP_EOL;"
+
+  # Response shapes intact:
+  grep -nE "'Invalid credentials'|'Invalid or expired token'|'This account is not a class rep'|'index_number and password are required'|'is_class_rep'|'You can only open sessions for courses in your class.'|'Only main reps can open sessions'|'Session opened\\.'|'Session closed\\.'|'Session extended\\.'|'Class ended\\. Checkout is now enabled\\.'" app/Services/Api/ClassRepApiService.php
+
+  # Class loads:
+  php -l app/Services/Api/ClassRepApiService.php
+  php -r "require 'vendor/autoload.php'; new App\Services\Api\ClassRepApiService(); echo 'ok'.PHP_EOL;"
+
+  # Repo scope: only the 4 fast-follow files should remain after P1.T07:
+  grep -lrE "validatePassword\\(|validateApiPassword\\(|validatePasswordForSync\\(" app/ | sort
+
+
+────────────────  END OF P1_T07_DEPENDENCY_ANALYSIS  ──────────────────────

@@ -15,10 +15,10 @@ use App\Services\ActiveSessionListBuilder;
 use App\Services\AttendanceInsightsService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Support\PasswordPolicy;
 use App\Support\RepCourseAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -72,7 +72,7 @@ class ClassRepApiService
         $student = Student::with(['classReps'])
             ->whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])
             ->first();
-        if (! $student || ! $this->validateApiPassword($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -105,16 +105,16 @@ class ClassRepApiService
         return $this->authenticate($request);
     }
 
+    /**
+     * Public delegator preserved for ABI safety — every internal caller
+     * routes through PasswordPolicy::matches directly; this wrapper exists
+     * so any out-of-tree caller (vendor packages, ops scripts, future
+     * controllers in flight) continues to compile. Slated for removal
+     * alongside the Phase 3 deprecation of index+password endpoints.
+     */
     public function validateApiPassword(string $input, ?string $stored): bool
     {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
+        return PasswordPolicy::matches($input, $stored);
     }
 
     /**
