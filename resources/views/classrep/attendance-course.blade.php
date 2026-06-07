@@ -399,14 +399,15 @@
                                          class="hidden absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"></div>
                                 </div>
 
-                                {{-- Embed the class roster as a JSON island so the typeahead
-                                     can search client-side without any extra request. This
-                                     scales fine up to a few hundred classmates per page. --}}
-                                <script type="application/json" data-manual-roster="{{ $week->id }}">@json($classmates->map(fn ($cm) => [
-                                    'id' => (int) $cm->id,
-                                    'index' => (string) ($cm->index_number ?? ''),
-                                    'name' => trim((string) ($cm->last_name ?? '').' '.(string) ($cm->first_name ?? '')),
-                                ])->values())</script>
+                                {{-- Roster JSON island for the typeahead (pre-computed in a php block to dodge Blade multi-line directive parsing quirks). --}}
+                                @php
+                                    $manualRoster = $classmates->map(fn ($cm) => [
+                                        'id'    => (int) $cm->id,
+                                        'index' => (string) ($cm->index_number ?? ''),
+                                        'name'  => trim((string) ($cm->last_name ?? '').' '.(string) ($cm->first_name ?? '')),
+                                    ])->values();
+                                @endphp
+                                <script type="application/json" data-manual-roster="{{ $week->id }}">{!! json_encode($manualRoster, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!}</script>
                                 <div>
                                     <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Status</label>
                                     <select name="status" required
