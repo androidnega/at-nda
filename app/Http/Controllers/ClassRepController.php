@@ -689,6 +689,54 @@ class ClassRepController extends Controller
         ]);
     }
 
+    /**
+     * Telemetry sink for the open-session form's GPS cascade.
+     *
+     * The browser's geolocation API only reports a numeric error code
+     * + a vague string ("kCLErrorLocationUnknown") and *never* gives
+     * the server any visibility, so when a rep complains "GPS isn't
+     * picking up" we previously had nothing to go on. This endpoint
+     * accepts a small JSON envelope from the cascade and writes it
+     * to the Laravel log with a `[GPS-DEBUG]` tag.
+     *
+     * Operator usage (PuTTY / SSH):
+     *   tail -F storage/logs/laravel-$(date +%F).log | grep GPS-DEBUG
+     *
+     * Never throws — telemetry must never block the rep's actual
+     * session-open flow.
+     */
+    public function logGpsDiag(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'event' => 'required|string|max:64',
+                'step' => 'nullable|string|max:64',
+                'code' => 'nullable|integer',
+                'message' => 'nullable|string|max:300',
+                'secure' => 'nullable|boolean',
+                'permission' => 'nullable|string|max:32',
+                'has_api' => 'nullable|boolean',
+                'duration_ms' => 'nullable|integer|min:0|max:120000',
+                'accuracy' => 'nullable|numeric',
+                'ua_short' => 'nullable|string|max:120',
+            ]);
+
+            $student = $request->session()->has('student_id')
+                ? Student::find($request->session()->get('student_id'))
+                : null;
+
+            Log::warning('[GPS-DEBUG] '.$data['event'], array_merge($data, [
+                'rep_id' => $student?->id,
+                'rep_index' => $student?->index_number,
+                'ip' => $request->ip(),
+            ]));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     public function openSession(Request $request): RedirectResponse
     {
         $student = $this->requireClassRep($request);

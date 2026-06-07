@@ -160,6 +160,20 @@
                     <div id="location-status" class="text-xs text-slate-600 min-h-[1.1rem]" role="status" aria-live="polite">Choose a course, then set a location.</div>
                     <p id="location-error" class="hidden text-xs text-red-700" role="alert"></p>
 
+                    {{-- GPS diagnostics expander — hidden until the
+                         cascade has actually run. Surfaces the exact
+                         reason GPS failed so the rep can either fix
+                         it themselves or report something concrete.
+                         "Copy diagnostics" puts the JSON on the
+                         clipboard so a support chat can read it. --}}
+                    <details id="gps-diag-wrap" class="hidden text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5">
+                        <summary class="cursor-pointer font-semibold text-slate-700 select-none flex items-center justify-between gap-2">
+                            <span><i class="fas fa-stethoscope text-slate-500 mr-1"></i> GPS diagnostics</span>
+                            <button type="button" id="gps-diag-copy" class="text-[10px] uppercase tracking-wider font-bold text-primary hover:underline">Copy</button>
+                        </summary>
+                        <pre id="gps-diag-body" class="mt-1.5 whitespace-pre-wrap font-mono text-[10.5px] leading-snug text-slate-700"></pre>
+                    </details>
+
                     <div class="flex flex-wrap gap-2">
                         <button type="button" id="get-location-btn" class="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                             Use device GPS
@@ -465,6 +479,81 @@
     var geoOptionsHigh = { enableHighAccuracy: true, timeout: 7000, maximumAge: 30000 };
     var geoOptionsLow = { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 };
 
+    // ---- GPS diagnostics ------------------------------------------
+    // Every cascade step pushes a step record into `gpsDiagSteps` so
+    // the rep can open the "GPS diagnostics" expander to see exactly
+    // what happened. We also POST a summary to the server so the
+    // operator can `tail -F storage/logs/laravel-*.log | grep GPS-DEBUG`
+    // and read the same data on the backend.
+    var GPS_DIAG_URL = @json(route('dashboard.diag.gps'));
+    var GPS_DIAG_CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    var gpsDiagSteps = [];
+    var gpsDiagWrap = document.getElementById('gps-diag-wrap');
+    var gpsDiagBody = document.getElementById('gps-diag-body');
+    var gpsDiagCopyBtn = document.getElementById('gps-diag-copy');
+
+    function gpsCodeName(code) {
+        return ({ 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' })[code] || 'UNKNOWN';
+    }
+
+    function gpsDiagPush(entry) {
+        // Stamp with elapsed ms since the cascade started so the rep
+        // can see which step was slow.
+        entry.t = new Date().toISOString().substring(11, 19);
+        gpsDiagSteps.push(entry);
+        // Log to console too so DevTools shows them inline.
+        try { console.info('[GPS-DEBUG]', entry); } catch (e) {}
+        renderGpsDiag();
+    }
+
+    function renderGpsDiag() {
+        if (!gpsDiagWrap || !gpsDiagBody) return;
+        gpsDiagWrap.classList.remove('hidden');
+        var summary = {
+            secure: !!window.isSecureContext,
+            has_api: !!(navigator.geolocation),
+            permissions_api: !!(navigator.permissions && navigator.permissions.query),
+            ua: (navigator.userAgent || '').substring(0, 120),
+            steps: gpsDiagSteps,
+        };
+        gpsDiagBody.textContent = JSON.stringify(summary, null, 2);
+    }
+
+    gpsDiagCopyBtn?.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (!gpsDiagBody || !navigator.clipboard) return;
+        navigator.clipboard.writeText(gpsDiagBody.textContent).then(function() {
+            gpsDiagCopyBtn.textContent = 'Copied';
+            setTimeout(function() { gpsDiagCopyBtn.textContent = 'Copy'; }, 1600);
+        }).catch(function() {});
+    });
+
+    /** Fire-and-forget telemetry beacon. Never throws, never blocks. */
+    function gpsDiagSend(event, extra) {
+        try {
+            var payload = Object.assign({
+                event: event,
+                secure: !!window.isSecureContext,
+                has_api: !!(navigator.geolocation),
+                ua_short: (navigator.userAgent || '').substring(0, 120),
+            }, extra || {});
+            // Some hosts strip credentials on sendBeacon — use fetch
+            // with keepalive so the rep can leave the page after.
+            fetch(GPS_DIAG_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': GPS_DIAG_CSRF,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify(payload),
+                credentials: 'same-origin',
+                keepalive: true,
+            }).catch(function() {});
+        } catch (e) { /* swallow — telemetry must never block */ }
+    }
+
     function readCachedFix(allowStale) {
         try {
             var raw = localStorage.getItem(GEO_CACHE_KEY);
@@ -487,9 +576,28 @@
     function minutesAgo(ts) {
         return Math.max(1, Math.round((Date.now() - ts) / 60000));
     }
-    function getPositionPromise(opts) {
+    function getPositionPromise(opts, label) {
+        var started = Date.now();
         return new Promise(function(resolve, reject) {
-            navigator.geolocation.getCurrentPosition(resolve, reject, opts);
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                gpsDiagPush({
+                    step: label || 'getCurrentPosition',
+                    status: 'ok',
+                    duration_ms: Date.now() - started,
+                    accuracy: Math.round(pos.coords.accuracy || 0),
+                });
+                resolve(pos);
+            }, function(err) {
+                gpsDiagPush({
+                    step: label || 'getCurrentPosition',
+                    status: 'error',
+                    code: err ? err.code : null,
+                    code_name: err ? gpsCodeName(err.code) : 'UNKNOWN',
+                    message: err && err.message ? err.message : null,
+                    duration_ms: Date.now() - started,
+                });
+                reject(err);
+            }, opts);
         });
     }
     function safePermissionState() {
@@ -571,12 +679,32 @@
         return null; // signal: nothing to surface, the cascade handled it
     }
 
+    /** Build a human, copy-pasteable explanation of the *last* GPS
+     *  failure recorded in `gpsDiagSteps`. Used when the cascade
+     *  ends with no usable fix so the rep sees a real reason. */
+    function lastGpsFailureReason() {
+        if (!window.isSecureContext) {
+            return 'This page is loaded over HTTP. Browsers only allow GPS on HTTPS — open the dashboard at https://' + location.host + ' and try again.';
+        }
+        for (var i = gpsDiagSteps.length - 1; i >= 0; i--) {
+            var s = gpsDiagSteps[i];
+            if (s.status === 'error' && s.code != null) {
+                if (s.code === 1) return 'Permission denied. Allow location for this site in your browser settings, then try again.';
+                if (s.code === 2) return 'Your device could not get a position (POSITION_UNAVAILABLE). Common causes: location services off, indoors with no Wi-Fi positioning, or Mac Safari\'s CoreLocation cache is empty. Try toggling Location Services off/on in System Settings → Privacy & Security → Location Services, or use course / manual coordinates.';
+                if (s.code === 3) return 'GPS timed out. Move closer to a window or try again outdoors. You can also pick a course with saved coordinates, or paste lat/long from Google Maps.';
+            }
+        }
+        return 'GPS could not return a fix. Use the course location (if available) or paste lat/long from Google Maps below.';
+    }
+
     /** Soft hint shown when every auto-fallback (GPS, network, course
-     *  coords, stale cache) has been exhausted. No jargon. */
+     *  coords, stale cache) has been exhausted. Now includes the
+     *  actual reason instead of vague guidance. */
     function showManualEntryHint() {
         if (locationStatus) {
             locationStatus.textContent = 'Pick a course with saved coordinates, or paste lat/long from Google Maps below.';
         }
+        showLocationError(lastGpsFailureReason());
     }
 
     /** Try the last-known GPS fix from this browser even if it's old. */
@@ -629,35 +757,67 @@
      */
     async function acquireLocationCascade(opts) {
         opts = opts || {};
+        gpsDiagSteps = [];                      // fresh log per attempt
+        gpsDiagPush({ step: 'cascade.start', silent: !!opts.silent });
+
+        // 0a. No geolocation API at all
         if (!navigator.geolocation) {
-            if (!opts.silent) showLocationError('This browser does not support geolocation. Pick a course with saved coordinates or paste lat/long below.');
+            gpsDiagPush({ step: 'cascade.abort', reason: 'no_geolocation_api' });
+            if (!opts.silent) {
+                showLocationError('This browser does not support geolocation. Pick a course with saved coordinates or paste lat/long below.');
+                gpsDiagSend('cascade.no_api', { duration_ms: 0 });
+            }
             return false;
         }
+
+        // 0b. Insecure context — Chrome/Firefox/Safari refuse GPS on
+        // bare HTTP. Surface this immediately instead of waiting for
+        // a confusing PERMISSION_DENIED with no prompt.
+        if (typeof window.isSecureContext !== 'undefined' && !window.isSecureContext) {
+            gpsDiagPush({ step: 'cascade.abort', reason: 'insecure_context' });
+            if (!opts.silent) {
+                showLocationError('This page is loaded over HTTP. Browsers only allow GPS on HTTPS — open the dashboard at https://' + location.host + ' and try again.');
+                gpsDiagSend('cascade.insecure_context', {});
+            }
+            return false;
+        }
+
         clearLocationError();
+        var t0 = Date.now();
 
         // 1. Fresh cache
         var cached = readCachedFix(false);
         if (cached) {
+            gpsDiagPush({ step: 'cache.fresh.hit', age_min: minutesAgo(cached.ts) });
             setLocation(cached.lat, cached.lng,
                 'Used cached GPS fix from ' + minutesAgo(cached.ts) + ' min ago (~' + Math.round(cached.accuracy || 0) + 'm).');
             // Refresh in the background so the next click is fresher
             (async function() {
                 try {
-                    var p = await getPositionPromise(geoOptionsLow);
+                    var p = await getPositionPromise(geoOptionsLow, 'bg_refresh');
                     writeCachedFix(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
                 } catch (e) { /* ignore — cache stays */ }
             })();
             return true;
         }
+        gpsDiagPush({ step: 'cache.fresh.miss' });
 
         // 2. Skip GPS entirely if user previously denied permission
         var perm = await safePermissionState();
+        gpsDiagPush({ step: 'permissions.query', permission: perm || 'unknown' });
         if (perm === 'denied') {
-            if (tryFallbackToCourseLocation()) return true;
-            if (tryStaleCache()) return true;
+            if (tryFallbackToCourseLocation()) {
+                gpsDiagSend('cascade.fallback_course_after_denied', { permission: perm, duration_ms: Date.now() - t0 });
+                return true;
+            }
+            if (tryStaleCache()) {
+                gpsDiagSend('cascade.fallback_stale_after_denied', { permission: perm, duration_ms: Date.now() - t0 });
+                return true;
+            }
             if (!opts.silent) {
                 showLocationError(geoErrorMessage({ code: 1 }));
                 showManualEntryHint();
+                gpsDiagSend('cascade.failed_permission_denied', { permission: perm, duration_ms: Date.now() - t0 });
             }
             return false;
         }
@@ -665,17 +825,31 @@
         // 3. High-accuracy GPS
         if (!opts.silent && locationStatus) locationStatus.textContent = 'Getting your location…';
         try {
-            var p1 = await getPositionPromise(geoOptionsHigh);
+            var p1 = await getPositionPromise(geoOptionsHigh, 'high_accuracy');
             writeCachedFix(p1.coords.latitude, p1.coords.longitude, p1.coords.accuracy);
             setLocation(p1.coords.latitude, p1.coords.longitude,
                 'GPS fix (~' + Math.round(p1.coords.accuracy || 0) + 'm accuracy).');
+            gpsDiagSend('cascade.ok_high_accuracy', {
+                permission: perm,
+                accuracy: Math.round(p1.coords.accuracy || 0),
+                duration_ms: Date.now() - t0,
+            });
             return true;
         } catch (e1) {
             if (e1 && e1.code === 1) {
                 // Hard deny — same path as step 2.
-                if (tryFallbackToCourseLocation()) return true;
-                if (tryStaleCache()) return true;
-                if (!opts.silent) showLocationError(geoErrorMessage(e1));
+                if (tryFallbackToCourseLocation()) {
+                    gpsDiagSend('cascade.fallback_course_after_denied', { permission: perm, duration_ms: Date.now() - t0 });
+                    return true;
+                }
+                if (tryStaleCache()) {
+                    gpsDiagSend('cascade.fallback_stale_after_denied', { permission: perm, duration_ms: Date.now() - t0 });
+                    return true;
+                }
+                if (!opts.silent) {
+                    showLocationError(geoErrorMessage(e1));
+                    gpsDiagSend('cascade.failed_permission_denied', { permission: perm, duration_ms: Date.now() - t0 });
+                }
                 return false;
             }
             // Otherwise (POSITION_UNAVAILABLE / TIMEOUT) — quietly try lower accuracy
@@ -683,21 +857,46 @@
 
         if (!opts.silent && locationStatus) locationStatus.textContent = 'Trying Wi-Fi / network location…';
         try {
-            var p2 = await getPositionPromise(geoOptionsLow);
+            var p2 = await getPositionPromise(geoOptionsLow, 'low_accuracy');
             writeCachedFix(p2.coords.latitude, p2.coords.longitude, p2.coords.accuracy);
             setLocation(p2.coords.latitude, p2.coords.longitude,
                 'Network location (~' + Math.round(p2.coords.accuracy || 0) + 'm). Tap GPS again outdoors for a tighter fix.');
+            gpsDiagSend('cascade.ok_low_accuracy', {
+                permission: perm,
+                accuracy: Math.round(p2.coords.accuracy || 0),
+                duration_ms: Date.now() - t0,
+            });
             return true;
         } catch (e2) { /* fall through silently */ }
 
         // 4. Course saved coords (silent)
-        if (tryFallbackToCourseLocation()) return true;
+        if (tryFallbackToCourseLocation()) {
+            gpsDiagSend('cascade.fallback_course', { permission: perm, duration_ms: Date.now() - t0 });
+            return true;
+        }
 
         // 5. Stale cache as a last resort (clearly labelled)
-        if (tryStaleCache()) return true;
+        if (tryStaleCache()) {
+            gpsDiagSend('cascade.fallback_stale', { permission: perm, duration_ms: Date.now() - t0 });
+            return true;
+        }
 
-        // 6. Manual entry hint — no jargon, no red error
-        if (!opts.silent) showManualEntryHint();
+        // 6. Manual entry hint with the real reason surfaced
+        if (!opts.silent) {
+            showManualEntryHint();
+            // Send the last known failure code/message so the operator
+            // can match this with the rep's complaint.
+            var lastErr = null;
+            for (var i = gpsDiagSteps.length - 1; i >= 0; i--) {
+                if (gpsDiagSteps[i].status === 'error') { lastErr = gpsDiagSteps[i]; break; }
+            }
+            gpsDiagSend('cascade.failed_exhausted', {
+                permission: perm,
+                code: lastErr ? lastErr.code : null,
+                message: lastErr ? lastErr.code_name + (lastErr.message ? (' — ' + lastErr.message) : '') : 'no_error_code',
+                duration_ms: Date.now() - t0,
+            });
+        }
         return false;
     }
 

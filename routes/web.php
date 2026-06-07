@@ -240,6 +240,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
 
         // Rep bulk-imports a class roster (index numbers, optionally names).
         Route::post('/rep/students/import', [ClassRepController::class, 'importStudents'])->name('rep.students.import');
+        // Client-side GPS diagnostics ping. Used by the open-session
+        // form to surface "why did GPS fail?" into storage/logs so
+        // an operator on PuTTY can `tail -F | grep GPS-DEBUG`.
+        Route::post('/diag/gps', [ClassRepController::class, 'logGpsDiag'])->name('diag.gps');
         Route::post('/live-sessions', [ClassRepController::class, 'openSession'])->name('live-sessions.store');
         Route::get('/live-sessions/{session}/close', [ClassRepController::class, 'closeSessionConfirm'])->name('live-sessions.close.confirm');
         Route::post('/live-sessions/{session}/close', [ClassRepController::class, 'closeSession'])->name('live-sessions.close');
