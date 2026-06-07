@@ -356,19 +356,57 @@
                                 </button>
                             </div>
                             <form action="{{ route('dashboard.class-attendance.manual-mark', [$course, $week]) }}" method="post"
-                                  class="p-4 space-y-3 overflow-y-auto"
-                                  onsubmit="return confirm('Manually mark this student? This is logged for audit.');">
+                                  class="manual-mark-form p-4 space-y-3 overflow-y-auto"
+                                  data-week-id="{{ $week->id }}">
                                 @csrf
-                                <div>
-                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Student</label>
-                                    <select name="student_id" required
-                                            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
-                                        <option value="">Pick a student…</option>
-                                        @foreach($classmates as $cm)
-                                            <option value="{{ $cm->id }}">{{ $cm->index_number }} — {{ trim(($cm->last_name ?? '').' '.($cm->first_name ?? '')) }}</option>
-                                        @endforeach
-                                    </select>
+                                {{-- Searchable student picker — replaces the <select> that
+                                     used to hold every classmate in one giant scroll list.
+                                     Type any part of the index number or name and the
+                                     suggestions narrow down instantly. The hidden
+                                     student_id is set when a suggestion is clicked
+                                     (or when Enter is pressed on a single match), so
+                                     the existing controller validation is unchanged. --}}
+                                <div class="relative">
+                                    <label for="manual-search-{{ $week->id }}" class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
+                                        Student <span class="text-gray-400 normal-case font-medium tracking-normal ml-1">(search by index or name)</span>
+                                    </label>
+                                    <div class="relative">
+                                        <input type="text"
+                                               id="manual-search-{{ $week->id }}"
+                                               data-manual-search="{{ $week->id }}"
+                                               autocomplete="off"
+                                               placeholder="e.g. UEB1101234 or Jane"
+                                               class="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 font-mono">
+                                        <i class="fas fa-magnifying-glass text-gray-400 text-xs absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                                    </div>
+                                    <input type="hidden" name="student_id"
+                                           id="manual-student-id-{{ $week->id }}"
+                                           data-manual-student-id="{{ $week->id }}" required>
+                                    <p id="manual-selected-{{ $week->id }}"
+                                       data-manual-selected="{{ $week->id }}"
+                                       class="hidden mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-2 py-1">
+                                        <i class="fas fa-check-circle text-[10px]"></i>
+                                        <span data-manual-selected-text></span>
+                                        <button type="button" data-manual-clear="{{ $week->id }}" class="ml-1 text-emerald-500 hover:text-emerald-800" aria-label="Clear selection">
+                                            <i class="fas fa-xmark text-[10px]"></i>
+                                        </button>
+                                    </p>
+                                    <p id="manual-no-match-{{ $week->id }}"
+                                       data-manual-no-match="{{ $week->id }}"
+                                       class="hidden mt-1.5 text-[11px] text-rose-600">No student matches that search.</p>
+                                    <div id="manual-suggestions-{{ $week->id }}"
+                                         data-manual-suggestions="{{ $week->id }}"
+                                         class="hidden absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"></div>
                                 </div>
+
+                                {{-- Embed the class roster as a JSON island so the typeahead
+                                     can search client-side without any extra request. This
+                                     scales fine up to a few hundred classmates per page. --}}
+                                <script type="application/json" data-manual-roster="{{ $week->id }}">@json($classmates->map(fn ($cm) => [
+                                    'id' => (int) $cm->id,
+                                    'index' => (string) ($cm->index_number ?? ''),
+                                    'name' => trim((string) ($cm->last_name ?? '').' '.(string) ($cm->first_name ?? '')),
+                                ])->values())</script>
                                 <div>
                                     <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Status</label>
                                     <select name="status" required
@@ -391,8 +429,10 @@
                                         Cancel
                                     </button>
                                     <button type="submit"
-                                            class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
-                                        <i class="fas fa-check text-[11px]"></i> Save manual mark
+                                            data-manual-submit="{{ $week->id }}"
+                                            class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-60 disabled:cursor-not-allowed">
+                                        <i class="fas fa-check text-[11px]" data-manual-submit-icon></i>
+                                        <span data-manual-submit-label>Save manual mark</span>
                                     </button>
                                 </div>
                             </form>
@@ -677,6 +717,217 @@
         const open = document.querySelector('[data-week-modal]:not(.hidden)');
         if (open) hideModal(open);
     });
+})();
+
+// ────────────────────────────────────────────────────────────────
+// Manual-mark searchable student picker.
+// One delegated handler set works across every per-week modal so we
+// don't have to bind N×M listeners. The roster for each week is
+// embedded as a <script type="application/json"> island under the
+// form (one per modal) — keeps the search 100% client-side and
+// avoids an extra XHR every time the rep types.
+// ────────────────────────────────────────────────────────────────
+(function () {
+    var rosterCache = {};
+
+    function getRoster(weekId) {
+        if (rosterCache[weekId]) return rosterCache[weekId];
+        var node = document.querySelector('script[data-manual-roster="' + weekId + '"]');
+        if (!node) return [];
+        try {
+            rosterCache[weekId] = JSON.parse(node.textContent || '[]');
+        } catch (e) {
+            rosterCache[weekId] = [];
+        }
+        return rosterCache[weekId];
+    }
+    function $ (sel, root) { return (root || document).querySelector(sel); }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function setSelected(weekId, item) {
+        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+        var search = $('[data-manual-search="' + weekId + '"]');
+        var pill = $('[data-manual-selected="' + weekId + '"]');
+        var pillText = pill && pill.querySelector('[data-manual-selected-text]');
+        var sugg = $('[data-manual-suggestions="' + weekId + '"]');
+        var noMatch = $('[data-manual-no-match="' + weekId + '"]');
+        if (!hidden) return;
+        hidden.value = String(item.id);
+        if (search) search.value = item.index;
+        if (pillText) pillText.textContent = item.index + (item.name ? ' — ' + item.name : '');
+        if (pill) pill.classList.remove('hidden');
+        if (sugg) { sugg.classList.add('hidden'); sugg.innerHTML = ''; }
+        if (noMatch) noMatch.classList.add('hidden');
+    }
+    function clearSelected(weekId, opts) {
+        opts = opts || {};
+        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+        var search = $('[data-manual-search="' + weekId + '"]');
+        var pill = $('[data-manual-selected="' + weekId + '"]');
+        if (hidden) hidden.value = '';
+        if (pill) pill.classList.add('hidden');
+        if (!opts.keepSearch && search) search.value = '';
+    }
+
+    function renderSuggestions(weekId, query) {
+        var sugg = $('[data-manual-suggestions="' + weekId + '"]');
+        var noMatch = $('[data-manual-no-match="' + weekId + '"]');
+        if (!sugg) return;
+        var q = (query || '').trim().toLowerCase();
+        if (!q) {
+            sugg.classList.add('hidden');
+            sugg.innerHTML = '';
+            if (noMatch) noMatch.classList.add('hidden');
+            return;
+        }
+        var roster = getRoster(weekId);
+        var matches = roster.filter(function (r) {
+            return (r.index || '').toLowerCase().indexOf(q) !== -1
+                || (r.name || '').toLowerCase().indexOf(q) !== -1;
+        }).slice(0, 10);
+
+        if (matches.length === 0) {
+            sugg.classList.add('hidden');
+            sugg.innerHTML = '';
+            if (noMatch) noMatch.classList.remove('hidden');
+            return;
+        }
+        if (noMatch) noMatch.classList.add('hidden');
+
+        sugg.innerHTML = matches.map(function (m) {
+            var idxSafe = escapeHtml(m.index);
+            var nameSafe = escapeHtml(m.name);
+            return '<button type="button" '
+                + 'data-manual-pick="' + weekId + '" '
+                + 'data-pick-id="' + m.id + '" '
+                + 'data-pick-index="' + idxSafe + '" '
+                + 'data-pick-name="' + nameSafe + '" '
+                + 'class="w-full text-left px-3 py-2 text-sm border-b border-slate-100 last:border-b-0 hover:bg-indigo-50 flex items-center gap-2">'
+                + '<span class="font-mono font-bold text-slate-900">' + idxSafe + '</span>'
+                + (nameSafe ? '<span class="text-slate-600 text-xs truncate">' + nameSafe + '</span>' : '')
+                + '</button>';
+        }).join('');
+        sugg.classList.remove('hidden');
+    }
+
+    // Input → re-render the suggestion list and clear stale selection.
+    document.addEventListener('input', function (ev) {
+        var input = ev.target.closest && ev.target.closest('[data-manual-search]');
+        if (!input) return;
+        var weekId = input.getAttribute('data-manual-search');
+        // Any edit invalidates the previous pick.
+        clearSelected(weekId, { keepSearch: true });
+        renderSuggestions(weekId, input.value);
+    });
+
+    // Click on a suggestion row → commit the pick.
+    document.addEventListener('click', function (ev) {
+        var pick = ev.target.closest && ev.target.closest('[data-manual-pick]');
+        if (!pick) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        var weekId = pick.getAttribute('data-manual-pick');
+        setSelected(weekId, {
+            id: parseInt(pick.getAttribute('data-pick-id'), 10),
+            index: pick.getAttribute('data-pick-index') || '',
+            name: pick.getAttribute('data-pick-name') || '',
+        });
+    });
+
+    // The little ✕ on the green pill clears the pick.
+    document.addEventListener('click', function (ev) {
+        var clr = ev.target.closest && ev.target.closest('[data-manual-clear]');
+        if (!clr) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        clearSelected(clr.getAttribute('data-manual-clear'));
+    });
+
+    // Enter on the search box selects the top match (saves the rep a click).
+    document.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Enter') return;
+        var input = ev.target.closest && ev.target.closest('[data-manual-search]');
+        if (!input) return;
+        var weekId = input.getAttribute('data-manual-search');
+        var sugg = $('[data-manual-suggestions="' + weekId + '"]');
+        if (!sugg || sugg.classList.contains('hidden')) return;
+        var first = sugg.querySelector('[data-manual-pick]');
+        if (first) {
+            ev.preventDefault();
+            first.click();
+        }
+    });
+
+    // Click outside a modal's search/suggestions hides the dropdown.
+    document.addEventListener('click', function (ev) {
+        document.querySelectorAll('[data-manual-suggestions]').forEach(function (sugg) {
+            var weekId = sugg.getAttribute('data-manual-suggestions');
+            var input = $('[data-manual-search="' + weekId + '"]');
+            if (sugg.contains(ev.target) || (input && input.contains(ev.target))) return;
+            sugg.classList.add('hidden');
+        });
+    });
+
+    // Form submit: guard against the "I clicked Save but nothing happened"
+    // confusion by (1) blocking submission when no student is selected
+    // and (2) disabling the button + showing a spinner the moment it's
+    // pressed so the rep sees their click registered.
+    document.addEventListener('submit', function (ev) {
+        var form = ev.target.closest && ev.target.closest('.manual-mark-form');
+        if (!form) return;
+        var weekId = form.getAttribute('data-week-id');
+        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+        var search = $('[data-manual-search="' + weekId + '"]');
+        if (!hidden || !hidden.value) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            // Focus the search box and flash it red so it's obvious why
+            // nothing happened.
+            if (search) {
+                search.focus();
+                search.classList.add('ring-2', 'ring-rose-400');
+                setTimeout(function () {
+                    search.classList.remove('ring-2', 'ring-rose-400');
+                }, 1600);
+            }
+            var noMatch = $('[data-manual-no-match="' + weekId + '"]');
+            if (noMatch) {
+                noMatch.textContent = 'Pick a student from the suggestions first.';
+                noMatch.classList.remove('hidden');
+            }
+            return;
+        }
+        // Ask for confirmation now (replaces the form-level onsubmit so we
+        // can keep the spinner behaviour atomic with the user's decision).
+        var ok = window.confirm('Mark this student manually? This is logged for audit.');
+        if (!ok) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+        // Disable submit + show spinner. Re-enables itself after 8s in
+        // case the request hangs (so the form is never permanently dead).
+        var btn = $('[data-manual-submit="' + weekId + '"]', form);
+        if (btn) {
+            btn.disabled = true;
+            var icon = btn.querySelector('[data-manual-submit-icon]');
+            var label = btn.querySelector('[data-manual-submit-label]');
+            if (icon) icon.className = 'fas fa-spinner fa-spin text-[11px]';
+            if (label) label.textContent = 'Saving…';
+            setTimeout(function () {
+                if (!btn.disabled) return;
+                btn.disabled = false;
+                if (icon) icon.className = 'fas fa-check text-[11px]';
+                if (label) label.textContent = 'Save manual mark';
+            }, 8000);
+        }
+    }, true);
 })();
 
 // Prompt the rep for a deletion reason and stash it into the hidden
