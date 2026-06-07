@@ -185,19 +185,21 @@
 
                     <div id="location-display" class="hidden text-xs text-slate-700 font-mono rounded-md border border-slate-200 bg-white px-2.5 py-2"></div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div class="space-y-1">
-                            <label for="manual_lat" class="text-[11px] font-medium text-slate-500">Latitude</label>
-                            <input type="text" inputmode="decimal" id="manual_lat" placeholder="e.g. 5.6037" autocomplete="off"
-                                class="{{ $fieldBase }} font-mono text-sm">
+                    <div id="manual-coords-wrap" class="rounded-md p-1 -m-1 transition-shadow">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div class="space-y-1">
+                                <label for="manual_lat" class="text-[11px] font-medium text-slate-500">Latitude</label>
+                                <input type="text" inputmode="decimal" id="manual_lat" placeholder="e.g. 5.6037" autocomplete="off"
+                                    class="{{ $fieldBase }} font-mono text-sm">
+                            </div>
+                            <div class="space-y-1">
+                                <label for="manual_lng" class="text-[11px] font-medium text-slate-500">Longitude</label>
+                                <input type="text" inputmode="decimal" id="manual_lng" placeholder="e.g. −0.1870" autocomplete="off"
+                                    class="{{ $fieldBase }} font-mono text-sm">
+                            </div>
                         </div>
-                        <div class="space-y-1">
-                            <label for="manual_lng" class="text-[11px] font-medium text-slate-500">Longitude</label>
-                            <input type="text" inputmode="decimal" id="manual_lng" placeholder="e.g. −0.1870" autocomplete="off"
-                                class="{{ $fieldBase }} font-mono text-sm">
-                        </div>
+                        <button type="button" id="use-manual-btn" class="mt-1 text-xs font-semibold text-primary hover:text-primary/80">Apply coordinates</button>
                     </div>
-                    <button type="button" id="use-manual-btn" class="text-xs font-semibold text-primary hover:text-primary/80">Apply coordinates</button>
 
                     <div class="space-y-1.5">
                         <label for="attendance_range_m" class="{{ $labelBase }}">Radius (meters)</label>
@@ -679,32 +681,98 @@
         return null; // signal: nothing to surface, the cascade handled it
     }
 
+    /** Detect the rep's OS from the UA string. Coarse — only used to
+     *  pick which "enable Location Services" instructions to show. */
+    function detectPlatform() {
+        var ua = navigator.userAgent || '';
+        if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+        if (/Android/i.test(ua)) return 'android';
+        if (/Mac OS X/i.test(ua)) return 'mac';
+        if (/Windows/i.test(ua)) return 'windows';
+        if (/Linux/i.test(ua)) return 'linux';
+        return 'other';
+    }
+
     /** Build a human, copy-pasteable explanation of the *last* GPS
      *  failure recorded in `gpsDiagSteps`. Used when the cascade
-     *  ends with no usable fix so the rep sees a real reason. */
+     *  ends with no usable fix so the rep sees a real reason.
+     *
+     *  Key signal: when POSITION_UNAVAILABLE comes back in under
+     *  200ms, the OS itself refused — the geolocation chip never
+     *  even tried. That has very specific fixes (toggle Location
+     *  Services / killall locationd on macOS, etc.) so we show
+     *  platform-specific guidance instead of the generic message. */
     function lastGpsFailureReason() {
         if (!window.isSecureContext) {
             return 'This page is loaded over HTTP. Browsers only allow GPS on HTTPS — open the dashboard at https://' + location.host + ' and try again.';
         }
+        var lastErr = null;
         for (var i = gpsDiagSteps.length - 1; i >= 0; i--) {
-            var s = gpsDiagSteps[i];
-            if (s.status === 'error' && s.code != null) {
-                if (s.code === 1) return 'Permission denied. Allow location for this site in your browser settings, then try again.';
-                if (s.code === 2) return 'Your device could not get a position (POSITION_UNAVAILABLE). Common causes: location services off, indoors with no Wi-Fi positioning, or Mac Safari\'s CoreLocation cache is empty. Try toggling Location Services off/on in System Settings → Privacy & Security → Location Services, or use course / manual coordinates.';
-                if (s.code === 3) return 'GPS timed out. Move closer to a window or try again outdoors. You can also pick a course with saved coordinates, or paste lat/long from Google Maps.';
+            if (gpsDiagSteps[i].status === 'error' && gpsDiagSteps[i].code != null) { lastErr = gpsDiagSteps[i]; break; }
+        }
+        if (!lastErr) {
+            return 'GPS could not return a fix. Use the course location (if available) or paste lat/long from Google Maps below.';
+        }
+        if (lastErr.code === 1) {
+            return 'Permission denied. Allow location for this site in your browser settings, then try again.';
+        }
+        if (lastErr.code === 3) {
+            return 'GPS timed out. Move closer to a window or try outdoors. You can also pick a course with saved coordinates, or paste lat/long from Google Maps below.';
+        }
+        if (lastErr.code === 2) {
+            // <200ms = OS refused before talking to the GPS chip.
+            // ≥200ms = chip tried but had no signal (indoors etc.).
+            var instant = (lastErr.duration_ms || 0) < 200;
+            var plat = detectPlatform();
+            if (instant && plat === 'mac') {
+                return 'macOS is blocking GPS for your browser. Open  → System Settings → Privacy & Security → Location Services, turn it ON, then make sure your browser is ticked in the list. Quit and reopen the browser. If it still fails, open Terminal and run "sudo killall locationd", then refresh this page. In the meantime, pick a course with saved coordinates or paste lat/lng from Google Maps below.';
             }
+            if (instant && plat === 'windows') {
+                return 'Windows is blocking GPS for your browser. Open Settings → Privacy & security → Location, turn Location services ON, then allow your browser below. In the meantime, pick a course with saved coordinates or paste lat/lng from Google Maps below.';
+            }
+            if (instant && plat === 'linux') {
+                return 'Your Linux desktop is not providing a location fix (Geoclue may not be running). Use the course location or paste lat/lng from Google Maps below to open the session.';
+            }
+            if (instant && (plat === 'ios' || plat === 'android')) {
+                return 'Your device is blocking GPS for the browser. Open device Settings → Privacy → Location and allow the browser, then reload. In the meantime, paste lat/lng from Google Maps below.';
+            }
+            if (instant) {
+                return 'Your device refused to provide a location fix at the operating-system level. Enable Location Services in your OS settings and make sure your browser can use it, then try again — or paste lat/lng from Google Maps below.';
+            }
+            return 'GPS could not get a position. Try moving near a window, toggle Location Services off/on, or use the course location / paste lat/lng below.';
         }
         return 'GPS could not return a fix. Use the course location (if available) or paste lat/long from Google Maps below.';
     }
 
     /** Soft hint shown when every auto-fallback (GPS, network, course
      *  coords, stale cache) has been exhausted. Now includes the
-     *  actual reason instead of vague guidance. */
+     *  actual reason, briefly highlights the manual-entry inputs
+     *  so the rep notices them, and auto-focuses the latitude
+     *  field so the next action is one click/tab away. */
     function showManualEntryHint() {
         if (locationStatus) {
             locationStatus.textContent = 'Pick a course with saved coordinates, or paste lat/long from Google Maps below.';
         }
         showLocationError(lastGpsFailureReason());
+
+        // Pulse the manual-entry block + autofocus the lat input,
+        // but only if the rep hasn't already typed something there
+        // (we don't want to steal focus from someone mid-edit).
+        var manualWrap = document.getElementById('manual-coords-wrap')
+            || (manualLat ? manualLat.closest('.grid, .flex, .space-y-2, div') : null);
+        if (manualWrap) {
+            manualWrap.classList.add('ring-2', 'ring-amber-300', 'ring-offset-1', 'rounded-md', 'transition-shadow');
+            setTimeout(function () {
+                manualWrap.classList.remove('ring-2', 'ring-amber-300', 'ring-offset-1', 'ring-offset-1');
+            }, 2600);
+        }
+        if (manualLat && document.activeElement !== manualLat && document.activeElement !== manualLng
+            && (!manualLat.value || String(manualLat.value).trim() === '')) {
+            try {
+                manualLat.focus({ preventScroll: false });
+                manualLat.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (e) { /* older browsers */ }
+        }
     }
 
     /** Try the last-known GPS fix from this browser even if it's old. */
@@ -824,6 +892,8 @@
 
         // 3. High-accuracy GPS
         if (!opts.silent && locationStatus) locationStatus.textContent = 'Getting your location…';
+        var highStartedAt = Date.now();
+        var skipLowAccuracy = false;
         try {
             var p1 = await getPositionPromise(geoOptionsHigh, 'high_accuracy');
             writeCachedFix(p1.coords.latitude, p1.coords.longitude, p1.coords.accuracy);
@@ -852,22 +922,33 @@
                 }
                 return false;
             }
+            // POSITION_UNAVAILABLE returning in <200ms means the OS
+            // itself blocked us (macOS Location Services off, Windows
+            // Location off, etc.). The low-accuracy retry will hit
+            // the exact same wall — skip the 12s wait and let the
+            // rep see the real fix-it message immediately.
+            if (e1 && e1.code === 2 && (Date.now() - highStartedAt) < 200) {
+                skipLowAccuracy = true;
+                gpsDiagPush({ step: 'cascade.skip_low_accuracy', reason: 'instant_position_unavailable' });
+            }
             // Otherwise (POSITION_UNAVAILABLE / TIMEOUT) — quietly try lower accuracy
         }
 
-        if (!opts.silent && locationStatus) locationStatus.textContent = 'Trying Wi-Fi / network location…';
-        try {
-            var p2 = await getPositionPromise(geoOptionsLow, 'low_accuracy');
-            writeCachedFix(p2.coords.latitude, p2.coords.longitude, p2.coords.accuracy);
-            setLocation(p2.coords.latitude, p2.coords.longitude,
-                'Network location (~' + Math.round(p2.coords.accuracy || 0) + 'm). Tap GPS again outdoors for a tighter fix.');
-            gpsDiagSend('cascade.ok_low_accuracy', {
-                permission: perm,
-                accuracy: Math.round(p2.coords.accuracy || 0),
-                duration_ms: Date.now() - t0,
-            });
-            return true;
-        } catch (e2) { /* fall through silently */ }
+        if (!skipLowAccuracy) {
+            if (!opts.silent && locationStatus) locationStatus.textContent = 'Trying Wi-Fi / network location…';
+            try {
+                var p2 = await getPositionPromise(geoOptionsLow, 'low_accuracy');
+                writeCachedFix(p2.coords.latitude, p2.coords.longitude, p2.coords.accuracy);
+                setLocation(p2.coords.latitude, p2.coords.longitude,
+                    'Network location (~' + Math.round(p2.coords.accuracy || 0) + 'm). Tap GPS again outdoors for a tighter fix.');
+                gpsDiagSend('cascade.ok_low_accuracy', {
+                    permission: perm,
+                    accuracy: Math.round(p2.coords.accuracy || 0),
+                    duration_ms: Date.now() - t0,
+                });
+                return true;
+            } catch (e2) { /* fall through silently */ }
+        }
 
         // 4. Course saved coords (silent)
         if (tryFallbackToCourseLocation()) {
