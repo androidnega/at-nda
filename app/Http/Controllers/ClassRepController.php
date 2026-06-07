@@ -1816,31 +1816,75 @@ class ClassRepController extends Controller
      */
     public function manualMarkAttendance(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
     {
+        $debugId = bin2hex(random_bytes(4));
+        Log::info('[MANUAL-MARK] request.received', [
+            'debug_id' => $debugId,
+            'course_id' => (int) $course->id,
+            'week_id' => (int) $attendanceWeek->id,
+            'has_csrf' => $request->session()->token() === $request->input('_token'),
+            'payload_keys' => array_keys($request->except(['_token'])),
+            'student_id' => $request->input('student_id'),
+            'status' => $request->input('status'),
+            'reason_len' => mb_strlen((string) $request->input('reason')),
+            'ip' => $request->ip(),
+        ]);
+
         $rep = $this->requireClassRep($request);
         if ($rep instanceof RedirectResponse) {
+            Log::warning('[MANUAL-MARK] auth.redirect', ['debug_id' => $debugId]);
+
             return $rep;
         }
         if (! $this->repCanAccessCourse($rep, $course)) {
+            Log::warning('[MANUAL-MARK] access.denied', [
+                'debug_id' => $debugId,
+                'rep_id' => (int) $rep->id,
+                'course_id' => (int) $course->id,
+            ]);
             abort(403, 'You can only manage attendance for your class courses.');
         }
         if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            Log::warning('[MANUAL-MARK] week.course_mismatch', [
+                'debug_id' => $debugId,
+                'week_course_id' => (int) $attendanceWeek->course_id,
+                'course_id' => (int) $course->id,
+            ]);
             abort(404);
         }
 
-        $validated = $request->validate([
-            'student_id' => 'required|integer|exists:students,id',
-            'status' => 'required|in:present,late,absent',
-            'reason' => 'required|string|min:3|max:500',
+        try {
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:students,id',
+                'status' => 'required|in:present,late,absent',
+                'reason' => 'required|string|min:3|max:500',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('[MANUAL-MARK] validation.failed', [
+                'debug_id' => $debugId,
+                'errors' => $e->errors(),
+            ]);
+
+            throw $e;
+        }
+        Log::info('[MANUAL-MARK] validation.passed', [
+            'debug_id' => $debugId,
+            'student_id' => $validated['student_id'],
+            'status' => $validated['status'],
         ]);
 
         $repClassId = $this->resolveRepClassId($rep, $course);
         $student = Student::find((int) $validated['student_id']);
         if (! $student || (int) $student->class_id !== (int) $repClassId) {
+            Log::warning('[MANUAL-MARK] student.class_mismatch', [
+                'debug_id' => $debugId,
+                'student_id' => (int) $validated['student_id'],
+                'student_class_id' => $student?->class_id,
+                'rep_class_id' => $repClassId,
+            ]);
+
             return back()->with('error', 'You can only mark students in your own class.');
         }
 
-        // Find or create today's session for this (course, class, week) so
-        // the manual mark hangs off the same row the rest of the class is on.
         $session = AttendanceSession::query()
             ->where('course_id', $course->id)
             ->where('attendance_week_id', $attendanceWeek->id)
@@ -1850,6 +1894,13 @@ class ClassRepController extends Controller
             ->orderByDesc('id')
             ->first();
         if (! $session) {
+            Log::warning('[MANUAL-MARK] session.missing', [
+                'debug_id' => $debugId,
+                'course_id' => (int) $course->id,
+                'week_id' => (int) $attendanceWeek->id,
+                'rep_class_id' => $repClassId,
+            ]);
+
             return back()->with('error', 'No attendance session exists for this week yet. Open a session first.');
         }
 
@@ -1893,6 +1944,14 @@ class ClassRepController extends Controller
                 'reason' => $validated['reason'],
                 'week_number' => $attendanceWeek->week_number,
             ],
+        ]);
+
+        Log::info('[MANUAL-MARK] success', [
+            'debug_id' => $debugId,
+            'attendance_id' => (int) $row->id,
+            'student_id' => (int) $student->id,
+            'index_number' => $student->index_number,
+            'status' => $validated['status'],
         ]);
 
         return back()->with('success', 'Marked '.$student->index_number.' as '.$validated['status'].' (manual entry).');

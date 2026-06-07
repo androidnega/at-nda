@@ -996,18 +996,45 @@
         if (!btn) return;
         var form = btn.closest('.manual-mark-form');
         if (!form) return;
+        var weekId = form.getAttribute('data-week-id');
+        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+        var reason = $('[data-manual-reason="' + weekId + '"]');
+        // Always log what the form looked like at click time — open
+        // DevTools console and look for [MANUAL-MARK] to see why a
+        // click was rejected or what was actually about to be sent.
+        console.info('[MANUAL-MARK] save.click', {
+            week_id: weekId,
+            student_id: hidden ? hidden.value : null,
+            status: (form.querySelector('select[name="status"]') || {}).value,
+            reason_len: reason ? (reason.value || '').trim().length : 0,
+            btn_disabled: btn.disabled,
+            form_action: form.getAttribute('action'),
+        });
         if (btn.disabled) {
+            console.warn('[MANUAL-MARK] save.blocked: button disabled (already in flight)');
             ev.preventDefault();
             return;
         }
         if (!validateManualForm(form)) {
+            console.warn('[MANUAL-MARK] save.blocked: client validation failed');
             ev.preventDefault();
             ev.stopPropagation();
+            return;
         }
-        // Validation passed → let the native click → submit pipeline
-        // continue. The submit handler above will run confirm() + the
-        // busy state.
+        console.info('[MANUAL-MARK] save.validation_ok — letting native submit fire');
     });
+
+    // Also log every submit event so we can confirm in the console
+    // that the form actually fired submit (not blocked by some other
+    // handler somewhere on the page).
+    document.addEventListener('submit', function (ev) {
+        var form = ev.target.closest && ev.target.closest('.manual-mark-form');
+        if (!form) return;
+        console.info('[MANUAL-MARK] submit.event_fired', {
+            week_id: form.getAttribute('data-week-id'),
+            default_prevented: ev.defaultPrevented,
+        });
+    }, true);
 })();
 
 // Prompt the rep for a deletion reason and stash it into the hidden
