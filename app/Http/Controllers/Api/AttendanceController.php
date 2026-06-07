@@ -501,8 +501,11 @@ class AttendanceController extends Controller
             ? Carbon::parse($validated['since'])
             : null;
 
+        // Eager-load course on top of the existing relations so the
+        // mobile client can render real course labels offline (the
+        // original payload only ever shipped raw IDs).
         $attendances = Attendance::where('student_id', $student->id)
-            ->with(['attendanceWeek', 'attendanceSession'])
+            ->with(['attendanceWeek', 'attendanceSession', 'course:id,course_name,course_code'])
             ->orderBy('id')
             ->get()
             ->map(fn (Attendance $a) => $this->formatAttendanceRow($a));
@@ -584,8 +587,14 @@ class AttendanceController extends Controller
             'id' => $a->id,
             'student_id' => $a->student_id,
             'course_id' => $a->course_id,
+            // Additive: gives the mobile client real course labels to
+            // render in the history list. Older clients that only read
+            // course_id still work unchanged.
+            'course_code' => $a->course?->course_code,
+            'course_name' => $a->course?->course_name,
             'attendance_session_id' => $a->attendance_session_id,
             'session_index' => $a->attendanceSession?->session_index,
+            'session_mode' => $a->attendanceSession?->mode,
             'week_number' => $a->attendanceWeek?->week_number,
             'attendance_week_id' => $a->attendance_week_id,
             'attendance_time' => $a->attendance_time?->toIso8601String(),

@@ -6,6 +6,37 @@
     <meta name="session-live-id" content="{{ $session->id }}">
 @endpush
 
+@push('styles')
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+<style>
+    #session-fence-map {
+        width: 100%;
+        height: 100%;
+        border-radius: 14px;
+        z-index: 0;
+    }
+    #session-fence-map .leaflet-control-attribution {
+        font-size: 10px;
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(6px);
+    }
+    .fence-pin-anchor {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #0f766e;
+        border: 3px solid #ffffff;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.25), 0 6px 14px rgba(15, 118, 110, 0.35);
+        animation: fencePinPulse 2s ease-in-out infinite;
+    }
+    @keyframes fencePinPulse {
+        0%, 100% { box-shadow: 0 0 0 3px rgba(15,118,110,0.25), 0 6px 14px rgba(15,118,110,0.35); }
+        50% { box-shadow: 0 0 0 10px rgba(15,118,110,0.10), 0 6px 14px rgba(15,118,110,0.35); }
+    }
+</style>
+@endpush
+
 @section('content')
 @php
     $mode = $session->mode ?? 'location';
@@ -21,6 +52,17 @@
         'location' => 'Students must be in range, then mark on the web.',
         default => 'Share this screen with the class.',
     };
+
+    // Geofence figures — only meaningful for location / hybrid sessions
+    // and only when the venue actually has coordinates. The "nominal"
+    // radius is what the rep configured; the "allowed" radius is what
+    // the server actually checks (nominal + GPS slop) so the screen
+    // matches what the backend will accept.
+    $hasGeofence = in_array($mode, ['location', 'hybrid'], true)
+        && $session->location_lat !== null
+        && $session->location_lng !== null;
+    $nominalRadiusM = $hasGeofence ? (int) $session->effectiveAttendanceRangeMeters($session->course ?? null) : 0;
+    $allowedRadiusM = $hasGeofence ? (int) $session->allowedGeofenceRadiusMeters($session->course ?? null) : 0;
 @endphp
 <div class="min-h-[calc(100vh-6rem)] px-4 py-6 sm:py-8">
     <div class="max-w-6xl mx-auto w-full">
@@ -117,6 +159,48 @@
                         </a>
                     </div>
                 </div>
+
+                @if($hasGeofence)
+                    {{-- ───────── Live geofence preview ─────────
+                         Shows the venue centre + the radius the backend
+                         enforces. Two concentric circles:
+                           • Solid teal  → nominal radius (what the rep set)
+                           • Faint teal  → allowed radius (nominal + GPS
+                             slop the server tolerates so honest students
+                             aren't rejected for a 5-metre GPS jitter).
+                         Backend already rejects out-of-range submissions
+                         (see AttendanceController::*) so this is purely
+                         for shared awareness during the session. --}}
+                    <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden max-w-xl lg:max-w-none">
+                        <div class="px-4 sm:px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-teal-50 via-white to-emerald-50/40 flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-100 text-teal-700">
+                                    <i class="fas fa-location-crosshairs text-sm"></i>
+                                </span>
+                                <div class="min-w-0">
+                                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Attendance zone</h2>
+                                    <p class="text-[11px] text-slate-500 mt-0.5">Marks outside this radius are rejected automatically</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
+                                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                                    <span class="inline-block w-2 h-2 rounded-full bg-teal-600"></span> Nominal · {{ $nominalRadiusM }}m
+                                </span>
+                                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-50 text-slate-600 ring-1 ring-slate-100">
+                                    <span class="inline-block w-2 h-2 rounded-full bg-slate-400"></span> GPS buffer · {{ $allowedRadiusM }}m
+                                </span>
+                            </div>
+                        </div>
+                        <div class="relative h-[260px] sm:h-[300px] bg-slate-50">
+                            <div id="session-fence-map"></div>
+                        </div>
+                        <div class="px-4 sm:px-5 py-2.5 text-[11px] text-slate-500 border-t border-slate-100">
+                            <i class="fas fa-circle-info mr-1 text-slate-400"></i>
+                            Centre: <span class="font-mono text-slate-700">{{ number_format((float) $session->location_lat, 5) }}, {{ number_format((float) $session->location_lng, 5) }}</span>
+                            · The server enforces the GPS-buffer radius so honest students with mild GPS drift still mark.
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
     </div>
@@ -188,5 +272,67 @@
     setInterval(refreshQr, Math.max(2, pollSeconds) * 1000);
 })();
 </script>
+
+@if($hasGeofence)
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script>
+(function () {
+    var el = document.getElementById('session-fence-map');
+    if (!el || typeof L === 'undefined') return;
+
+    var lat = {{ (float) $session->location_lat }};
+    var lng = {{ (float) $session->location_lng }};
+    var nominalRadius = {{ $nominalRadiusM }};
+    var allowedRadius = {{ $allowedRadiusM }};
+
+    var map = L.map(el, {
+        zoomControl: true,
+        scrollWheelZoom: false,
+        attributionControl: true,
+    }).setView([lat, lng], 18);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 19,
+        subdomains: 'abcd',
+    }).addTo(map);
+
+    // Outer (server-tolerated) circle drawn first so the inner one sits
+    // on top — gives a clean two-tone zone preview.
+    L.circle([lat, lng], {
+        radius: allowedRadius,
+        color: '#94a3b8',
+        weight: 1,
+        opacity: 0.55,
+        dashArray: '4 6',
+        fillColor: '#94a3b8',
+        fillOpacity: 0.06,
+    }).addTo(map);
+
+    L.circle([lat, lng], {
+        radius: nominalRadius,
+        color: '#0f766e',
+        weight: 2,
+        opacity: 0.9,
+        fillColor: '#14b8a6',
+        fillOpacity: 0.12,
+    }).addTo(map);
+
+    L.marker([lat, lng], {
+        icon: L.divIcon({
+            html: '<div class="fence-pin-anchor"></div>',
+            className: '',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+        }),
+    }).bindTooltip('Session venue', { permanent: false, direction: 'top', offset: [0, -8] }).addTo(map);
+
+    // Fit so both circles are comfortably visible.
+    var bounds = L.latLng(lat, lng).toBounds(allowedRadius * 2.4);
+    map.fitBounds(bounds);
+})();
+</script>
+@endif
 @endpush
 @endsection

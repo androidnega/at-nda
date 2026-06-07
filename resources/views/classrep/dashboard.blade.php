@@ -193,6 +193,29 @@
                     </div>
                     <input type="hidden" name="location_lat" id="location_lat" value="{{ old('location_lat') }}">
                     <input type="hidden" name="location_lng" id="location_lng" value="{{ old('location_lng') }}">
+
+                    {{-- Live geofence preview. Only visible once the rep
+                         has picked a location (device GPS, course default,
+                         or manual coords). Reacts to every radius / coord
+                         change so the rep can see exactly where students
+                         will need to stand. --}}
+                    <div id="fence-preview-wrap" class="hidden">
+                        <div class="mt-2 rounded-md border border-slate-200 bg-slate-50/40 overflow-hidden">
+                            <div class="px-3 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-white">
+                                <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-600 inline-flex items-center gap-1.5">
+                                    <i class="fas fa-location-crosshairs text-teal-600 text-xs"></i>
+                                    Attendance zone preview
+                                </p>
+                                <p id="fence-preview-meta" class="text-[10px] font-mono text-slate-500"></p>
+                            </div>
+                            <div class="relative h-[220px] sm:h-[260px]">
+                                <div id="fence-preview-map" style="position:absolute;inset:0;border-radius:0;"></div>
+                            </div>
+                            <p class="px-3 py-2 text-[10px] text-slate-500 border-t border-slate-100">
+                                Solid teal = your radius · faint outer ring = the GPS buffer the server tolerates. Marks outside the buffer are rejected.
+                            </p>
+                        </div>
+                    </div>
                 </div>
                 <div class="hidden border border-slate-200 rounded-lg p-3 space-y-2" id="session-wifi-section" aria-hidden="true">
                     <p class="text-sm font-semibold text-slate-800">Wi‑Fi SSID</p>
@@ -303,6 +326,107 @@
 </div>
 
 @if($coursesWithOpen->isNotEmpty())
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+<style>
+    #fence-preview-map { width: 100%; height: 100%; }
+    #fence-preview-map .leaflet-control-attribution { font-size: 9px; }
+    .fence-pin-anchor-mini { width: 16px; height: 16px; border-radius: 50%; background: #0f766e; border: 2.5px solid #ffffff;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.22), 0 4px 10px rgba(15, 118, 110, 0.35); }
+</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script>
+// Geofence preview: a small Leaflet map that shows the venue anchor +
+// the configured radius. Decoupled from the form's existing GPS logic
+// by polling the hidden inputs every ~700ms — cheap and keeps this
+// block independent of the rest of the script.
+(function () {
+    var GPS_BUFFER_M = {{ (int) config('app.geofence_gps_buffer_m', 50) }};
+    var MIN_CHECK_M  = {{ (int) config('app.min_geofence_check_m', 150) }};
+
+    var wrap = document.getElementById('fence-preview-wrap');
+    var mapEl = document.getElementById('fence-preview-map');
+    var meta = document.getElementById('fence-preview-meta');
+    if (!wrap || !mapEl) return;
+
+    var latHidden = document.getElementById('location_lat');
+    var lngHidden = document.getElementById('location_lng');
+    var radiusInput = document.getElementById('attendance_range_m');
+    if (!latHidden || !lngHidden) return;
+
+    var map = null;
+    var anchorMarker = null;
+    var innerCircle = null;
+    var outerCircle = null;
+    var lastLat = null;
+    var lastLng = null;
+    var lastRadius = null;
+
+    function ensureMap(lat, lng) {
+        if (map) return;
+        wrap.classList.remove('hidden');
+        map = L.map(mapEl, {
+            zoomControl: true,
+            scrollWheelZoom: false,
+            attributionControl: true,
+        }).setView([lat, lng], 18);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OSM &copy; CARTO',
+            maxZoom: 19,
+            subdomains: 'abcd',
+        }).addTo(map);
+        anchorMarker = L.marker([lat, lng], {
+            icon: L.divIcon({
+                html: '<div class="fence-pin-anchor-mini"></div>',
+                className: '',
+                iconSize: [16, 16],
+                iconAnchor: [8, 8],
+            }),
+        }).addTo(map);
+    }
+
+    function refresh() {
+        var lat = parseFloat(latHidden.value);
+        var lng = parseFloat(lngHidden.value);
+        var nominal = Math.max(10, parseInt(radiusInput && radiusInput.value, 10) || 100);
+        if (!isFinite(lat) || !isFinite(lng) || lat === 0 && lng === 0) return;
+
+        var allowed = Math.max(nominal, MIN_CHECK_M) + GPS_BUFFER_M;
+
+        if (lat === lastLat && lng === lastLng && nominal === lastRadius) return;
+        lastLat = lat; lastLng = lng; lastRadius = nominal;
+
+        ensureMap(lat, lng);
+        anchorMarker.setLatLng([lat, lng]);
+        if (outerCircle) outerCircle.remove();
+        if (innerCircle) innerCircle.remove();
+        outerCircle = L.circle([lat, lng], {
+            radius: allowed,
+            color: '#94a3b8', weight: 1, opacity: 0.55, dashArray: '4 6',
+            fillColor: '#94a3b8', fillOpacity: 0.05,
+        }).addTo(map);
+        innerCircle = L.circle([lat, lng], {
+            radius: nominal,
+            color: '#0f766e', weight: 2, opacity: 0.9,
+            fillColor: '#14b8a6', fillOpacity: 0.12,
+        }).addTo(map);
+        if (meta) {
+            meta.textContent = lat.toFixed(5) + ', ' + lng.toFixed(5)
+                + ' · ' + nominal + 'm (buffer: ' + allowed + 'm)';
+        }
+        var bounds = L.latLng(lat, lng).toBounds(allowed * 2.4);
+        map.fitBounds(bounds);
+        // Defer to next frame so Leaflet sizes correctly after the
+        // hidden wrapper becomes visible for the first time.
+        setTimeout(function () { map.invalidateSize(); }, 60);
+    }
+
+    setInterval(refresh, 700);
+    radiusInput && radiusInput.addEventListener('input', refresh);
+    refresh();
+})();
+</script>
 <script>
 (function() {
     var form = document.getElementById('open-session-form');
