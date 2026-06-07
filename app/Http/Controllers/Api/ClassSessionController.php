@@ -7,9 +7,9 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Student;
 use App\Support\FlutterSessionFormatter;
+use App\Support\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class ClassSessionController extends Controller
@@ -111,23 +111,11 @@ class ClassSessionController extends Controller
         }
 
         $student = Student::findByIndex($index);
-        if (! $student || ! $this->validatePassword((string) $password, $student->password)) {
+        if (! $student || ! PasswordPolicy::matches((string) $password, $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
         return $student;
-    }
-
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
     }
 }
 
