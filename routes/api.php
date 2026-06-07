@@ -26,9 +26,21 @@ use Illuminate\Support\Facades\Route;
 */
 Route::prefix('v1')->group(base_path('routes/api/v1.php'));
 
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout']);
-Route::post('/me', [AuthController::class, 'me']);
+/*
+| Auth + lookup — throttled at 5/min/IP (same limiter as /api/v1/auth/login).
+| /login and /me both accept stored credentials in the body and issue a fresh
+| Sanctum token, so they must NOT sit behind auth:sanctum (the existing Flutter
+| client calls /me without a Bearer during cold-start profile refresh).
+| /students/quick-status is the anti-enumeration pre-auth funnel.
+*/
+Route::middleware('throttle:api-v1-login')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/me', [AuthController::class, 'me']);
+    Route::post('/students/quick-status', [StudentController::class, 'quickStatus']);
+});
+
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth:sanctum');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/timetable', [StudentTimetableController::class, 'show']);
