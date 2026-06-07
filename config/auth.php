@@ -114,4 +114,24 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Legacy plaintext password fallback
+    |--------------------------------------------------------------------------
+    |
+    | When TRUE, App\Support\PasswordPolicy::matches() will accept a
+    | plaintext comparison if the stored value is not bcrypt. This
+    | exists ONLY for the migration window during which
+    | `php artisan students:rehash-passwords` (Phase 1 / P1.T02)
+    | is run. Flip back to FALSE the moment that command reports
+    | `Remaining non-bcrypt rows: 0`.
+    |
+    | Production .env should set:
+    |   AUTH_ALLOW_LEGACY_PLAINTEXT=true     during the rehash window
+    |   AUTH_ALLOW_LEGACY_PLAINTEXT=false    immediately afterwards
+    |
+    */
+
+    'allow_plaintext_legacy_passwords' => env('AUTH_ALLOW_LEGACY_PLAINTEXT', false),
+
 ];
