@@ -355,9 +355,11 @@
                                     <i class="fas fa-xmark"></i>
                                 </button>
                             </div>
+                            {{-- novalidate: browser-native validation tooltips on required fields render outside the modal's overflow area and get clipped, so the rep clicks Save and sees nothing. We do all validation in JS below with inline messages the rep can actually see. --}}
                             <form action="{{ route('dashboard.class-attendance.manual-mark', [$course, $week]) }}" method="post"
                                   class="manual-mark-form p-4 space-y-3 overflow-y-auto"
-                                  data-week-id="{{ $week->id }}">
+                                  data-week-id="{{ $week->id }}"
+                                  novalidate>
                                 @csrf
                                 {{-- Searchable student picker — replaces the <select> that
                                      used to hold every classmate in one giant scroll list.
@@ -420,9 +422,11 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Reason</label>
-                                    <input type="text" name="reason" required minlength="3" maxlength="500"
+                                    <input type="text" name="reason" minlength="3" maxlength="500"
+                                           data-manual-reason="{{ $week->id }}"
                                            placeholder="e.g. phone died, lecturer confirmed in class"
                                            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                                    <p data-manual-reason-error="{{ $week->id }}" class="hidden mt-1.5 text-[11px] font-semibold text-rose-600">Reason is required (at least 3 characters).</p>
                                     <p class="text-[10px] text-gray-400 mt-1">Required — saved with the audit log so this manual action is traceable.</p>
                                 </div>
                                 <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
@@ -876,21 +880,11 @@
         });
     });
 
-    // Form submit: guard against the "I clicked Save but nothing happened"
-    // confusion by (1) blocking submission when no student is selected
-    // and (2) disabling the button + showing a spinner the moment it's
-    // pressed so the rep sees their click registered.
-    document.addEventListener('submit', function (ev) {
-        var form = ev.target.closest && ev.target.closest('.manual-mark-form');
-        if (!form) return;
-        var weekId = form.getAttribute('data-week-id');
-        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+    // Show / hide the search-box red flash + "pick a student" message.
+    function flagMissingStudent(weekId, missing) {
         var search = $('[data-manual-search="' + weekId + '"]');
-        if (!hidden || !hidden.value) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            // Focus the search box and flash it red so it's obvious why
-            // nothing happened.
+        var noMatch = $('[data-manual-no-match="' + weekId + '"]');
+        if (missing) {
             if (search) {
                 search.focus();
                 search.classList.add('ring-2', 'ring-rose-400');
@@ -898,28 +892,66 @@
                     search.classList.remove('ring-2', 'ring-rose-400');
                 }, 1600);
             }
-            var noMatch = $('[data-manual-no-match="' + weekId + '"]');
             if (noMatch) {
                 noMatch.textContent = 'Pick a student from the suggestions first.';
                 noMatch.classList.remove('hidden');
             }
-            return;
         }
-        // Ask for confirmation now (replaces the form-level onsubmit so we
-        // can keep the spinner behaviour atomic with the user's decision).
-        var ok = window.confirm('Mark this student manually? This is logged for audit.');
-        if (!ok) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            return;
+    }
+
+    function flagMissingReason(weekId, missing, reasonEl) {
+        var err = $('[data-manual-reason-error="' + weekId + '"]');
+        if (missing) {
+            if (err) err.classList.remove('hidden');
+            if (reasonEl) {
+                reasonEl.classList.add('ring-2', 'ring-rose-400', 'border-rose-300');
+                reasonEl.focus();
+                setTimeout(function () {
+                    reasonEl.classList.remove('ring-2', 'ring-rose-400', 'border-rose-300');
+                }, 2200);
+            }
+        } else {
+            if (err) err.classList.add('hidden');
+            if (reasonEl) reasonEl.classList.remove('ring-2', 'ring-rose-400', 'border-rose-300');
         }
-        // Disable submit + show spinner. Re-enables itself after 8s in
-        // case the request hangs (so the form is never permanently dead).
+    }
+
+    // Clear reason error as soon as the rep starts typing.
+    document.addEventListener('input', function (ev) {
+        var r = ev.target.closest && ev.target.closest('[data-manual-reason]');
+        if (!r) return;
+        var weekId = r.getAttribute('data-manual-reason');
+        if ((r.value || '').trim().length >= 3) {
+            flagMissingReason(weekId, false, r);
+        }
+    });
+
+    // Returns true if the form is OK to submit; otherwise shows the
+    // appropriate inline feedback and returns false.
+    function validateManualForm(form) {
+        var weekId = form.getAttribute('data-week-id');
+        var hidden = $('[data-manual-student-id="' + weekId + '"]');
+        var reason = $('[data-manual-reason="' + weekId + '"]');
+        var hasStudent = !!(hidden && hidden.value);
+        var reasonText = reason ? (reason.value || '').trim() : '';
+        var hasReason = reasonText.length >= 3;
+        // Flag both — but focus the student picker first if missing.
+        flagMissingStudent(weekId, !hasStudent);
+        flagMissingReason(weekId, !hasReason, reason);
+        if (!hasStudent) return false;
+        if (!hasReason) return false;
+        return true;
+    }
+
+    // Swap the button to the spinner / saving state.
+    function setSubmitBusy(form, busy) {
+        var weekId = form.getAttribute('data-week-id');
         var btn = $('[data-manual-submit="' + weekId + '"]', form);
-        if (btn) {
+        if (!btn) return;
+        var icon = btn.querySelector('[data-manual-submit-icon]');
+        var label = btn.querySelector('[data-manual-submit-label]');
+        if (busy) {
             btn.disabled = true;
-            var icon = btn.querySelector('[data-manual-submit-icon]');
-            var label = btn.querySelector('[data-manual-submit-label]');
             if (icon) icon.className = 'fas fa-spinner fa-spin text-[11px]';
             if (label) label.textContent = 'Saving…';
             setTimeout(function () {
@@ -928,8 +960,54 @@
                 if (icon) icon.className = 'fas fa-check text-[11px]';
                 if (label) label.textContent = 'Save manual mark';
             }, 8000);
+        } else {
+            btn.disabled = false;
+            if (icon) icon.className = 'fas fa-check text-[11px]';
+            if (label) label.textContent = 'Save manual mark';
         }
+    }
+
+    // Primary submit handler — runs validation, then confirm(), then
+    // lets the form submit naturally with the busy spinner.
+    document.addEventListener('submit', function (ev) {
+        var form = ev.target.closest && ev.target.closest('.manual-mark-form');
+        if (!form) return;
+        if (!validateManualForm(form)) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+        var ok = window.confirm('Mark this student manually? This is logged for audit.');
+        if (!ok) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+        setSubmitBusy(form, true);
     }, true);
+
+    // Click-time pre-validation on the Save button. This guarantees
+    // the rep gets inline feedback the instant they click — we never
+    // depend solely on the submit event firing, and we never depend
+    // on the browser's native validation tooltip (which renders
+    // outside the modal overflow area and is invisible to the rep).
+    document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('[data-manual-submit]');
+        if (!btn) return;
+        var form = btn.closest('.manual-mark-form');
+        if (!form) return;
+        if (btn.disabled) {
+            ev.preventDefault();
+            return;
+        }
+        if (!validateManualForm(form)) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        // Validation passed → let the native click → submit pipeline
+        // continue. The submit handler above will run confirm() + the
+        // busy state.
+    });
 })();
 
 // Prompt the rep for a deletion reason and stash it into the hidden
