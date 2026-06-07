@@ -6,6 +6,7 @@ use App\Console\Commands\MigrateSqliteToMysql;
 use App\Console\Commands\RehashStudentPasswords;
 use App\Http\Middleware\EnsureAdminOnly;
 use App\Http\Middleware\EnsureAdminOrLecturer;
+use App\Http\Middleware\EnsureCallerCanSeeClass;
 use App\Http\Middleware\EnsureClassRep;
 use App\Http\Middleware\EnsureLecturer;
 use App\Http\Middleware\EnsureNotAdminOrLecturer;
@@ -63,6 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.https' => ForceHttpsForApi::class,
             'api.version' => ApiVersionHeaders::class,
             'no-store' => NoStoreCache::class,
+            'class.access' => EnsureCallerCanSeeClass::class,
         ]);
 
         // Stamp X-Api-Version / Sunset headers on every /api/* response so
