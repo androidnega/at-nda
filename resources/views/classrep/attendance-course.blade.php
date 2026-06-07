@@ -379,9 +379,10 @@
                                                class="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 font-mono">
                                         <i class="fas fa-magnifying-glass text-gray-400 text-xs absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                                     </div>
+                                    {{-- NB: do NOT put `required` on this hidden input — browsers silently block submit on empty required hidden fields and the `submit` event never fires, so our JS validation + confirm() + spinner never runs and the button looks dead. The submit handler below enforces the pick. --}}
                                     <input type="hidden" name="student_id"
                                            id="manual-student-id-{{ $week->id }}"
-                                           data-manual-student-id="{{ $week->id }}" required>
+                                           data-manual-student-id="{{ $week->id }}">
                                     <p id="manual-selected-{{ $week->id }}"
                                        data-manual-selected="{{ $week->id }}"
                                        class="hidden mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-2 py-1">
