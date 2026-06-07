@@ -168,7 +168,7 @@
 @endpush
 
 @section('content')
-<div class="w-full min-w-0 space-y-6">
+<div class="w-full min-w-0 space-y-5">
     @php
         $repGreetingName = trim((string) ($student->last_name ?? ''));
         if ($repGreetingName === '') {
@@ -234,7 +234,7 @@
     </div>
 
     {{-- KPI tiles: vivid gradient cards with floating decorations --}}
-    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div class="rep-kpi rep-kpi--teal">
             <div class="flex items-center justify-between gap-2">
                 <span class="text-[10px] font-bold uppercase tracking-wider text-white/85">Students</span>
@@ -281,8 +281,8 @@
          Bar chart (last {{ $trendDaysSafe }} days) + capture-mode donut.
          Empty data sets render a friendly placeholder rather than an
          empty chart so a fresh class doesn't look broken. --}}
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div class="rep-card xl:col-span-2">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="rep-card lg:col-span-2">
             <div class="rep-card__head">
                 <div class="flex items-center gap-2.5 min-w-0">
                     <span class="rep-card__icon rep-card__icon--sky"><i class="fas fa-chart-column"></i></span>
@@ -362,7 +362,7 @@
 
     {{-- ─────────── Leaderboards row ───────────
          Top courses (bar list) + top students (avatar leaderboard) --}}
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="rep-card">
             <div class="rep-card__head">
                 <div class="flex items-center gap-2.5 min-w-0">
@@ -449,78 +449,57 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div class="rounded-2xl border border-[#c5d4e0] bg-[#f5f9fc] overflow-hidden">
-            <div class="px-4 sm:px-5 py-3.5 border-b border-[#c5d4e0] flex flex-wrap items-center justify-between gap-2 bg-[#edf3f8]">
-                <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#d4e4ef] text-[#1f4558]">
-                        <i class="fas fa-calendar-day text-sm"></i>
-                    </span>
-                    <div class="min-w-0">
-                        <h2 class="text-sm font-bold text-[#1a3344] tracking-tight">Today&rsquo;s schedule</h2>
-                    </div>
+    {{-- Today's schedule — unified with .rep-card so the page reads
+         as one design system. Shortcuts panel was removed because it
+         duplicated the sidebar nav verbatim. --}}
+    <div class="rep-card">
+        <div class="rep-card__head">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <span class="rep-card__icon rep-card__icon--sky"><i class="fas fa-calendar-day"></i></span>
+                <div>
+                    <h2>Today's schedule</h2>
+                    <p class="mt-0.5">{{ now()->format('l, F j, Y') }}</p>
                 </div>
-                <span class="shrink-0 inline-flex items-center rounded-lg border border-[#b8ccdb] bg-white/90 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#2d4a5c]">{{ now()->format('M j, Y') }}</span>
             </div>
-            <div class="p-3 sm:p-4 space-y-2.5">
-                @forelse($todayCourses as $c)
-                    <div class="flex items-stretch gap-3 rounded-xl border border-[#dce7ee] bg-white p-3 sm:p-3.5">
-                        <span class="hidden sm:flex w-1 shrink-0 rounded-full bg-[#8eb4c8]" aria-hidden="true"></span>
-                        <div class="flex min-w-0 flex-1 items-start justify-between gap-3">
-                            <div class="min-w-0 flex gap-3">
-                                <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#eef5fa] text-[#2d5a6e] ring-1 ring-[#dce7ee]">
-                                    <i class="fas fa-book-open text-[11px]"></i>
-                                </span>
-                                <div class="min-w-0">
-                                    <p class="font-semibold text-[#142a38] leading-snug truncate">
-                                        {{ $c->course_name }}
-                                        @if(!empty($c->course_code))
-                                            <span class="ml-1 text-[11px] font-mono text-[#5a6f7c]">{{ $c->course_code }}</span>
-                                        @endif
-                                    </p>
-                                    @if(!empty($c->schedule_label))
-                                        <p class="text-[12px] text-[#5a6f7c] mt-1 leading-relaxed">
-                                            <span class="text-[#3d5a6e] font-medium">{{ $c->schedule_label }}</span>
-                                        </p>
-                                    @endif
-                                </div>
-                            </div>
+            <a href="{{ route('dashboard.timetable') }}" class="shrink-0 text-[11px] font-semibold text-primary hover:underline inline-flex items-center gap-1">
+                Full week <i class="fas fa-arrow-right text-[10px]"></i>
+            </a>
+        </div>
+        <div class="rep-card__body">
+            @forelse($todayCourses as $c)
+                <div class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 mb-2.5 last:mb-0">
+                    <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                        <i class="fas fa-book-open text-xs"></i>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <p class="font-semibold text-slate-800 leading-snug">
+                                {{ $c->course_name }}
+                                @if(!empty($c->course_code))
+                                    <span class="ml-1 text-[11px] font-mono text-slate-500">{{ $c->course_code }}</span>
+                                @endif
+                            </p>
                             @if(!empty($c->has_active_session))
-                                <span class="shrink-0 self-start inline-flex items-center gap-1.5 rounded-lg border border-[#b5d9c4] bg-[#ecf6f0] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#1f5c36]">
-                                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#2d8f4e]" aria-hidden="true"></span>
+                                <span class="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
                                     Live
                                 </span>
                             @endif
                         </div>
+                        @if(!empty($c->schedule_label))
+                            <p class="text-xs text-slate-500 mt-1">{{ $c->schedule_label }}</p>
+                        @endif
                     </div>
-                @empty
-                    <div class="rounded-xl border border-dashed border-[#c5d4e0] bg-[#fafcfd] px-4 py-10 text-center">
-                        <span class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e8f0f6] text-[#6b8fa3]">
-                            <i class="fas fa-mug-hot text-lg"></i>
-                        </span>
-                        <p class="text-sm font-medium text-[#3d5a6e]">Nothing on your timetable today</p>
-                        <p class="text-xs text-[#7a919c] mt-1.5 max-w-xs mx-auto">When you add a course to <a href="{{ route('dashboard.timetable.manage') }}" class="text-[#2d5a6e] underline">your timetable</a> for {{ now()->format('l') }}, it&rsquo;ll show up here.</p>
-                    </div>
-                @endforelse
-            </div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5">
-            <h2 class="text-sm font-bold text-slate-800 mb-3">Shortcuts</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm font-medium text-slate-800 hover:border-primary/30 hover:bg-primary/5">
-                    <i class="fas fa-user-friends text-primary w-5 text-center"></i> Students
-                </a>
-                <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm font-medium text-slate-800 hover:border-primary/30 hover:bg-primary/5">
-                    <i class="fas fa-calendar-alt text-primary w-5 text-center"></i> Timetable
-                </a>
-                <a href="{{ route('dashboard.my-class') }}" class="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm font-medium text-slate-800 hover:border-primary/30 hover:bg-primary/5">
-                    <i class="fas fa-layer-group text-primary w-5 text-center"></i> My class
-                </a>
-                <a href="{{ route('dashboard.class-attendance.index') }}" class="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 text-sm font-medium text-slate-800 hover:border-primary/30 hover:bg-primary/5">
-                    <i class="fas fa-clipboard-list text-primary w-5 text-center"></i> Attendance
-                </a>
-            </div>
+                </div>
+            @empty
+                <div class="py-10 text-center">
+                    <span class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                        <i class="fas fa-mug-hot text-lg"></i>
+                    </span>
+                    <p class="text-sm font-medium text-slate-700">Nothing on your timetable today</p>
+                    <p class="text-xs text-slate-500 mt-1.5 max-w-xs mx-auto">Add a course to <a href="{{ route('dashboard.timetable.manage') }}" class="text-primary underline">your timetable</a> for {{ now()->format('l') }} to see it here.</p>
+                </div>
+            @endforelse
         </div>
     </div>
 
@@ -541,29 +520,27 @@
         $uniqueCourses = $mapPoints->pluck('course')->filter()->unique()->values();
         $modeCounts = $mapPoints->groupBy('mode')->map->count();
     @endphp
-    <div class="rounded-2xl border border-slate-200/80 bg-white overflow-hidden">
-        <div class="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-slate-100 bg-gradient-to-r from-sky-50/70 via-white to-emerald-50/40">
+    <div class="rep-card">
+        <div class="rep-card__head">
             <div class="flex items-center gap-2.5 min-w-0">
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
-                    <i class="fas fa-map-location-dot text-sm"></i>
-                </span>
-                <div class="min-w-0">
-                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Attendance map</h2>
-                    <p class="text-[11px] text-slate-500 mt-0.5">Where students marked from over the last 14 days · {{ $mapPoints->count() }} pin{{ $mapPoints->count() === 1 ? '' : 's' }}</p>
+                <span class="rep-card__icon rep-card__icon--rose"><i class="fas fa-map-location-dot"></i></span>
+                <div>
+                    <h2>Attendance map</h2>
+                    <p class="mt-0.5">Last 14 days · {{ $mapPoints->count() }} pin{{ $mapPoints->count() === 1 ? '' : 's' }}</p>
                 </div>
             </div>
-            <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
-                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+            <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold">
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-sky-50 text-sky-700">
                     <span class="inline-block w-2 h-2 rounded-full bg-sky-500"></span> Location · {{ $modeCounts->get('location', 0) }}
                 </span>
-                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
                     <span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> QR · {{ $modeCounts->get('qr', 0) }}
                 </span>
-                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-50 text-amber-800 ring-1 ring-amber-100">
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
                     <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span> Hybrid · {{ $modeCounts->get('hybrid', 0) }}
                 </span>
                 @if($modeCounts->get('wifi', 0) > 0)
-                    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-teal-50 text-teal-700">
                         <span class="inline-block w-2 h-2 rounded-full bg-teal-500"></span> Wi-Fi · {{ $modeCounts->get('wifi', 0) }}
                     </span>
                 @endif
@@ -571,9 +548,9 @@
         </div>
 
         @if($uniqueCourses->isNotEmpty())
-            <div class="px-4 sm:px-5 py-3 border-b border-slate-100 bg-white/60">
+            <div class="px-4 sm:px-[1.1rem] py-3 border-b border-slate-100 bg-slate-50/40">
                 <div class="flex flex-wrap items-center gap-2">
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Course filter</span>
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Filter</span>
                     <button type="button" class="map-filter-chip px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold" data-course-filter="" aria-pressed="true">All ({{ $mapPoints->count() }})</button>
                     @foreach($uniqueCourses as $c)
                         @php $n = $mapPoints->where('course', $c)->count(); @endphp
@@ -586,12 +563,12 @@
         @endif
 
         @if($mapPoints->isEmpty())
-            <div class="px-6 py-16 text-center">
+            <div class="rep-card__body py-14 text-center">
                 <span class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
                     <i class="fas fa-map-pin text-xl"></i>
                 </span>
                 <p class="text-sm font-medium text-slate-700">No location data yet</p>
-                <p class="text-xs text-slate-500 mt-1 max-w-md mx-auto">When students mark attendance from a location / hybrid session, their pins will appear here.</p>
+                <p class="text-xs text-slate-500 mt-1.5 max-w-md mx-auto">When students mark from a Location or Hybrid session, their pins will appear here.</p>
             </div>
         @else
             <div class="relative h-[360px] sm:h-[440px] lg:h-[520px] bg-slate-50">
