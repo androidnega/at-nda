@@ -236,6 +236,13 @@ class _LoginPageState extends State<LoginPage> {
     try {
       await SyncService.syncAttendance();
     } catch (_) {}
+    // Pull the server's attendance history into the local cache so a
+    // brand-new install / new device immediately shows past marks on
+    // the history page. Silent best-effort; falls back to local cache
+    // if the call fails (network, password mismatch, etc.).
+    try {
+      await SyncService.pullRemoteAttendanceHistory();
+    } catch (_) {}
     await PushService.registerAfterLogin(student.indexNumber);
     // Firebase-free reminders: poll immediately after successful login.
     await NotificationBridge.pollPending();

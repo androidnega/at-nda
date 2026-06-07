@@ -4,6 +4,8 @@ import '../models/attendance_record.dart';
 import '../theme/soft_ui.dart';
 import '../models/student.dart';
 import '../services/offline_service.dart';
+import '../services/sync_service.dart';
+import '../utils/connectivity_util.dart';
 
 /// Past marks from SQLite + pending offline queue; optional filter and stats.
 class AttendanceHistoryPage extends StatefulWidget {
@@ -47,6 +49,9 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _reload();
+    // Background-pull on first paint so the screen self-heals even if
+    // the student opens History before the login pull finished.
+    _refreshFromServerSilently();
   }
 
   @override
@@ -57,6 +62,28 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
 
   void _reload() {
     _future = _loadBundle();
+  }
+
+  /// Pull-to-refresh handler. Tries the server first when online so the
+  /// list converges on the canonical history; falls back to the local
+  /// cache (set in `_reload`).
+  Future<void> _refreshFromServer() async {
+    if (await hasInternetConnectivity()) {
+      await SyncService.pullRemoteAttendanceHistory();
+    }
+    if (!mounted) return;
+    setState(_reload);
+  }
+
+  Future<void> _refreshFromServerSilently() async {
+    try {
+      if (!await hasInternetConnectivity()) return;
+      final pulled = await SyncService.pullRemoteAttendanceHistory();
+      if (!mounted || pulled <= 0) return;
+      setState(_reload);
+    } catch (_) {
+      // Stay silent — user already sees the local cache.
+    }
   }
 
   Future<_HistoryBundle> _loadBundle() async {
@@ -164,16 +191,25 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
         ),
         actions: [
           IconButton(
+            tooltip: 'Refresh',
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => setState(_reload),
+            onPressed: () async {
+              await _refreshFromServer();
+            },
           ),
         ],
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildHistoryTab(context),
-          _buildStatsTab(context),
+          RefreshIndicator(
+            onRefresh: _refreshFromServer,
+            child: _buildHistoryTab(context),
+          ),
+          RefreshIndicator(
+            onRefresh: _refreshFromServer,
+            child: _buildStatsTab(context),
+          ),
         ],
       ),
     );
@@ -233,15 +269,24 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
             ),
             Expanded(
               child: rows.isEmpty
-                  ? Center(
-                      child: Text(
-                        bundle.rows.isEmpty
-                            ? 'No attendance records yet.'
-                            : 'No rows match this filter.',
-                        textAlign: TextAlign.center,
-                      ),
+                  // Keep the empty state scrollable so the parent
+                  // RefreshIndicator still fires on pull.
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
+                      children: [
+                        Center(
+                          child: Text(
+                            bundle.rows.isEmpty
+                                ? 'No attendance records yet.\nPull down to refresh.'
+                                : 'No rows match this filter.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
                     )
                   : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       itemCount: rows.length,
                       itemBuilder: (_, i) {

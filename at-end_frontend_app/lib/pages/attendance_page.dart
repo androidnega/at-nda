@@ -7,6 +7,7 @@ import '../models/attendance_record.dart';
 import '../models/qr_submit_result.dart';
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/biometric_service.dart';
 import '../services/attendance_local_notify.dart';
 import '../services/device_service.dart';
 import '../services/location_service.dart';
@@ -582,8 +583,23 @@ class _AttendancePageState extends State<AttendancePage> {
     await _submitAttendance();
   }
 
+  /// Prompts for fingerprint / Face ID before any attendance POST.
+  /// Returns true when the user verified or biometrics aren't a
+  /// requirement on this device — callers should bail when false.
+  Future<bool> _confirmBiometrics(String purpose) async {
+    if (!await BiometricService.isRequiredForMark()) return true;
+    final ok = await BiometricService.authenticate(
+      reason: 'Confirm with biometrics before $purpose',
+    );
+    if (!ok && mounted) {
+      _showErrorSnackBar('Biometric check cancelled.');
+    }
+    return ok;
+  }
+
   Future<void> _submitCheckout() async {
     if (_session == null || _student == null || _isCheckingOut) return;
+    if (!await _confirmBiometrics('checking out')) return;
     setState(() {
       _isCheckingOut = true;
       _error = null;
@@ -700,6 +716,12 @@ class _AttendancePageState extends State<AttendancePage> {
     // At least one of session_id, course_id, or qr_code (contract).
     if (sessionId == null && parseOptionalCourseId(rawSession) == null && token.isEmpty) {
       return QrSubmitResult.fail(400, 'Invalid session (missing id and course)');
+    }
+
+    // Biometric gate — runs after structural validation but before
+    // we touch the network so a cancelled prompt costs nothing.
+    if (!await _confirmBiometrics('submitting your QR mark')) {
+      return QrSubmitResult.fail(401, 'Biometric check cancelled.');
     }
 
     final courseId = parseOptionalCourseId(rawSession);
@@ -889,6 +911,7 @@ class _AttendancePageState extends State<AttendancePage> {
       return;
     }
     if (!_rangeChecked || !_withinRange) return;
+    if (!await _confirmBiometrics('marking attendance')) return;
     final rawSession = Map<String, dynamic>.from(_session!);
     final sessionId = parseSessionId(rawSession);
     if (sessionId == null) {

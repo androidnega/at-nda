@@ -84,6 +84,10 @@ dependencies:
   # Local notifications (session live, check-in, checkout) with sound + vibration
   flutter_local_notifications: ^18.0.1
 
+  # OS-level biometric gate (fingerprint / Face ID) before attendance.
+  # Verifies the device owner before any mark is POSTed.
+  local_auth: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

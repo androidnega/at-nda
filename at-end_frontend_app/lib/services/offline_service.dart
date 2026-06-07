@@ -574,6 +574,71 @@ class OfflineService {
     );
   }
 
+  /// Replace the local attendance_log cache for [indexNumber] with the
+  /// rows the server returned from `GET /api/attendance/sync`.
+  ///
+  /// The server is the source of truth for confirmed marks — a fresh
+  /// install / new device starts with an empty cache, so without this
+  /// call the history page would always look blank until the student
+  /// marked something new. We wipe-and-replace (rather than upsert) so
+  /// rows the admin later voided don't keep haunting the local UI.
+  static Future<int> bulkUpsertAttendanceLogsFromServer(
+    String indexNumber,
+    List<dynamic> serverRows,
+  ) async {
+    final cleanedIndex = indexNumber.trim();
+    if (cleanedIndex.isEmpty) return 0;
+
+    final mapped = <Map<String, dynamic>>[];
+    for (final raw in serverRows) {
+      if (raw is! Map) continue;
+      final m = Map<String, dynamic>.from(raw);
+      final at = (m['attendance_time'] ?? m['created_at'])?.toString() ?? '';
+      if (at.isEmpty) continue;
+      final code = (m['course_code'] ?? m['course_name'])?.toString();
+      final sidRaw = m['attendance_session_id'] ?? m['session_id'];
+      final sid = sidRaw is int
+          ? sidRaw
+          : (sidRaw is num
+              ? sidRaw.toInt()
+              : int.tryParse(sidRaw?.toString() ?? ''));
+      mapped.add({
+        'index_number': cleanedIndex,
+        'course_code': (code == null || code.trim().isEmpty)
+            ? (m['course_id'] != null ? 'Course #${m['course_id']}' : null)
+            : code,
+        'session_id': sid,
+        'marked_at': at,
+        'synced': 1,
+      });
+    }
+
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_webLogPrefix$cleanedIndex';
+      if (mapped.isEmpty) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, jsonEncode(mapped));
+      }
+      return mapped.length;
+    }
+
+    final database = await _database;
+    if (database == null) return 0;
+    final batch = database.batch();
+    batch.delete(
+      'attendance_log',
+      where: 'index_number = ?',
+      whereArgs: [cleanedIndex],
+    );
+    for (final row in mapped) {
+      batch.insert('attendance_log', row);
+    }
+    await batch.commit(noResult: true);
+    return mapped.length;
+  }
+
   static Future<void> _appendWebLog(
     String indexNumber,
     Map<String, dynamic> row,

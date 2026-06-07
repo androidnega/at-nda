@@ -45,6 +45,8 @@
 	<string>Camera is used to capture profile photo and for face verification.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location is used to verify you are within the class range for attendance.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID is used to confirm it is you before marking attendance.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

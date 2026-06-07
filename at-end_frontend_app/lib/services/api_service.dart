@@ -615,6 +615,50 @@ class ApiService {
     return null;
   }
 
+  /// GET /api/attendance/sync — pulls the student's full server-side
+  /// attendance history (and the ids of any deletions since [since]).
+  ///
+  /// Used at login + on history-page refresh so a fresh install
+  /// immediately shows the same record set the web dashboard shows.
+  /// On error returns `null` so callers can fall back to the local
+  /// SQLite cache without surfacing a noisy snackbar.
+  static Future<Map<String, dynamic>?> fetchRemoteAttendanceSync({
+    required String indexNumber,
+    required String password,
+    String? sinceIso,
+  }) async {
+    final qp = <String, String>{
+      'index_number': normalizeLoginId(indexNumber),
+      'password': password,
+    };
+    if (sinceIso != null && sinceIso.isNotEmpty) {
+      qp['since'] = sinceIso;
+    }
+    final uri = Uri.parse(
+      '${Constants.baseUrl}/attendance/sync',
+    ).replace(queryParameters: qp);
+    try {
+      final res = await http
+          .get(uri, headers: _requestHeaders())
+          .timeout(httpTimeout);
+      if (res.statusCode != 200) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('ATTENDANCE SYNC HTTP ${res.statusCode}: ${res.body}');
+        }
+        return null;
+      }
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (e, st) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('ATTENDANCE SYNC error: $e\n$st');
+      }
+    }
+    return null;
+  }
+
   /// GET /api/sessions/active — expects `{ "sessions": [ {...}, ... ] }`.
   /// Legacy: top-level JSON array `[ {...}, ... ]` is also accepted.
   /// Pass [indexNumber] (and optional [classId]) so the server returns only that class's sessions.

@@ -9,6 +9,36 @@ import 'offline_service.dart';
 class SyncService {
   SyncService._();
 
+  /// Pull the server-side attendance history into the local SQLite
+  /// cache. Returns the row count actually written (0 on any failure
+  /// — we never throw, we just leave whatever the local cache had).
+  ///
+  /// Called after a successful API login (so a fresh install never
+  /// shows an empty history page even though the server has data),
+  /// and again from the attendance-history page's pull-to-refresh.
+  static Future<int> pullRemoteAttendanceHistory() async {
+    try {
+      final student = await OfflineService.getCurrentStudent();
+      if (student == null) return 0;
+      final password = await OfflineService.getApiSessionPassword();
+      if (password == null || password.isEmpty) return 0;
+
+      final body = await ApiService.fetchRemoteAttendanceSync(
+        indexNumber: student.indexNumber,
+        password: password,
+      );
+      if (body == null) return 0;
+      final rowsRaw = body['attendances'];
+      if (rowsRaw is! List) return 0;
+      return await OfflineService.bulkUpsertAttendanceLogsFromServer(
+        student.indexNumber,
+        rowsRaw,
+      );
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// POST each unsynced record; marks synced on success. Returns count synced.
   static Future<int> syncAttendance() async {
     var synced = 0;
