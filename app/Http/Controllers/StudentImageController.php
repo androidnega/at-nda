@@ -33,6 +33,20 @@ class StudentImageController extends Controller
             return $this->placeholderImageResponse();
         }
 
+        // P1.T16: profile_image temporarily carries a 'pending:' sentinel
+        // ('pending:tmp-profile/<id>-<uuid>') while ResizeStudentProfileImage
+        // is queued. There is no public-disk file at this address yet, and
+        // the staged bytes on the local disk are deliberately not exposed
+        // publicly. Serve the 1x1 transparent placeholder PNG (200 OK) so
+        // Flutter web / NetworkImage don't flash a broken-image icon while
+        // the worker is in flight. When the worker overwrites profile_image
+        // with the optimized 'students/...' path and updated_at flips, the
+        // ?v=<timestamp> cache buster on the model's profileImageUrl()
+        // causes the next render to refetch the real binary.
+        if (str_starts_with($path, Student::PENDING_IMAGE_PREFIX)) {
+            return $this->placeholderImageResponse();
+        }
+
         if (preg_match('/^https?:\/\//i', $path)) {
             return redirect()->away($path);
         }
