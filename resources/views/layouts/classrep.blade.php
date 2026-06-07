@@ -88,6 +88,10 @@
                     <i class="fas fa-clipboard-list w-4 text-center text-xs"></i>
                     <span>Attendance</span>
                 </a>
+                <a href="{{ route('dashboard.attendance-map') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.attendance-map') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-map-location-dot w-4 text-center text-xs"></i>
+                    <span>Attendance map</span>
+                </a>
                 {{-- Audit log link removed: only admins/super-admins
                      can inspect the platform-wide trail. --}}
                 <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.materials.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">

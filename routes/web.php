@@ -215,6 +215,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
             ->whereNumber('entry');
 
         Route::get('/session', [ClassRepController::class, 'dashboard'])->name('session');
+        // Dedicated full-page attendance map: every student mark over
+        // the selected window plotted on Leaflet/OSM with course
+        // anchor circles and per-mode pin tints.
+        Route::get('/attendance-map', [ClassRepController::class, 'attendanceMap'])->name('attendance-map');
         Route::get('/my-class', [ClassRepController::class, 'classShow'])->name('my-class');
         Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');
         Route::get('/class-attendance/course/{course}', [ClassRepController::class, 'attendanceForCourse'])->name('class-attendance.course');

@@ -207,24 +207,6 @@ class ClassRepController extends Controller
             collect()
         );
 
-        // Map data: last 14 days of attendance pins for this rep's classes.
-        // Each pin carries enough metadata for the Leaflet popup (student,
-        // course, time, mode) without a follow-up XHR. Capped at 500 to
-        // keep payload bounded for reps with very large classes.
-        $attendanceMapPoints = $this->safeCall(
-            fn () => $this->buildAttendanceMapPoints($marksBase),
-            'rep_overview.map_points',
-            collect()
-        );
-
-        // Course centroid + radius (when configured on the course) so the
-        // map can show the venue anchor in addition to per-student pins.
-        $courseAnchors = $this->safeCall(
-            fn () => $this->buildCourseAnchors($courseIds),
-            'rep_overview.course_anchors',
-            collect()
-        );
-
         // ─── Charts & trends data for the dashboard ───────────────
         // All four are computed off the same $marksBase builder so we
         // automatically respect the rep's class scope + the
@@ -263,8 +245,6 @@ class ClassRepController extends Controller
             'todayAttendanceMarks' => $todayAttendanceMarks,
             'weekAttendanceMarks' => $weekAttendanceMarks,
             'todayCourses' => $todayCourses,
-            'attendanceMapPoints' => $attendanceMapPoints,
-            'courseAnchors' => $courseAnchors,
             'weeklyTrend' => $weeklyTrend,
             'modeBreakdown' => $modeBreakdown,
             'topCourses' => $topCourses,
@@ -601,6 +581,76 @@ class ClassRepController extends Controller
                 'schedule_label' => $c->getScheduleLabel(),
                 'has_active_session' => $c->activeSessionForClass($this->resolveRepClassId($student, $c)) !== null,
             ]);
+    }
+
+    /**
+     * Dedicated full-page attendance map for the rep. Lives on its own
+     * sidebar entry so the overview/dashboard can stay focused on
+     * trends + counters instead of also hosting a tall map widget.
+     *
+     * Supports a `?days=` filter (7/14/30/90, defaulting to 14) so the
+     * rep can broaden or tighten the window without leaving the page.
+     */
+    public function attendanceMap(Request $request): View|RedirectResponse
+    {
+        $student = $this->requireClassRep($request);
+        if ($student instanceof RedirectResponse) {
+            return $student;
+        }
+
+        $allowedWindows = [7, 14, 30, 90];
+        $days = (int) $request->query('days', 14);
+        if (! in_array($days, $allowedWindows, true)) {
+            $days = 14;
+        }
+
+        $classIds = $this->getRepClassIds($student);
+        $classIdsArr = $classIds->map(fn ($id) => (int) $id)->all();
+
+        $courseIds = $this->safeCall(
+            fn () => (clone RepCourseAccess::coursesQueryForRep($student))->pluck('id'),
+            'rep_map.course_ids',
+            collect()
+        );
+
+        $marksBase = null;
+        try {
+            $marksBase = $courseIds->isEmpty()
+                ? null
+                : Attendance::query()
+                    ->whereIn('course_id', $courseIds)
+                    ->whereHas('student', fn ($q) => $q->whereIn('class_id', $classIds))
+                    ->activeWeeksOnly()
+                    ->where('attendance_time', '>=', now()->subDays($days)->startOfDay());
+
+            if ($marksBase !== null) {
+                AttendanceSessionClassScope::scopeAttendanceMarksForClasses($marksBase, $classIdsArr);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $marksBase = null;
+        }
+
+        $attendanceMapPoints = $this->safeCall(
+            fn () => $this->buildAttendanceMapPoints($marksBase),
+            'rep_map.map_points',
+            collect()
+        );
+
+        $courseAnchors = $this->safeCall(
+            fn () => $this->buildCourseAnchors($courseIds),
+            'rep_map.course_anchors',
+            collect()
+        );
+
+        return view('classrep.attendance-map', [
+            'student' => $student,
+            'attendanceMapPoints' => $attendanceMapPoints,
+            'courseAnchors' => $courseAnchors,
+            'days' => $days,
+            'allowedWindows' => $allowedWindows,
+            'dashboardRole' => 'classrep',
+        ]);
     }
 
     public function dashboard(Request $request): View|RedirectResponse
