@@ -7,11 +7,10 @@ use App\Models\DeletedStudentIndex;
 use App\Models\Lecturer;
 use App\Models\Student;
 use App\Models\SystemSetting;
+use App\Support\PasswordPolicy;
 use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
@@ -50,7 +49,7 @@ class AuthController extends Controller
                         'error_code' => 'lecturer_no_password',
                     ], 422);
                 }
-                if (! $this->validatePassword($password, $lecturer->password)) {
+                if (! PasswordPolicy::matches($password, $lecturer->password)) {
                     return response()->json(['message' => 'Wrong password'], 401);
                 }
 
@@ -83,15 +82,7 @@ class AuthController extends Controller
             return response()->json($this->loginSuccessPayload($student));
         }
 
-        // Temporary debugging (remove in production)
-        Log::info('Login attempt', [
-            'index_number' => $indexNumber,
-            'student_id' => $student->id,
-            'password_is_hashed' => str_starts_with($student->password ?? '', '$2y$') || str_starts_with($student->password ?? '', '$2a$'),
-        ]);
-
-        $passwordValid = $this->validatePassword($password, $student->password);
-        if (! $passwordValid) {
+        if (! PasswordPolicy::matches($password, $student->password)) {
             return response()->json(['message' => 'Wrong password'], 401);
         }
 
@@ -124,23 +115,6 @@ class AuthController extends Controller
         $pat->delete();
 
         return response()->json(['success' => true, 'message' => 'Logged out']);
-    }
-
-    /**
-     * Validate password. Supports both hashed (bcrypt) and plain text.
-     * If DB password starts with $2y$ or $2a$ → use Hash::check
-     * Otherwise → plain text comparison (legacy)
-     */
-    private function validatePassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
     }
 
     /**
