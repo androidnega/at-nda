@@ -20,7 +20,13 @@ return new class extends Migration
             });
         }
 
-        if (Schema::hasColumn('attendance_sessions', 'class_id')
+        // MySQL-only UPDATE...JOIN syntax. On other drivers (sqlite in
+        // tests) the table starts empty, so both backfills are no-ops
+        // and are skipped.
+        $isMysql = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+
+        if ($isMysql
+            && Schema::hasColumn('attendance_sessions', 'class_id')
             && Schema::hasTable('attendance_weeks')
             && Schema::hasColumn('attendance_weeks', 'class_id')) {
             DB::statement('
@@ -31,7 +37,8 @@ return new class extends Migration
             ');
         }
 
-        if (Schema::hasColumn('attendance_sessions', 'class_id')
+        if ($isMysql
+            && Schema::hasColumn('attendance_sessions', 'class_id')
             && Schema::hasTable('courses')
             && Schema::hasColumn('courses', 'class_id')) {
             DB::statement('

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -21,6 +22,7 @@ class Student extends Model implements AuthenticatableContract
 {
     use AuthenticatableTrait;
     use HasApiTokens;
+    use HasFactory;
 
     protected $fillable = ['index_number', 'first_name', 'middle_name', 'last_name', 'email', 'profile_image', 'phone_number', 'password', 'department_id', 'class_id', 'bound_ip'];
 

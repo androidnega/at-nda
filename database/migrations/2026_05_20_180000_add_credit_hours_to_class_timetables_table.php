@@ -26,12 +26,17 @@ return new class extends Migration
         });
 
         if (Schema::hasTable('courses') && Schema::hasColumn('courses', 'credit_hours')) {
-            DB::statement(
-                'UPDATE class_timetables ct '
-                .'JOIN courses c ON c.id = ct.course_id '
-                .'SET ct.credit_hours = c.credit_hours '
-                .'WHERE ct.credit_hours IS NULL'
-            );
+            // MySQL-only UPDATE...JOIN syntax. On other drivers (sqlite in
+            // tests) the table starts empty, so this backfill is a no-op
+            // and is skipped.
+            if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+                DB::statement(
+                    'UPDATE class_timetables ct '
+                    .'JOIN courses c ON c.id = ct.course_id '
+                    .'SET ct.credit_hours = c.credit_hours '
+                    .'WHERE ct.credit_hours IS NULL'
+                );
+            }
         }
     }
 
