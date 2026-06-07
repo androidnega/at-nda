@@ -12,12 +12,12 @@ use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Services\AttendanceOfflineSyncService;
 use App\Services\MissedSessionWarningService;
+use App\Support\PasswordPolicy;
 use App\Support\SecureQrToken;
 use App\Support\StudentApiPayload;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
@@ -493,7 +493,7 @@ class AttendanceController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (!$student || !$this->validatePasswordForSync($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -566,7 +566,7 @@ class AttendanceController extends Controller
         ]);
 
         $student = Student::findByIndex($validated['index_number']);
-        if (! $student || ! $this->validatePasswordForSync($validated['password'], $student->password)) {
+        if (! $student || ! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -607,18 +607,6 @@ class AttendanceController extends Controller
             'created_at' => $a->created_at?->toIso8601String(),
             'updated_at' => $a->updated_at?->toIso8601String(),
         ];
-    }
-
-    private function validatePasswordForSync(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
     }
 
     /**
