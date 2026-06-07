@@ -192,6 +192,31 @@
                 #fed7aa 3px,
                 #fed7aa 4px
             ) !important;
+            color: #a8a29e;
+        }
+        /* Header for a cancelled week column — same striped background as
+           the cells so the whole vertical column reads as one cancelled
+           block without us having to repeat the "CANCELLED" label in
+           every student row (which used to blow up row heights). */
+        th.week-cancelled-header {
+            background: repeating-linear-gradient(
+                45deg,
+                #fef3c7,
+                #fef3c7 3px,
+                #fde68a 3px,
+                #fde68a 4px
+            ) !important;
+            color: #78350f !important;
+        }
+        th.week-cancelled-header .week-cancelled {
+            color: #b91c1c;
+            font-weight: bold;
+        }
+        td.week-cancelled-cell .week-cancelled-marker {
+            color: #b45309;
+            font-weight: bold;
+            font-size: 8px;
+            letter-spacing: 0.08em;
         }
         .footer-note {
             font-size: 8px;
@@ -313,7 +338,7 @@
                         <th>Index No.</th>
                         <th>Program</th>
                         @foreach($weeks as $w)
-                        <th class="week-col">W{{ $w->week_number }}@if($w->isCancelled())<br><span class="week-cancelled">Off</span>@endif</th>
+                        <th class="week-col @if($w->isCancelled()) week-cancelled-header @endif">W{{ $w->week_number }}@if($w->isCancelled())<br><span class="week-cancelled">Off</span>@endif</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -338,11 +363,15 @@
                         </td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
+                        {{-- Cancelled weeks: keep the cell deliberately empty (with the
+                             striped amber background) so every student row stays the same
+                             short height. The "W# / Off" column header already labels the
+                             entire column as cancelled, and the Cancelled-weeks block
+                             below the table carries the details — so a per-cell CANCELLED
+                             label is just visual noise that stretches each row vertically. --}}
                         <td class="week-col @if($w->isCancelled()) week-cancelled-cell @endif">
                             @if($w->isCancelled())
-                                <span class="week-cancelled-vert" aria-label="Cancelled">
-                                    <span>C</span><span>A</span><span>N</span><span>C</span><span>E</span><span>L</span><span>L</span><span>E</span><span>D</span>
-                                </span>
+                                <span class="week-cancelled-marker" aria-label="Cancelled">&middot;</span>
                             @elseif(isset($row['weeks'][$w->week_number]))
                                 @if($row['weeks'][$w->week_number] === true)
                                     <span class="check">&#10003;</span>
