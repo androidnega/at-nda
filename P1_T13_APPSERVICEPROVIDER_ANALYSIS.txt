@@ -1,0 +1,651 @@
+================================================================================
+P1.T13 — AppServiceProvider production guards ANALYSIS  (pre-implementation)
+================================================================================
+
+Scope under review
+  app/Providers/AppServiceProvider.php                  (modify — add 4 boot guards)
+
+Touches by reference only — NO modifications in this task
+  bootstrap/providers.php                               (already registers AppServiceProvider)
+  bootstrap/app.php                                     (already exists; no change)
+  config/qr.php, config/database.php, config/cache.php,
+  config/cors.php, config/sanctum.php                   (read by the new guards)
+  app/Support/MailRuntimeConfig.php                     (boot consumer; order matters)
+  app/Support/RedisRuntimeConfig.php                    (boot consumer; order matters)
+  .env / .env.example                                   (operator owns values)
+
+This analysis is read-only. It documents every existing boot-time
+operation, the four new guards, the exact firing order, and every
+failure mode an operator could hit on staging or production after
+P1.T13 ships.
+
+================================================================================
+0. AT-A-GLANCE SUMMARY
+================================================================================
+
+  Spec change (from phase_1_security_implementation.txt §13)
+  ----------------------------------------------------------------------
+    Insert one new branch in AppServiceProvider::boot() and add one
+    new private method assertProductionEnvironment().
+
+    Guard fires only when BOTH:
+      - app()->environment('production') === true
+      - app()->runningInConsole() === false       ← exempts artisan
+
+    The method throws RuntimeException with a multi-line message when
+    any of the following fail (errors accumulate, so the operator sees
+    every problem in one boot):
+      (a) config('qr.secret')       === ''         → C-01
+      (b) config('database.default') === 'sqlite'  → C-04
+      (c) config('cache.default')    === 'database'→ C-05
+      (d) any config('cors.allowed_origins') entry contains
+          'localhost' | '127.0.0.1' | '0.0.0.0'    → M-03
+
+    Plus a non-fatal warning (only logged):
+      - config('sanctum.expiration') <= 0          → H-17
+
+  Net behavioural delta
+  ----------------------------------------------------------------------
+    Production HTTP requests:
+      + If any of (a)..(d) fail, the framework throws on boot →
+        exception handler renders a generic 500 → operator sees the
+        actionable RuntimeException message ONLY in laravel.log
+        (APP_DEBUG=false in production).
+      + If all four pass, ZERO change from today (the guard adds ~5µs).
+    Production console (artisan):
+      + Skipped entirely. `php artisan migrate`, `qr:rotate-secret`,
+        `queue:work`, `tinker` can still run when the env is broken,
+        which is the only way the operator can repair it.
+    Non-production (local / staging unless APP_ENV=production):
+      + ZERO change.
+
+  One important interaction
+  ----------------------------------------------------------------------
+    The guard runs BEFORE the existing MailRuntimeConfig::applyOnce()
+    and RedisRuntimeConfig::applyOnce() calls. Today those two helpers
+    silently swallow QueryException when the DB is unreachable
+    (try/catch around SystemSetting::get()). With the new guard, an
+    operator who sets DB_CONNECTION=sqlite in production gets a
+    cleaner failure (the guard's RuntimeException) BEFORE the
+    DB-touching code runs. Good — we never reach the foot-gun.
+
+================================================================================
+1. EXISTING AppServiceProvider BOOT LOGIC
+================================================================================
+
+File: app/Providers/AppServiceProvider.php (119 lines today)
+
+Registration vs boot
+---------------------------------------------------------------
+  register()  — lines 19-22
+    Currently empty. P1.T13 also leaves it empty.
+  boot()      — lines 27-117
+    Eight discrete steps, executed in source order:
+
+    Step 1  (lines 29-33) — URL scheme upgrade
+      $appUrl = (string) config('app.url', '');
+      if (str_starts_with($appUrl, 'https://')) {
+          URL::forceScheme('https');
+      }
+      No DB. No throw. ✅ Safe.
+
+    Step 2  (line 38) — MailRuntimeConfig::applyOnce()
+      Reads SystemSetting via Eloquent. Internally guarded by:
+        - SchemaFeatures::hasMailSettings() (Schema::hasTable +
+          Schema::hasColumn — itself a DB call)
+        - try/catch around SystemSetting::get()
+      So a missing/down DB makes the helper return false (warning is
+      not logged — see "Startup failure risks" §8).
+
+    Step 3  (line 44) — RedisRuntimeConfig::applyOnce()
+      Same shape:
+        - SchemaFeatures::hasRedisSettings()
+        - try/catch around SystemSetting::get()
+        - additional extension/client checks
+        - 500-ms TCP probe + on-disk health caching
+      Falls back to file cache silently if Redis is sick.
+
+    Step 4  (lines 46-48) — RateLimiter::for('api-v1')
+      Limit::perMinute(60)->by(user_id ?? ip).
+      Registers a closure; no I/O.
+
+    Step 5  (lines 50-52) — RateLimiter::for('api-v1-login')
+      Limit::perMinute(5)->by(ip).
+      Registers a closure; no I/O.
+
+    Step 6  (lines 54-106) — View::composer for
+                              ['layouts.classrep','layouts.student']
+      Composer FIRES at view render time, NOT at boot. Wraps two
+      queries (Student::with('department.faculty','schoolClass')
+      and StudentSignOutLock check) inside report()-on-throw try/
+      catch. Composer registration itself is in-memory, safe.
+
+    Step 7  (lines 108-116) — View::composer for 'layouts.admin'
+      Same shape; queries User if session('admin_id') is set.
+
+Where the new guard inserts (per spec, lines 2178-2191)
+---------------------------------------------------------------
+  IMMEDIATELY AFTER Step 1, BEFORE Step 2.
+
+  Pseudo:
+    Step 1   URL::forceScheme('https') if APP_URL is https
+    Step 1a  ← NEW guard fires here
+    Step 2   MailRuntimeConfig::applyOnce()
+    Step 3   RedisRuntimeConfig::applyOnce()
+    Step 4   RateLimiter::for('api-v1')
+    Step 5   RateLimiter::for('api-v1-login')
+    Step 6   View::composer(['layouts.classrep','layouts.student'])
+    Step 7   View::composer('layouts.admin')
+
+  Methods called from boot() after P1.T13:
+    boot()                         (existing, unchanged signature)
+    assertProductionEnvironment()  (NEW, private)
+
+================================================================================
+2. EXISTING STARTUP GUARDS
+================================================================================
+
+  Search of app/ for runningInConsole / environment('production'):
+    - app/Http/Middleware/ForceHttpsForApi.php (T12) — only HTTP-time
+      check, not boot-time.
+    - phase_1_security_implementation.txt + this guide — docs.
+
+  ⇒ There are CURRENTLY NO production-only boot guards in this codebase.
+    P1.T13 is the FIRST. That means:
+    (a) The exact failure semantics of an in-boot RuntimeException are
+        established by this task — `bootstrap/app.php`'s existing
+        exception render closures (verified earlier) will catch the
+        RuntimeException and emit a generic 500 / JSON envelope.
+    (b) No conflicting guard. No prior code throws on boot in
+        APP_ENV=production.
+
+  Pre-existing soft guards (kept by this task)
+  ----------------------------------------------------------------------
+    - SchemaFeatures::* return false when tables/columns are missing,
+      letting half-migrated installs boot.
+    - MailRuntimeConfig + RedisRuntimeConfig wrap SystemSetting::get()
+      in try/catch.
+    - Storage::disk('public')->url(), Cache::*, Log::* are all lazy.
+    - View::composer queries are wrapped in report()-on-throw.
+
+================================================================================
+3. EXISTING APP_URL CHECKS
+================================================================================
+
+  Single check in AppServiceProvider::boot() lines 29-33:
+    $appUrl = (string) config('app.url', '');
+    if (str_starts_with($appUrl, 'https://')) {
+        URL::forceScheme('https');
+    }
+
+  Effect: when APP_URL begins with 'https://', every url() / route()
+  / asset() / Storage::disk('public')->url() emits https links.
+
+  Interaction with the new guard
+  ----------------------------------------------------------------------
+    The guard does NOT check APP_URL. A production install with
+    APP_URL=http://… will NOT trip the guard. Two paths to fail-safe:
+      - The existing ForceHttpsForApi middleware (T12) still 308s any
+        http request to https on the /api/v1/* surface.
+      - URL::forceScheme('https') still fires when APP_URL is https.
+    A future analysis task may extend the guard with an APP_URL
+    scheme check; deliberately OUT OF SCOPE for P1.T13.
+
+================================================================================
+4. EXISTING HTTPS CHECKS
+================================================================================
+
+  Boot time:
+    URL::forceScheme('https') above. That's it.
+
+  Request time:
+    app/Http/Middleware/ForceHttpsForApi.php (P1.T12 just landed):
+      - production-only 308 redirect of http → https
+      - HSTS header on responses out of /api/v1/* group
+
+  ⇒ P1.T13 does NOT add HTTPS-related code. Verified: the new
+    assertProductionEnvironment() body in the spec never touches
+    `https://`, URL::, request->isSecure(), or scheme.
+
+================================================================================
+5. EXISTING SANCTUM-RELATED BOOT LOGIC
+================================================================================
+
+Provider boot
+---------------------------------------------------------------
+  No Sanctum config is touched by AppServiceProvider::boot() today.
+  Sanctum's own SanctumServiceProvider (vendor) is auto-discovered and
+  registers its `auth:sanctum` guard, PersonalAccessToken model, etc.
+
+Config consumed by Sanctum
+---------------------------------------------------------------
+  config/sanctum.php
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION') !== null
+                    && env('SANCTUM_TOKEN_EXPIRATION') !== ''
+                    ? (int) env('SANCTUM_TOKEN_EXPIRATION') : null;
+
+  ⇒ When SANCTUM_TOKEN_EXPIRATION is unset/empty, config returns null
+    → tokens never auto-expire.
+
+P1.T13 new behaviour on this config
+---------------------------------------------------------------
+  Spec lines 2227-2234:
+    if ((int) config('sanctum.expiration', 0) <= 0) {
+        // Not fatal but log a warning so the operator notices.
+        try { \Log::warning('SANCTUM_TOKEN_EXPIRATION is not set in production. Set to 10080 ...'); }
+        catch (\Throwable $e) { /* logger not yet booted — ignore */ }
+    }
+
+  - The warning is NON-FATAL. Boot continues.
+  - (int) null = 0 → triggers the warning when expiration is null.
+  - The try/catch handles the corner case where logger isn't booted
+    (early boot order; AppServiceProvider runs before the Log facade
+    is fully wired in some configurations).
+  - Risk: a verbose deploy floods laravel.log with this line on every
+    request. Pre-existing-style design — written once per request, but
+    typical production traffic doesn't run boot per request unless
+    OPcache is misconfigured.
+
+================================================================================
+6. EXISTING CACHE / VERSION LOGIC
+================================================================================
+
+Caching helpers used at boot (DIRECTLY)
+---------------------------------------------------------------
+  AppServiceProvider::boot() itself NEVER calls Cache::*.
+  MailRuntimeConfig::applyOnce() does not call Cache::*.
+  RedisRuntimeConfig::applyOnce() calls Cache::purge('redis') and
+    Cache::purge('database') after re-wiring the cache driver. Those
+    are no-ops if no cache resolver has been built yet.
+
+Caching consumers (INDIRECT)
+---------------------------------------------------------------
+  LiveAttendanceCache, CacheVersions, AttendanceMarkLock — none called
+  from boot.
+
+  Boot-cache-pollution risk:
+    If config:cache is in use AND the operator changes the boot file
+    without `php artisan config:clear`, the cached config file (under
+    bootstrap/cache/config.php) keeps the OLD values for env vars.
+    The new guard reads config('qr.secret'), config('database.default'),
+    config('cache.default'), config('cors.allowed_origins'),
+    config('sanctum.expiration') — all of which can be stale.
+    Mitigation: deploy runbook MUST `php artisan config:clear &&
+    php artisan config:cache` after editing .env.
+
+================================================================================
+7. EXISTING SCHEMA-DEPENDENT LOGIC
+================================================================================
+
+The new guard touches NO schema
+---------------------------------------------------------------
+  assertProductionEnvironment() reads ONLY config(...) keys. No
+  Eloquent, no Schema::, no DB::. ✅ Schema-safe even on a brand-new
+  install with zero migrations.
+
+But the boot code that runs AFTER the guard does touch schema
+---------------------------------------------------------------
+  MailRuntimeConfig::applyOnce()
+    - SchemaFeatures::hasMailSettings() → Schema::hasTable('system_settings')
+                                        + Schema::hasColumn(...)
+    - SystemSetting::get() (try/catch'd)
+
+  RedisRuntimeConfig::applyOnce()
+    - SchemaFeatures::hasRedisSettings() → Schema::hasTable / hasColumn
+    - SystemSetting::get() (try/catch'd)
+
+  View::composer (later, at render time):
+    - Student::with('department.faculty','schoolClass')->find($sid)
+    - StudentSignOutLock checks
+
+  Implication for P1.T13
+  ----------------------------------------------------------------------
+    If the guard fails (RuntimeException), Steps 2-7 never run, so
+    schema-dependent paths never execute on that request. ✅ No
+    cascade failure.
+
+    If the guard passes, Steps 2-7 run unchanged. ✅ No regression.
+
+================================================================================
+8. STARTUP FAILURE RISKS
+================================================================================
+
+  R-01 (HIGH probability, intentional) — production .env misconfigured
+  ----------------------------------------------------------------------
+   Trigger    :  Operator deploys with any of:
+                  - QR_SECRET unset
+                  - DB_CONNECTION=sqlite
+                  - CACHE_STORE=database
+                  - CORS_ALLOWED_ORIGINS contains localhost
+                 AND APP_ENV=production AND not running artisan.
+   Symptom    :  Every HTTP request to /api/* and /* returns 500.
+   Detection  :  laravel.log shows
+                   `Production environment guard failed:\n  - ...`
+                 Browser/Flutter sees the generic 500 envelope.
+   Recovery   :  Edit .env. Run `php artisan config:cache`. Restart
+                 PHP-FPM. Subsequent requests succeed.
+   Mitigation :  Spec lists each remediation command inline in the
+                 error message. Operator runbook tests on staging
+                 with `APP_ENV=production DB_CONNECTION=sqlite php
+                 artisan serve` BEFORE the prod deploy.
+
+  R-02 (MEDIUM) — stale config:cache after .env fix
+  ----------------------------------------------------------------------
+   Trigger    :  Operator fixes .env but skips config:cache. PHP-FPM
+                 workers read bootstrap/cache/config.php which still
+                 holds OLD values.
+   Symptom    :  Guard keeps firing even after the fix.
+   Recovery   :  `php artisan config:clear && php artisan config:cache`,
+                 then FPM restart.
+   Same shape as the QrRotateSecret runbook (P1.T11). Already part of
+   the standard deploy.
+
+  R-03 (LOW) — Logger not booted when warning fires
+  ----------------------------------------------------------------------
+   Trigger    :  Edge case where Log facade is not yet wired when
+                 AppServiceProvider::boot() runs (very early in
+                 Laravel 11+ this only happens during specific bootstrap
+                 paths). The try/catch in the spec swallows.
+   Symptom    :  Sanctum-expiration warning silently lost.
+   Recovery   :  Subsequent requests log normally.
+   Impact     :  Negligible — the warning is informational only.
+
+  R-04 (LOW) — Spurious "Strict-Transport-Security" leak via 500
+  ----------------------------------------------------------------------
+   Trigger    :  Guard throws on a /api/v1/* request. Exception
+                 handler renders a JSON 500. Question: does
+                 ForceHttpsForApi (HSTS) still stamp the header?
+   Answer     :  Yes. The middleware runs on the OUTBOUND path,
+                 wrapping $next($request). The exception is caught by
+                 Laravel's exception handler, which builds a Response.
+                 ForceHttpsForApi sees that Response and stamps HSTS.
+                 ✅ Behaviour: a 500 response still emits HSTS, which
+                 is fine — HSTS doesn't depend on response code.
+   Impact     :  None. Mentioned for completeness.
+
+  R-05 (LOW) — Guard fires during `php artisan migrate:fresh` in prod
+  ----------------------------------------------------------------------
+   Mitigation :  `runningInConsole()` carve-out. Migrations work even
+                 if other env vars are broken. ✅ Documented.
+
+  R-06 (LOW) — Guard incorrectly assumes APP_ENV='production'
+  ----------------------------------------------------------------------
+   Trigger    :  Staging set to APP_ENV=production by mistake.
+   Symptom    :  Guard fires on staging.
+   Recovery   :  Set APP_ENV=staging. ✅ Self-documenting; the spec's
+                 design accepts this trade.
+
+  R-07 (LOW) — env('APP_ENV') is null
+  ----------------------------------------------------------------------
+   Trigger    :  Missing .env or unreadable .env in production.
+   Effect     :  config('app.env') falls back to default 'production'
+                 (config/app.php line 39). Guard fires. Other code
+                 paths break too. Documented for completeness.
+
+  R-08 (ZERO impact) — non-production environments
+  ----------------------------------------------------------------------
+   Local APP_ENV=local, staging APP_ENV=staging, testing, etc. The
+   guard is a no-op. No regression on developer machines.
+
+================================================================================
+9. SHARED-HOSTING CONSIDERATIONS  (cPanel target)
+================================================================================
+
+OPcache / config:cache
+---------------------------------------------------------------
+  Most cPanel hosts ship OPcache enabled with `validate_timestamps=1`.
+  bootstrap/cache/config.php is treated as a normal PHP file by
+  OPcache, so a `config:cache` after editing .env will be picked up
+  within `revalidate_freq` seconds (often 2). Acceptable; document.
+
+PHP-FPM worker recycling
+---------------------------------------------------------------
+  Existing long-lived FPM workers keep the OLD AppServiceProvider in
+  memory until they recycle. After deploying P1.T13:
+    1. The first request through a worker still has the OLD code (no
+       guard). It will succeed even if env is broken.
+    2. When the worker recycles (max-requests, max-children-idle), it
+       picks up the new code. Future requests with a broken env hit
+       the guard.
+  ⇒ The transition is NOT atomic. Operator should restart PHP-FPM
+    after deploy (cPanel: PHP Settings → restart) to make the
+    transition deterministic.
+
+Missing PHP extensions / shared-host constraints
+---------------------------------------------------------------
+  The guard uses pure SPL strings + config()  — no extra extensions.
+  Should work on any host that runs Laravel.
+
+Email-only error visibility
+---------------------------------------------------------------
+  cPanel admins often check `error_log` rather than laravel.log. The
+  RuntimeException's message will propagate to PHP's error_log via
+  Laravel's logging config (stack/daily channel). Spec runbook should
+  note both locations.
+
+================================================================================
+10. ROLLBACK STRATEGY
+================================================================================
+
+Layer A — git revert
+---------------------------------------------------------------
+  Action       :  git revert <P1.T13 commit>
+  Effect       :  Removes the insert + the new method. boot()
+                  reverts to its pre-T13 8-step sequence.
+  Risk         :  Zero. Pure code removal; no schema, no .env, no
+                  config cache impact.
+
+Layer B — temporary force-bypass (rarely needed)
+---------------------------------------------------------------
+  If `git revert` cannot be deployed quickly (CI down, branch
+  protection, etc.) and production must boot immediately:
+    1. Edit .env to satisfy whichever guard is failing:
+         QR_SECRET=<any 32+ chars>          (run qr:rotate-secret)
+         DB_CONNECTION=mysql                (and run mysql migrations)
+         CACHE_STORE=file                   (safer than database)
+         CORS_ALLOWED_ORIGINS=https://app.example
+    2. `php artisan config:cache`
+    3. Restart PHP-FPM.
+  This satisfies the guard without code changes.
+
+Layer C — environment downgrade (LAST RESORT)
+---------------------------------------------------------------
+  Set APP_ENV=staging temporarily. The guard short-circuits on the
+  environment check. ⚠ This also disables ForceHttpsForApi's HSTS
+  and 308-redirect logic. Recommended ONLY during incident response.
+
+Rollback ordering rule
+---------------------------------------------------------------
+  Always prefer Layer A (clean code-removal). Layer B is for "fix the
+  config, keep the guard"; Layer C is "disable safety nets" — use
+  only when both A and B are unavailable.
+
+================================================================================
+METHODS AFFECTED
+================================================================================
+
+Modified
+---------------------------------------------------------------
+  app/Providers/AppServiceProvider::boot()
+    + one new branch (4 lines) immediately after URL::forceScheme()
+      block.
+
+Added
+---------------------------------------------------------------
+  app/Providers/AppServiceProvider::assertProductionEnvironment()
+    private, returns void, ~40 lines (per spec lines 2200-2241).
+
+Untouched
+---------------------------------------------------------------
+  AppServiceProvider::register()                        (still empty)
+  AppServiceProvider::boot() Steps 2-7                  (untouched)
+  All View::composer closures
+  All RateLimiter::for() closures
+  All other ServiceProviders                            (none in this
+                                                         app — see §0)
+
+
+================================================================================
+SERVICES AFFECTED
+================================================================================
+
+Direct (read by the new method, not modified)
+---------------------------------------------------------------
+  config('qr.secret')               — from config/qr.php (P1.T01)
+  config('database.default')        — from config/database.php
+  config('cache.default')           — from config/cache.php
+  config('cors.allowed_origins')    — from config/cors.php
+  config('sanctum.expiration')      — from config/sanctum.php (P1.T18)
+
+Indirect — services whose behaviour changes IF the guard throws
+---------------------------------------------------------------
+  Step 2  MailRuntimeConfig::applyOnce()   — does not run on failing
+                                              boot (good — it would
+                                              otherwise query DB).
+  Step 3  RedisRuntimeConfig::applyOnce()  — same.
+  Step 4  RateLimiter::for('api-v1')       — not registered → first
+                                              HTTP request after a
+                                              hot-reload fails with
+                                              "Rate limiter [api-v1]
+                                              is not defined". But
+                                              boot already threw, so
+                                              no HTTP is served on
+                                              this request anyway.
+  Step 5  RateLimiter::for('api-v1-login') — same.
+  Step 6  View::composer(['layouts.classrep','layouts.student'])
+                                           — not registered → views
+                                              render WITHOUT
+                                              repStudent / studentSign
+                                              OutBlocked. Mostly
+                                              cosmetic; only matters
+                                              if exception render
+                                              uses those layouts.
+  Step 7  View::composer('layouts.admin')  — same.
+
+Untouched
+---------------------------------------------------------------
+  Sanctum guard registration            (vendor provider, not ours)
+  HandleCors                            (vendor middleware)
+  All controllers, jobs, observers, listeners
+
+
+================================================================================
+CONFIG DEPENDENCIES
+================================================================================
+
+  Key                                 Source        Default      Guard rule
+  ────────────────────────────────────────────────────────────────────────────
+  qr.secret                           env('QR_SECRET')
+                                      config/qr.php     null     non-empty
+  database.default                    env('DB_CONNECTION', 'sqlite')
+                                      config/database.php        != 'sqlite'
+  cache.default                       env('CACHE_STORE', 'database')
+                                      config/cache.php           != 'database'
+  cors.allowed_origins                env('CORS_ALLOWED_ORIGINS', '<dev list>')
+                                      config/cors.php   array    no origin
+                                                                 contains
+                                                                 'localhost'
+                                                                 '127.0.0.1'
+                                                                 '0.0.0.0'
+  sanctum.expiration                  env('SANCTUM_TOKEN_EXPIRATION')
+                                      config/sanctum.php null    warning if
+                                                                 <= 0 (NON
+                                                                 FATAL)
+  app.env                             env('APP_ENV', 'production')
+                                      config/app.php             gate
+  app.url                             env('APP_URL', 'http://localhost')
+                                      config/app.php             read by
+                                                                 URL::force
+                                                                 Scheme
+                                                                 (existing)
+
+
+================================================================================
+ENVIRONMENT DEPENDENCIES
+================================================================================
+
+  Env var                  Used by guard?  Required value in production
+  ────────────────────────────────────────────────────────────────────────────
+  APP_ENV                  yes (gate)      'production' (or any non-prod skips guard)
+  QR_SECRET                yes             non-empty 32+ char hex string
+  DB_CONNECTION            yes             anything except 'sqlite'
+  CACHE_STORE              yes             'file', 'redis', 'memcached'
+                                            (anything except 'database')
+  CORS_ALLOWED_ORIGINS     yes             comma-list with NO localhost
+                                            / 127.0.0.1 / 0.0.0.0
+  SANCTUM_TOKEN_EXPIRATION no (warn only)  recommended 10080 (1 week)
+  APP_URL                  no (read by
+                              existing
+                              URL::forceScheme) recommended https://… in prod
+  APP_DEBUG                no              recommended false in production
+                                            (controls whether the guard's
+                                             message reaches the response
+                                             body)
+  APP_KEY                  no              must be set anyway for cookies
+
+
+================================================================================
+APPENDIX A — PROPOSED IMPLEMENTATION SCOPE FOR P1.T13
+================================================================================
+
+  +-----------------------------------------------------------------+
+  | Files MODIFIED in the P1.T13 commit                             |
+  |---------------------------------------------------------------- |
+  |   EDIT  app/Providers/AppServiceProvider.php                    |
+  |                                                                 |
+  | Files NOT modified in P1.T13                                    |
+  |   - bootstrap/providers.php       (already registers it)        |
+  |   - bootstrap/app.php             (no change)                   |
+  |   - config/*                      (no new keys)                 |
+  |   - .env / .env.example           (P1.T17 handles that)         |
+  |   - any controller, view, or Flutter file                       |
+  +-----------------------------------------------------------------+
+
+  Expected behavioural delta after deploy
+  ----------------------------------------------------------------
+    Production HTTP:
+      + Boot fails fast (RuntimeException) when any guard fails.
+      + Boot is unchanged when every guard passes.
+    Production console (artisan):
+      + Always succeeds (guard skipped).
+    Local / staging / testing:
+      + Zero change.
+
+  Validation suite expected after implementation
+  ----------------------------------------------------------------
+    1. php -l app/Providers/AppServiceProvider.php           syntax OK
+    2. ReadLints app/Providers/AppServiceProvider.php        no errors
+    3. Reflection:
+         - boot() still exists, returns void
+         - assertProductionEnvironment() exists, private, returns void
+         - new branch in boot() guards on environment + runningInConsole
+    4. Content assertions:
+         - QR_SECRET / DB / CACHE / CORS / Sanctum guards present
+         - RuntimeException is thrown on accumulated $errors
+         - try/catch around \Log::warning
+    5. Operator dry-run on staging:
+         APP_ENV=production DB_CONNECTION=sqlite php artisan serve
+         expect: RuntimeException with the sqlite remediation message.
+
+
+================================================================================
+APPENDIX B — POST-COMMIT OPERATOR RUNBOOK
+================================================================================
+
+  1. On staging, set APP_ENV=production and progressively break each
+     env var to confirm each guard fires with its remediation text.
+  2. Restore staging env to known-good values.
+  3. Deploy to production. Restart PHP-FPM after deploy.
+  4. Tail laravel.log for the first 10 minutes. If the guard fires,
+     fix .env, run `php artisan config:cache`, restart PHP-FPM.
+  5. Verify a sample request to /api/v1/settings returns 200.
+  6. Verify a sample request to /api/v1/auth/login (POST) returns 200
+     or 422 (NOT 500).
+  7. Confirm SANCTUM_TOKEN_EXPIRATION warning is absent from
+     laravel.log (if you set it to 10080 per the recommendation).
+  8. Sign-off: zero `Production environment guard failed` lines for
+     24 h after the cutover.
+
+================================================================================
+END OF P1_T13_APPSERVICEPROVIDER_ANALYSIS
+================================================================================
