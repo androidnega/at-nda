@@ -967,41 +967,32 @@
         }
     }
 
-    // Primary submit handler — runs validation, then confirm(), then
-    // lets the form submit naturally with the busy spinner.
-    document.addEventListener('submit', function (ev) {
-        var form = ev.target.closest && ev.target.closest('.manual-mark-form');
-        if (!form) return;
-        if (!validateManualForm(form)) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            return;
-        }
-        var ok = window.confirm('Mark this student manually? This is logged for audit.');
-        if (!ok) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            return;
-        }
-        setSubmitBusy(form, true);
-    }, true);
-
-    // Click-time pre-validation on the Save button. This guarantees
-    // the rep gets inline feedback the instant they click — we never
-    // depend solely on the submit event firing, and we never depend
-    // on the browser's native validation tooltip (which renders
-    // outside the modal overflow area and is invisible to the rep).
+    // Single click-driven flow: validate → confirm → busy → submit.
+    //
+    // Why not rely on the native click→submit pipeline?
+    // We confirmed via [MANUAL-MARK] logs that the click reaches us
+    // and validation passes, but the browser's submit event never
+    // fires (something — likely a click handler attached elsewhere
+    // in the modal's ancestor chain or a stopPropagation higher up
+    // — is eating the event). Instead of fighting it, we ALWAYS
+    // preventDefault on the click and explicitly drive the submit
+    // ourselves with form.requestSubmit() (or form.submit() as a
+    // fallback for very old browsers). This makes the path one
+    // straight line that's impossible to silently break.
     document.addEventListener('click', function (ev) {
         var btn = ev.target.closest && ev.target.closest('[data-manual-submit]');
         if (!btn) return;
         var form = btn.closest('.manual-mark-form');
         if (!form) return;
+
+        // Always take over the click so no other handler can
+        // re-cancel it later.
+        ev.preventDefault();
+        ev.stopPropagation();
+
         var weekId = form.getAttribute('data-week-id');
         var hidden = $('[data-manual-student-id="' + weekId + '"]');
         var reason = $('[data-manual-reason="' + weekId + '"]');
-        // Always log what the form looked like at click time — open
-        // DevTools console and look for [MANUAL-MARK] to see why a
-        // click was rejected or what was actually about to be sent.
         console.info('[MANUAL-MARK] save.click', {
             week_id: weekId,
             student_id: hidden ? hidden.value : null,
@@ -1010,23 +1001,38 @@
             btn_disabled: btn.disabled,
             form_action: form.getAttribute('action'),
         });
+
         if (btn.disabled) {
             console.warn('[MANUAL-MARK] save.blocked: button disabled (already in flight)');
-            ev.preventDefault();
             return;
         }
         if (!validateManualForm(form)) {
             console.warn('[MANUAL-MARK] save.blocked: client validation failed');
-            ev.preventDefault();
-            ev.stopPropagation();
             return;
         }
-        console.info('[MANUAL-MARK] save.validation_ok — letting native submit fire');
+        if (!window.confirm('Mark this student manually? This is logged for audit.')) {
+            console.info('[MANUAL-MARK] save.cancelled by rep');
+            return;
+        }
+
+        setSubmitBusy(form, true);
+        console.info('[MANUAL-MARK] save.submitting →', form.getAttribute('action'));
+        try {
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                form.submit();
+            }
+        } catch (err) {
+            console.error('[MANUAL-MARK] save.submit_threw', err);
+            // Fall back to a raw submit if requestSubmit somehow throws.
+            try { form.submit(); } catch (_) {}
+        }
     });
 
-    // Also log every submit event so we can confirm in the console
-    // that the form actually fired submit (not blocked by some other
-    // handler somewhere on the page).
+    // Keep this listener so we can see in the console whether the
+    // submit event actually fired (helps debug environments where
+    // form.requestSubmit() is silently no-op'd by a parent handler).
     document.addEventListener('submit', function (ev) {
         var form = ev.target.closest && ev.target.closest('.manual-mark-form');
         if (!form) return;
