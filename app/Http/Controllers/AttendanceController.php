@@ -6,7 +6,7 @@ use App\Events\SessionLiveEvent;
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Course;
-use App\Models\Student;
+use App\Models\Student;                                                 
 use App\Models\SystemSetting;
 use App\Services\AttendanceFraudGuard;
 use App\Services\AttendanceOfflineSyncService;

@@ -13,7 +13,30 @@
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/js/realtime.js'])
     @endif
-    <meta name="theme-color" content="#0ea5e9">
+
+    {{-- Dark-mode pre-paint: applies the `dark` class to <html> BEFORE
+         the stylesheet evaluates so the first paint matches the saved
+         preference (no white flash on dark mode). Reads localStorage
+         first (set by the toggle), falls back to the cookie (set by
+         server-side requests), falls back to system preference. --}}
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('atnda_theme');
+                if (!saved) {
+                    var m = document.cookie.match(/(?:^|; )atnda_theme=([^;]+)/);
+                    saved = m ? decodeURIComponent(m[1]) : null;
+                }
+                var dark = saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (dark) document.documentElement.classList.add('dark');
+                var meta = document.createElement('meta');
+                meta.name = 'theme-color';
+                meta.content = dark ? '#020617' : '#0ea5e9';
+                document.head.appendChild(meta);
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
+
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
@@ -26,6 +49,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
@@ -43,38 +67,43 @@
             .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
             .pt-safe { padding-top: env(safe-area-inset-top); }
         }
+        /* Match the document background to the theme so any over-scroll
+           bounce on iOS / Android stays on-theme instead of flashing
+           white (when light) or grey (when dark). */
+        html { background-color: #f8fafc; }
+        html.dark { background-color: #020617; color-scheme: dark; }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen min-h-[100dvh] text-gray-900 antialiased font-sans pb-safe overflow-x-hidden overscroll-y-contain @yield('body_class')">
-    <div id="student-sidebar-overlay" class="fixed inset-0 z-40 bg-slate-900/30 lg:hidden hidden" aria-hidden="true"></div>
+<body class="bg-slate-50 dark:bg-slate-950 min-h-screen min-h-[100dvh] text-gray-900 dark:text-slate-200 antialiased font-sans pb-safe overflow-x-hidden overscroll-y-contain @yield('body_class')">
+    <div id="student-sidebar-overlay" class="fixed inset-0 z-40 bg-slate-900/30 dark:bg-black/60 lg:hidden hidden" aria-hidden="true"></div>
 
-    <aside id="student-sidebar" class="fixed top-0 left-0 z-50 h-full w-[min(17rem,88vw)] max-w-sm bg-white border-r border-slate-200 flex flex-col -translate-x-full lg:translate-x-0">
-        <div class="pt-safe px-4 py-4 border-b border-slate-100 flex items-center gap-3">
+    <aside id="student-sidebar" class="fixed top-0 left-0 z-50 h-full w-[min(17rem,88vw)] max-w-sm bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col -translate-x-full lg:translate-x-0">
+        <div class="pt-safe px-4 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
             <div class="w-10 h-10 rounded-lg bg-sky-600 flex items-center justify-center text-white">
                 <i class="fas fa-graduation-cap text-lg"></i>
             </div>
             <div class="min-w-0">
-                <p class="font-bold text-slate-800 text-sm leading-tight truncate">{{ config('app.name') }}</p>
+                <p class="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight truncate">{{ config('app.name') }}</p>
             </div>
         </div>
         <nav class="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5">
-            <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.dashboard') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+            <a href="{{ route('dashboard.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.dashboard') ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 <i class="fas fa-house w-5 text-center text-sky-500"></i>
                 Dashboard
             </a>
-            <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.timetable') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+            <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.timetable') ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 <i class="fas fa-calendar-alt w-5 text-center text-sky-500"></i>
                 Timetable
             </a>
-            <a href="{{ route('student.attendance.web') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 {{ request()->routeIs('web.attendance.*') ? 'bg-emerald-50 text-emerald-800' : '' }}">
+            <a href="{{ route('student.attendance.web') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('web.attendance.*') ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 <i class="fas fa-qrcode w-5 text-center text-emerald-500"></i>
                 Mark attendance
             </a>
-            <a href="{{ route('student.attendance.history') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('student.attendance.history') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+            <a href="{{ route('student.attendance.history') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('student.attendance.history') ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 <i class="fas fa-chart-line w-5 text-center text-sky-500"></i>
                 Attendance history
             </a>
-            <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.materials.*') ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50' }}">
+            <a href="{{ route('dashboard.materials.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard.materials.*') ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 <i class="fas fa-folder-open w-5 text-center text-sky-500"></i>
                 Course materials
             </a>
@@ -82,48 +111,64 @@
     </aside>
 
     <div class="lg:pl-[17rem] min-h-screen min-h-[100dvh] flex flex-col w-full min-w-0">
-        <header class="sticky top-0 z-30 w-full pt-safe bg-white border-b border-slate-200">
+        <header class="sticky top-0 z-30 w-full pt-safe bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
             <div class="flex items-center gap-2 w-full max-w-[100vw] px-4 sm:px-6 lg:px-8 py-2.5 min-h-[3.25rem]">
-                <button type="button" id="student-sidebar-toggle" class="lg:hidden shrink-0 p-2.5 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Open menu">
+                <button type="button" id="student-sidebar-toggle" class="lg:hidden shrink-0 p-2.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Open menu">
                     <i class="fas fa-bars text-lg"></i>
                 </button>
                 <div class="flex-1 min-w-0">
                     @hasSection('breadcrumb')
                         @yield('breadcrumb')
                     @else
-                        <span class="text-sm font-semibold text-slate-800 truncate block">{{ $__env->yieldContent('title') }}</span>
+                        <span class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate block">{{ $__env->yieldContent('title') }}</span>
                     @endif
                 </div>
+
+                {{-- Sun/Moon theme toggle — sits next to the avatar so it
+                     is reachable on every student page without diving
+                     into Settings. Click handler is wired in the
+                     bottom-of-body script. --}}
+                <button type="button" id="theme-toggle"
+                    aria-label="Toggle dark mode"
+                    class="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+                    <i id="theme-toggle-icon" class="fas fa-moon text-base"></i>
+                </button>
+
                 @isset($student)
                 <div class="relative shrink-0" id="student-profile-dropdown">
-                    <button type="button" id="student-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200">
+                    <button type="button" id="student-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
                         @if($student->profileImageUrl())
-                            <img src="{{ $student->profileImageUrl() }}" alt="" class="h-9 w-9 rounded-full object-cover border border-slate-200">
+                            <img src="{{ $student->profileImageUrl() }}" alt="" class="h-9 w-9 rounded-full object-cover border border-slate-200 dark:border-slate-700">
                         @else
                             <span class="h-9 w-9 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center text-xs font-bold">{{ $student->avatarInitials() }}</span>
                         @endif
                         <i class="fas fa-chevron-down text-[10px] text-slate-400 hidden sm:block"></i>
                     </button>
-                    <div id="student-profile-menu" class="hidden absolute right-0 top-full mt-1.5 w-56 rounded-lg bg-white border border-slate-200 py-2 z-50 overflow-hidden">
-                        <div class="px-3 py-2 border-b border-slate-100">
-                            <p class="text-sm font-semibold text-slate-900 truncate">{{ $student->getDisplayNameOrIndex() }}</p>
-                            <p class="text-xs text-slate-500 font-mono mt-0.5">{{ $student->index_number }}</p>
+                    <div id="student-profile-menu" class="hidden absolute right-0 top-full mt-1.5 w-56 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 py-2 z-50 overflow-hidden shadow-lg shadow-slate-900/5 dark:shadow-black/40">
+                        <div class="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ $student->getDisplayNameOrIndex() }}</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">{{ $student->index_number }}</p>
                             @if($student->department?->name)
-                                <p class="text-[11px] text-slate-500 mt-1 truncate">{{ $student->department->name }}</p>
+                                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">{{ $student->department->name }}</p>
                             @endif
                         </div>
-                        <a href="{{ route('student.profile') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                        <a href="{{ route('student.profile') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
                             <i class="fas fa-user-gear text-slate-400 w-4"></i> Profile settings
                         </a>
-                        <form method="POST" action="{{ route('student.logout') }}" class="border-t border-slate-100 mt-1 pt-1">
+                        <button type="button" id="theme-toggle-menu"
+                            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                            <span class="flex items-center gap-2"><i id="theme-toggle-menu-icon" class="fas fa-moon text-slate-400 w-4"></i> <span id="theme-toggle-menu-label">Dark mode</span></span>
+                            <span class="text-[10px] uppercase tracking-wider text-slate-400" id="theme-toggle-menu-state">Off</span>
+                        </button>
+                        <form method="POST" action="{{ route('student.logout') }}" class="border-t border-slate-100 dark:border-slate-800 mt-1 pt-1">
                             @csrf
                             <button type="submit"
                                 @if($studentSignOutBlocked ?? false) disabled title="{{ $studentSignOutBlockMessage }}" @endif
-                                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left {{ ($studentSignOutBlocked ?? false) ? 'text-slate-400 cursor-not-allowed' : 'text-red-600 hover:bg-red-50' }}">
+                                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left {{ ($studentSignOutBlocked ?? false) ? 'text-slate-400 cursor-not-allowed' : 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40' }}">
                                 <i class="fas fa-right-from-bracket w-4"></i> Log out
                             </button>
                             @if($studentSignOutBlocked ?? false)
-                                <p class="px-3 pb-2 text-[11px] leading-snug text-slate-500">{{ $studentSignOutBlockMessage }}</p>
+                                <p class="px-3 pb-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{{ $studentSignOutBlockMessage }}</p>
                             @endif
                         </form>
                     </div>
@@ -132,10 +177,14 @@
             </div>
         </header>
 
-        <main class="flex-1 w-full min-w-0 max-w-[100vw] px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <main class="flex-1 w-full min-w-0 max-w-[100vw] px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-6">
             @yield('content')
         </main>
     </div>
+
+    @isset($student)
+        @include('partials.student-bottom-nav')
+    @endisset
 
     <script>
         (function() {
@@ -165,6 +214,38 @@
             });
             document.addEventListener('click', function() { menu?.classList.add('hidden'); });
             wrap?.addEventListener('click', function(e) { e.stopPropagation(); });
+
+            // ---- Theme toggle ------------------------------------------
+            // Two trigger surfaces (header pill + dropdown row) for the
+            // same action. Stores in both localStorage (so the pre-paint
+            // script picks it up on every page load) and a 1-year cookie
+            // (so server-rendered emails / first paint of brand-new
+            // sessions also know the preference).
+            function applyTheme(mode) {
+                const isDark = mode === 'dark';
+                document.documentElement.classList.toggle('dark', isDark);
+                try { localStorage.setItem('atnda_theme', isDark ? 'dark' : 'light'); } catch (e) {}
+                document.cookie = 'atnda_theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=' + (60 * 60 * 24 * 365) + '; SameSite=Lax';
+                // Sync the iconography on both toggle surfaces.
+                const setIcon = (id, sunOrMoon) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.classList.toggle('fa-moon', !sunOrMoon);
+                    el.classList.toggle('fa-sun', sunOrMoon);
+                };
+                setIcon('theme-toggle-icon', isDark);
+                setIcon('theme-toggle-menu-icon', isDark);
+                const stateEl = document.getElementById('theme-toggle-menu-state');
+                if (stateEl) stateEl.textContent = isDark ? 'On' : 'Off';
+                const labelEl = document.getElementById('theme-toggle-menu-label');
+                if (labelEl) labelEl.textContent = isDark ? 'Light mode' : 'Dark mode';
+            }
+            applyTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+            function flipTheme() {
+                applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+            }
+            document.getElementById('theme-toggle')?.addEventListener('click', flipTheme);
+            document.getElementById('theme-toggle-menu')?.addEventListener('click', function(e) { e.stopPropagation(); flipTheme(); });
         })();
     </script>
 

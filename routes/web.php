@@ -292,6 +292,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::get('/profile', [DashboardProfileController::class, 'edit'])->name('profile.edit');
         Route::post('/profile', [DashboardProfileController::class, 'update'])->name('profile.update');
         Route::middleware('admin.only')->get('/attendances', [AdminController::class, 'attendances'])->name('attendances');
+        // CSV export wired to the "Download" button on the admin dashboard.
+        // Inherits the same admin guard since it sits inside the admin
+        // route group.
+        Route::middleware('admin.only')->get('/attendance/export.csv', [AdminController::class, 'exportAttendance'])->name('attendance.export');
         Route::resource('courses', CourseController::class)->except(['show']);
         Route::get('/attendance-weeks', [AdminAttendanceWeekController::class, 'index'])->name('attendance-weeks.index');
         Route::post('/attendance-weeks/next-course', [AdminAttendanceWeekController::class, 'setNextForCourse'])->name('attendance-weeks.next-course');

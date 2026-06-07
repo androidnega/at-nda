@@ -22,3 +22,8 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local APK build outputs (Flutter release artifacts) — too large for git;
+# the source they're built from lives in at-end_frontend_app/.
+/apk-out
+COMMIT_*_DUMP.txt

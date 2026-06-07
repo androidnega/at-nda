@@ -207,6 +207,24 @@ class ClassRepController extends Controller
             collect()
         );
 
+        // Map data: last 14 days of attendance pins for this rep's classes.
+        // Each pin carries enough metadata for the Leaflet popup (student,
+        // course, time, mode) without a follow-up XHR. Capped at 500 to
+        // keep payload bounded for reps with very large classes.
+        $attendanceMapPoints = $this->safeCall(
+            fn () => $this->buildAttendanceMapPoints($marksBase),
+            'rep_overview.map_points',
+            collect()
+        );
+
+        // Course centroid + radius (when configured on the course) so the
+        // map can show the venue anchor in addition to per-student pins.
+        $courseAnchors = $this->safeCall(
+            fn () => $this->buildCourseAnchors($courseIds),
+            'rep_overview.course_anchors',
+            collect()
+        );
+
         return view('classrep.overview', [
             'student' => $student,
             'studentsCount' => $studentsCount,
@@ -215,8 +233,98 @@ class ClassRepController extends Controller
             'todayAttendanceMarks' => $todayAttendanceMarks,
             'weekAttendanceMarks' => $weekAttendanceMarks,
             'todayCourses' => $todayCourses,
+            'attendanceMapPoints' => $attendanceMapPoints,
+            'courseAnchors' => $courseAnchors,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Build the GeoJSON-ish point list that powers the rep dashboard
+     * Leaflet map. Skips rows without coordinates (QR-only marks made
+     * before geolocation was added) and projects each row into a flat
+     * array the view can json_encode directly.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
+     */
+    private function buildAttendanceMapPoints($marksBase): Collection
+    {
+        if ($marksBase === null) {
+            return collect();
+        }
+
+        $tz = config('app.timezone');
+        $rows = (clone $marksBase)
+            ->whereNotNull('lat')
+            ->whereNotNull('lng')
+            ->where('attendance_time', '>=', now()->subDays(14)->startOfDay())
+            ->with([
+                'student:id,index_number,first_name,last_name',
+                'course:id,course_name,course_code',
+                'session:id,mode,location_lat,location_lng,attendance_range_m',
+            ])
+            ->orderByDesc('attendance_time')
+            ->limit(500)
+            ->get();
+
+        return $rows->map(function (Attendance $a) use ($tz) {
+            $lat = (float) $a->lat;
+            $lng = (float) $a->lng;
+            if ($lat === 0.0 && $lng === 0.0) {
+                return null;
+            }
+
+            $studentName = trim((string) ($a->student?->first_name.' '.$a->student?->last_name));
+            if ($studentName === '') {
+                $studentName = (string) ($a->student?->index_number ?? 'Student');
+            }
+
+            $time = $a->attendance_time?->timezone($tz);
+
+            return [
+                'lat' => $lat,
+                'lng' => $lng,
+                'student' => $studentName,
+                'index' => (string) ($a->student?->index_number ?? ''),
+                'course' => (string) ($a->course?->course_name ?? '—'),
+                'course_code' => (string) ($a->course?->course_code ?? ''),
+                'course_id' => (int) $a->course_id,
+                'session_id' => (int) ($a->attendance_session_id ?? 0),
+                'mode' => (string) ($a->session?->mode ?? 'location'),
+                'time' => $time?->format('M j, g:i A'),
+                'time_iso' => $time?->toIso8601String(),
+                'status' => (string) ($a->status ?? 'present'),
+            ];
+        })->filter()->values();
+    }
+
+    /**
+     * Course-level anchor circles (centre + accuracy radius) drawn under
+     * the per-student pins. Only courses with both coordinates set are
+     * included; the radius defaults to 75 m when not configured.
+     *
+     * @param  \Illuminate\Support\Collection<int>  $courseIds
+     */
+    private function buildCourseAnchors(Collection $courseIds): Collection
+    {
+        if ($courseIds->isEmpty()) {
+            return collect();
+        }
+
+        return Course::query()
+            ->whereIn('id', $courseIds)
+            ->whereNotNull('location_lat')
+            ->whereNotNull('location_lng')
+            ->get(['id', 'course_name', 'course_code', 'location_lat', 'location_lng', 'attendance_range_m'])
+            ->map(fn (Course $c) => [
+                'id' => (int) $c->id,
+                'name' => (string) $c->course_name,
+                'code' => (string) ($c->course_code ?? ''),
+                'lat' => (float) $c->location_lat,
+                'lng' => (float) $c->location_lng,
+                'radius_m' => (int) ($c->attendance_range_m ?: 75),
+            ])
+            ->values();
     }
 
     /**
