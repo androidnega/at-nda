@@ -1041,6 +1041,45 @@
             default_prevented: ev.defaultPrevented,
         });
     }, true);
+
+    // ────────────────────────────────────────────────────────────
+    // Generic modal-form submit driver — same root cause as the
+    // manual-mark fix above. The page has layered <details> +
+    // modal-backdrop click handlers that swallow the native
+    // click→submit pipeline for any submit button inside a modal,
+    // so Cancel Week, Rename Week, Import JSON, and friends all
+    // looked dead too. We take over the click and drive the form
+    // submission ourselves with form.requestSubmit() (which still
+    // fires the form's submit event, so inline `onsubmit="return
+    // confirm(...)"` attributes keep working as expected).
+    // ────────────────────────────────────────────────────────────
+    document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('[data-week-modal] button[type="submit"]');
+        if (!btn) return;
+        // The manual-mark Save button has its own dedicated handler
+        // above with extra validation + audit confirm — skip here so
+        // we don't double-submit.
+        if (btn.hasAttribute('data-manual-submit')) return;
+        var form = btn.closest('form');
+        if (!form) return;
+        if (btn.disabled) {
+            ev.preventDefault();
+            return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        console.info('[MODAL-FORM] submit.driving →', form.getAttribute('action'));
+        try {
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit(btn);
+            } else {
+                form.submit();
+            }
+        } catch (err) {
+            console.error('[MODAL-FORM] submit.threw', err);
+            try { form.submit(); } catch (_) {}
+        }
+    });
 })();
 
 // Prompt the rep for a deletion reason and stash it into the hidden
