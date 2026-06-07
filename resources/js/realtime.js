@@ -5,11 +5,28 @@ window.Pusher = Pusher;
 
 const key = import.meta.env.VITE_REVERB_APP_KEY;
 
+// Gate the WebSocket connection on a *valid* Reverb host. On shared
+// hosting (cPanel) there's no Reverb process running, the build still
+// embeds the dev env value "localhost", and every page would otherwise
+// spam the console with "WebSocket connection to wss://localhost:8080
+// failed" errors. We skip the Echo init when:
+//   * no key is configured at build time, OR
+//   * the configured host is loopback but the page itself is on a
+//     real public domain (clear sign of dev env baked into prod).
+const pageHost = typeof window !== 'undefined' ? window.location.hostname : '';
+const configuredHost = (import.meta.env.VITE_REVERB_HOST || '').trim();
+const isLoopback = (h) => h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1';
+const looksLikeProdServingDevReverb = configuredHost && isLoopback(configuredHost) && !isLoopback(pageHost);
+
 if (!key) {
     console.debug('[a-tenda] WebSockets: set VITE_REVERB_APP_KEY and run the Reverb server (php artisan reverb:start).');
+} else if (looksLikeProdServingDevReverb) {
+    // Don't try to talk to wss://localhost:8080 from a public page —
+    // that always fails and just pollutes the browser console.
+    console.debug('[a-tenda] WebSockets: VITE_REVERB_HOST is loopback while the page is on ' + pageHost + ' — skipping Echo init.');
 } else {
     const scheme = import.meta.env.VITE_REVERB_SCHEME ?? 'http';
-    const host = import.meta.env.VITE_REVERB_HOST || window.location.hostname;
+    const host = configuredHost || pageHost;
     const port = Number(import.meta.env.VITE_REVERB_PORT ?? 8080);
 
     window.Echo = new Echo({

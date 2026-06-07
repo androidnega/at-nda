@@ -27,6 +27,10 @@
     </script>
     @include('partials.minimal-ui')
     @include('partials.viewport-lock-styles')
+    {{-- Per-page extra <head> additions pushed via @push('styles')
+         (e.g. Chart.js, Leaflet, page-specific CSS). --}}
+    @stack('styles')
+    @stack('head')
     <style>
         .sidebar-overlay { @apply fixed inset-0 bg-black/40 z-40 lg:hidden; }
     </style>

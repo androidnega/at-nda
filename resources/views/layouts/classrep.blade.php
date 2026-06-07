@@ -13,6 +13,12 @@
         @vite(['resources/js/realtime.js'])
     @endif
     @stack('head')
+    {{-- Per-page extra <head> additions (CSS, deferred scripts, etc.).
+         Pages push to this via @push('styles'). Missing this stack was
+         silently dropping all of overview.blade.php's KPI gradients,
+         Chart.js loader, and Leaflet stylesheet — the dashboard rendered
+         "scattered" because none of its CSS was reaching the page. --}}
+    @stack('styles')
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="shortcut icon" href="{{ asset('favicon.svg') }}">
     <title>@yield('title', 'Dashboard') - {{ config('app.name') }}</title>
