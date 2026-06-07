@@ -1,0 +1,779 @@
+================================================================================
+P1.T15 — ResizeStudentProfileImage job ANALYSIS  (pre-implementation)
+================================================================================
+
+Scope under review
+  app/Jobs/ResizeStudentProfileImage.php                (CREATE — new file)
+  app/Jobs/                                             (CREATE — new dir)
+
+Touches by reference only — NO modifications in this task
+  app/Models/Student.php                                (read; modified in P1.T16)
+  app/Http/Controllers/StudentImageController.php      (read path)
+  app/Http/Controllers/StudentDashboardController.php  (web upload)
+  app/Http/Controllers/StudentOnboardingController.php (web onboarding)
+  app/Http/Controllers/Api/StudentProfileController.php(mobile profile API)
+  config/queue.php, config/filesystems.php             (drivers)
+  database/migrations/0001_01_01_000002_create_jobs_table.php (queue store)
+  routes/api.php, routes/web.php                        (image GET routes)
+  at-end_frontend_app/lib/widgets/profile_avatar.dart  (Flutter consumer)
+  at-end_frontend_app/lib/services/profile_image_cache.dart (Flutter cache)
+  at-end_frontend_app/lib/models/student.dart          (Flutter URL builder)
+
+This analysis is read-only. It documents every existing upload, read,
+and consumption path; the new tmp-staging directory; the queue worker
+expectations; the rollback strategy; and the precise compatibility
+contract Flutter (deployed APKs) requires.
+
+================================================================================
+0. AT-A-GLANCE SUMMARY
+================================================================================
+
+  Spec change (from phase_1_security_implementation.txt §T15)
+  ----------------------------------------------------------------------
+    CREATE app/Jobs/ResizeStudentProfileImage.php.
+    Implements ShouldQueue with $tries=3, $timeout=60.
+    Constructor: (int studentId, string tempRelativePath).
+    handle() reads the raw temp file from disk('local'), calls
+      Student::saveProfileImageFromRawBytes($raw)  ← method added in P1.T16
+    and deletes the temp file via Storage::disk('local')->delete().
+
+    P1.T15 by itself is a no-op at runtime — the job has no caller
+    until P1.T16 wires dispatch from saveProfileImageFromUpload(). The
+    file lands first so P1.T16 has something to reference.
+
+  Net behavioural delta after JUST P1.T15 lands
+  ----------------------------------------------------------------------
+    Production HTTP: zero change. Nothing dispatches the job.
+    Production console: zero change. Nothing dispatches the job.
+    Queue worker: nothing new to process.
+    Disk: no new files; `app/Jobs/` directory created with one file.
+
+  Net behavioural delta AFTER P1.T16 also lands
+  ----------------------------------------------------------------------
+    Web /media upload, web onboarding, mobile API profile update:
+      + Request thread saves raw bytes to
+        storage/app/private/tmp-profile/<student_id>-<uuid>
+      + Inserts one row into `jobs` table
+      + Returns immediately (no GD resize on the request thread)
+      + Worker (queue:work or cron-driven runner) picks the job up,
+        runs imagecreatefromstring → imagecopyresampled → imagejpeg
+        loop, writes the final file to
+        storage/app/public/students/<id>_<uniqid>.<ext>
+      + Worker deletes the temp file
+      + Student::profile_image column is updated via $student->save()
+    Until the worker runs, the OLD profile_image stays in place. No
+    user-visible flash. No write-then-read race.
+
+  One critical compatibility point
+  ----------------------------------------------------------------------
+    Deployed Flutter APKs (and the web dashboard) refresh the avatar
+    by re-fetching /api/students/{id}/profile-image. Because the
+    `profile_image` column changes only AFTER the worker completes,
+    a user can take a selfie at 12:00:00 and see the new avatar at
+    12:00:05 (queue worker tick) rather than 12:00:00. This is the
+    one user-visible behavioural change.
+
+================================================================================
+1. CURRENT PROFILE IMAGE UPLOAD FLOW
+================================================================================
+
+There are FOUR paths that write a profile image today. All four
+ultimately reach `Student::storeOptimizedProfileImage(string $raw)`,
+which runs the GD pipeline synchronously on the request thread.
+
+  Path A — Web admin/student dashboard (multipart upload)
+  ----------------------------------------------------------------------
+   Route       :  POST  /student/dashboard/...                (web)
+   Controller  :  StudentDashboardController::completeBasic    (l. 815-822)
+                  StudentDashboardController::updateProfile    (l. 1074-1080)
+   Validation  :  profile_photo: image|mimes:jpg,jpeg,png,webp|max:10240
+                  (max:10240 = 10 MB raw upload)
+   Model call  :  $student->saveProfileImageFromUpload($request->file('profile_photo'))
+   Synchronous :  YES. GD resize runs in the PHP-FPM worker.
+
+  Path B — Web student onboarding (base64 data URL)
+  ----------------------------------------------------------------------
+   Route       :  POST  /student/onboarding/complete            (web)
+   Controller  :  StudentOnboardingController                   (l. 75-78)
+   Validation  :  profile_image: required|string                (no size cap)
+   Model call  :  $student->saveProfileImageFromBase64($validated['profile_image'])
+   Synchronous :  YES.
+
+  Path C — Mobile API profile update (base64 data URL)
+  ----------------------------------------------------------------------
+   Route       :  POST  /api/student-profile/update             (api)
+   Controller  :  Api\StudentProfileController::update          (l. 49-53)
+   Validation  :  profile_image: nullable|string                (no size cap)
+   Model call  :  $student->saveProfileImageFromBase64(...)
+   Synchronous :  YES.
+
+  Path D — Mobile API onboarding (base64 data URL)
+  ----------------------------------------------------------------------
+   Route       :  POST  /api/onboarding/complete                (api)
+   Controller  :  StudentOnboardingController                   (same as Path B —
+                  Flutter posts data:image/jpeg;base64,... per
+                  at-end_frontend_app/lib/pages/onboarding_page.dart l. 51-58)
+   Validation  :  profile_image: required|string
+   Model call  :  $student->saveProfileImageFromBase64(...)
+   Synchronous :  YES.
+
+  GD pipeline (storeOptimizedProfileImage + optimizeProfileImageBinary)
+  ----------------------------------------------------------------------
+    1. imagecreatefromstring($raw)            ← allocates W*H*4 bytes
+    2. Compute maxDimension = 1280; scale to fit
+    3. imagecreatetruecolor + imagefill (white background)
+    4. imagecopyresampled to target canvas
+    5. Loop up to 10 passes:
+       - imagejpeg($canvas, null, $quality)   ← $quality starts at 86
+       - If <= 500 KB, return
+       - Else: drop quality by 6 (down to 62), then start shrinking
+         canvas by 10% per pass (min 480x480)
+    6. delete previous file via Storage::disk('public')->delete()
+    7. Storage::disk('public')->put('students/<id>_<uniqid>.<ext>', $binary)
+    8. $this->profile_image = $filename                          ← model
+       (controller separately calls $student->save())
+
+  Memory cost — the H-04 finding
+  ----------------------------------------------------------------------
+    imagecreatefromstring is the killer step. For a 6000×6000 PNG:
+       6000 * 6000 * 4 = 144 000 000 bytes  (~137 MB true-color buffer)
+    On a 256 MB cPanel FPM worker, three concurrent uploads of this
+    shape OOM the pool. P1.T15 itself doesn't fix this — P1.T16 adds
+    the dimension guard that REJECTS anything > 4000x4000 or > 5 MB
+    BEFORE GD ever sees it. P1.T15 just provides the off-thread
+    landing zone for the (now-bounded) resize work.
+
+
+================================================================================
+2. CURRENT IMAGE STORAGE LOCATION
+================================================================================
+
+Disks
+---------------------------------------------------------------
+  config/filesystems.php (verified):
+
+   'local'  → driver=local, root=storage/app/private    (NEW — used by tmp)
+   'public' → driver=local, root=storage/app/public     (FINAL — already used)
+   'links'  → public/storage  →  storage/app/public     (symlink, storage:link)
+
+  Today: profile images live ONLY on the `public` disk.
+  Tomorrow (post-T15+T16): a transient copy lives on the `local`
+  disk under storage/app/private/tmp-profile/<student_id>-<uuid> for
+  the few seconds between the request handler and the worker run.
+
+Final path pattern
+---------------------------------------------------------------
+   storage/app/public/students/<student_id>_<uniqid>.<ext>
+   served as:
+   https://<APP_URL>/storage/students/<student_id>_<uniqid>.<ext>
+   AND through the controller:
+   GET /media/students/{student}/profile-image
+   GET /api/students/{student}/profile-image
+   (StudentImageController::show reads the binary back and re-emits
+    it with explicit CORS + cache headers. URL pattern is the public
+    contract Flutter depends on — must NOT change.)
+
+Tmp path pattern (NEW — introduced in T15+T16, not in T15 alone)
+---------------------------------------------------------------
+   storage/app/private/tmp-profile/<student_id>-<uuid>
+   - Not publicly served (private disk).
+   - Auto-created by Storage::disk('local')->put() — no migration needed.
+   - Lifetime: a few seconds (worker tick) under normal load.
+   - Orphan cleanup: P1.T15 spec mentions an "artisan cleanup task
+     (introduced in Phase 8)" for stranded temp files. Phase 8 has
+     not landed; orphan accumulation is mitigated by:
+       (a) the job's $tries=3 retry envelope,
+       (b) the job's cleanup-on-success-or-failure pattern,
+       (c) manual pruning if storage runs low (find storage/app/
+           private/tmp-profile -mtime +1 -delete).
+
+Disk-level guarantees
+---------------------------------------------------------------
+   - storage/app/private/  exists; tracked by .gitignore       ✓
+   - storage/app/public/   exists; tracked by .gitignore       ✓
+   - public/storage symlink exists when `php artisan storage:link`
+     has run. Required for the legacy /storage/... URL pattern,
+     even though StudentImageController re-serves through the
+     controller route. Deploy runbook already requires storage:link.
+
+
+================================================================================
+3. CURRENT IMAGE DIMENSIONS
+================================================================================
+
+Server-side cap (today)
+---------------------------------------------------------------
+   $maxDimension = 1280   in Student::optimizeProfileImageBinary
+   Any incoming image, regardless of original W×H, is rescaled so the
+   longest edge ≤ 1280 px on the FIRST pass. Subsequent passes may
+   shrink further (×0.9 per pass, floor 480 px) until quality target
+   met.
+
+Server-side ENCODED cap (today)
+---------------------------------------------------------------
+   $maxBytes  = 500 * 1024 = 512 000 bytes (≈ 500 KB)
+   JPEG at quality 86 → 62; if still too large, shrink dims and retry.
+
+Request-side cap (today)
+---------------------------------------------------------------
+   Path A: image|max:10240 (10 MB raw upload via the validation rule)
+   Paths B/C/D: NO server-side cap on the base64 string today.
+                A 50 MB selfie POSTed as base64 sails through.
+                This is the OTHER half of the H-04 footgun. P1.T16
+                closes it with the 5 MB / 4000 px raw guard.
+
+Post-T15+T16 cap
+---------------------------------------------------------------
+   Reject anything where raw bytes > 5 * 1024 * 1024 (5 MB)
+   OR width or height > 4 000 px
+   BEFORE the GD allocation.
+   Worst-case GD allocation falls from 4000*4000*4 = 64 MB →
+   1280*1280*4 = ~6.5 MB working memory in the worker.
+
+Output extension
+---------------------------------------------------------------
+   Always 'jpg' today (see renderProfileImageBinary — webp branch
+   exists but is never selected). Output filenames are
+   `<id>_<uniqid>.jpg`.
+
+
+================================================================================
+4. CURRENT IMAGE FILE-SIZE DISTRIBUTION
+================================================================================
+
+Observed (live disk inspection unavailable on this dev box —
+storage/app/public/students/ is empty on this machine; numbers below
+are derived from the encoding pipeline)
+---------------------------------------------------------------
+   Best-case   (a 800×800 selfie, q=86):       ~35  KB
+   Median      (typical 1280×1280, q=86):      ~120 KB
+   Cap         (1280×720, q=62):                500 KB
+   Hard cap    (storeOptimizedProfileImage returns null > 500 KB,
+                so nothing on disk exceeds this).
+
+   ⇒ Per-student row on disk: 35–500 KB, hard-capped.
+   ⇒ For 5 000 students (audit cohort): 0.18 GB – 2.4 GB on the
+     `public` disk in the worst case. Plausible on cPanel today.
+
+After P1.T15 + P1.T16
+---------------------------------------------------------------
+   Final image sizes UNCHANGED — same optimize pipeline, same
+   500 KB cap, same filename pattern.
+
+   New transient overhead on the `local` disk:
+     ≤ 5 MB per pending job (raw bytes pre-resize).
+     N concurrent jobs ⇒ ≤ N * 5 MB transient.
+     Under realistic load (1 worker tick per minute on cPanel cron):
+     ≤ 20 MB transient.
+     Pruned by the job on success/failure.
+
+
+================================================================================
+5. EXISTING IMAGE URLS
+================================================================================
+
+URL builders (PHP — read by every JSON / Blade payload)
+---------------------------------------------------------------
+   Student::profileImageUrl() (app/Models/Student.php l. 270-285)
+     - returns null when profile_image is empty
+     - returns the value verbatim when it starts with http(s):// (CDN
+       case)
+     - otherwise returns:
+         URL::to('/api/students/<id>/profile-image') . '?v=<timestamp>'
+       where ?v=<updated_at-timestamp> is the cache-bust token.
+
+Public read routes
+---------------------------------------------------------------
+   routes/api.php  l. 85-86
+     GET /api/students/{student}/profile-image
+       → StudentImageController::show
+       (open route — no auth — relies on numeric IDs and the
+        controller's own access pattern; called by Flutter NetworkImage
+        without bearer token; that's the contract.)
+
+   routes/web.php  l. 109-111
+     GET /media/students/{student}/profile-image
+       → StudentImageController::show
+       name=media.students.profile-image
+       (same handler, web context, used by Blade <img src="...">.)
+
+   Legacy direct path (still functional via storage:link)
+     GET /storage/students/<id>_<uniqid>.jpg
+       → served by nginx/Apache directly from public/storage/students.
+       Used by older clients and by some Blade tags that build
+       Storage::url() URLs.
+
+Payload keys that carry the URL
+---------------------------------------------------------------
+   `profile_image_url` — the resolved absolute URL          (Flutter prefers)
+   `profile_image`     — sometimes the raw column value,
+                         sometimes the resolved URL (legacy)
+   `profile_picture`   — the same URL under an older key,
+                         emitted by Api\AuthController::me (l. 162-163)
+                         Flutter falls back to this if profile_image
+                         is empty (see lib/models/student.dart l. 202-204).
+   `avatar_initials`   — server-rendered initials fallback
+                         (Student::avatarInitials)
+
+   IMPACT FOR P1.T15: zero. No URL builder changes. No new keys.
+
+
+================================================================================
+6. EXISTING AVATAR FALLBACK LOGIC
+================================================================================
+
+Server-side fallback (StudentImageController)
+---------------------------------------------------------------
+   When profile_image is empty OR the underlying file is missing
+   on disk OR Storage::get() throws, the controller returns a
+   1×1 transparent PNG (base64 inlined) with:
+     Cache-Control: public, max-age=3600
+     Access-Control-Allow-Origin: *
+   This is INTENTIONAL — Flutter web NetworkImage and <img> tags
+   would otherwise hit a hard 404 and flash a broken-image glyph.
+
+Server-side fallback (Student::avatarInitials)
+---------------------------------------------------------------
+   Returns "First+Last" initial pair, or first 2 chars of the
+   index number, or "—". Used by Blade tables when profile_image
+   is empty (see admin/students.blade.php l. 246-248).
+
+Client-side fallback (Flutter — ProfileAvatar widget)
+---------------------------------------------------------------
+   Three-layer fallback:
+     1. ProfileImageCache.resolve() — disk/memory cached bytes.
+     2. NetworkImage(profile-image URL) with built-in
+        errorBuilder/frameBuilder.
+     3. CircleAvatar with Icons.person glyph.
+   Critical: when bytes come back as a 1×1 transparent PNG (the
+   server placeholder above), Flutter still treats it as a valid
+   image and shows the white circle. NOT layer 3. By design.
+
+IMPACT FOR P1.T15 — fallback behaviour is UNCHANGED
+---------------------------------------------------------------
+   The worker doesn't touch any of these paths. Until the worker
+   completes, the student's OLD `profile_image` is still on disk
+   and still returned. There is never a window where:
+     - profile_image points to a non-existent file
+     - the controller returns the placeholder instead of the avatar
+   ⇒ The user sees the OLD avatar until the new one is ready, then
+   sees the new one on the next refresh (cache-bust via ?v=<ts>
+   ensures Flutter/browser doesn't keep stale bytes).
+
+
+================================================================================
+7. FLUTTER PROFILE-IMAGE USAGE
+================================================================================
+
+Where Flutter writes profile_image
+---------------------------------------------------------------
+   - Onboarding (lib/pages/onboarding_page.dart l. 51-58):
+       POST /api/onboarding/complete  with
+       body['profile_image'] = 'data:image/jpeg;base64,...'
+   - Profile update flows (various profile-edit pages) hit
+       POST /api/student-profile/update  with the same data URL.
+   ⇒ Both go through the BASE64 paths (B and C). P1.T16 will move
+     them through the queue.
+
+Where Flutter reads profile_image
+---------------------------------------------------------------
+   - lib/widgets/profile_avatar.dart — the ProfileAvatar widget.
+   - lib/services/profile_image_cache.dart — ProfileImageCache:
+       Memory cache (web) + on-disk cache (mobile/desktop).
+       Falls back through a list of candidate URLs from
+       Student.profileImageNetworkUrlCandidates(apiBaseUri).
+   - lib/models/student.dart l. 171-190:
+       profileImageNetworkUrlCandidates() — builds the candidate URLs.
+       Always tries `/students/<serverId>/profile-image` first when
+       both serverId and a non-empty profile_image are known.
+   - lib/services/student_profile_refresh.dart — periodic refresh of
+       the current student's avatar after profile edits.
+
+Compatibility contract with deployed Flutter APKs
+---------------------------------------------------------------
+   - The GET URL pattern `/api/students/{id}/profile-image` MUST
+     remain stable.
+   - The response MUST stay binary image bytes with the same
+     Content-Type set (image/jpeg / image/png / image/webp).
+   - The CORS header `Access-Control-Allow-Origin: *` MUST stay set.
+   - The placeholder PNG (200 OK + 1×1) MUST stay the empty-state
+     response — Flutter web depends on it for graceful failure.
+   - The `?v=<timestamp>` cache-buster MUST stay on the URL produced
+     by profileImageUrl() — Flutter relies on this to refresh.
+
+   None of these contracts are touched by P1.T15. Confirmed safe.
+
+POST contract for profile_image upload
+---------------------------------------------------------------
+   - POST /api/onboarding/complete
+   - POST /api/student-profile/update
+     - Continue to accept `profile_image` as base64 data URL.
+     - Continue to return success/422 with the same JSON envelope.
+     - Continue to use 422 (not 500) on a rejected image.
+     - After T15+T16, success still means "the system accepted your
+       image" — but the response is fired BEFORE the resize completes.
+     - The user sees the new avatar on the NEXT pull-to-refresh
+       (typical Flutter UX already does this). No client change needed.
+
+
+================================================================================
+8. STORAGE AND BANDWIDTH IMPACT
+================================================================================
+
+Storage delta
+---------------------------------------------------------------
+   Final disk usage: UNCHANGED. Same encoder, same cap, same path.
+   Transient disk usage: + ≤ N * 5 MB on `storage/app/private/
+   tmp-profile/` (N = number of in-flight jobs).
+   On cPanel with the recommended cron-driven runner (1 tick / min),
+   N is bounded by minute-scale upload concurrency — realistically
+   < 20 MB transient at peak.
+
+Bandwidth delta
+---------------------------------------------------------------
+   Inbound:  UNCHANGED (operator still uploads the same raw bytes).
+   Outbound: UNCHANGED (avatars served from the same path with the
+             same cache headers).
+   Worker:   No outbound — worker only reads from disk.
+
+Read-side cache headers (unchanged today and post-T15)
+---------------------------------------------------------------
+   StudentImageController emits:
+     Cache-Control: public, max-age=86400
+   Plus the controller's ?v=<updated_at-timestamp> cache buster on
+   the URL. Result: browsers + Flutter cache the binary for a day
+   and revalidate only when `updated_at` changes.
+
+   IMPORTANT INTERACTION WITH T15: `updated_at` on the Student model
+   changes when $student->save() runs in the worker (because the
+   `profile_image` column was just updated and Eloquent touches
+   `updated_at` automatically). The cache-buster value therefore
+   flips at the same moment the avatar binary changes. ⇒ No
+   stale-cache risk.
+
+
+================================================================================
+9. SHARED-HOSTING MEMORY CONSIDERATIONS  (cPanel target)
+================================================================================
+
+Worker availability
+---------------------------------------------------------------
+   cPanel hosts have NO long-running queue daemon. The Phase 7 plan
+   uses a cron-driven runner:
+     * * * * * cd /home/user/site && php artisan queue:work
+       --once --tries=3 --timeout=60 --stop-when-empty
+   This ticks every 60 s. The ResizeStudentProfileImage job's
+   $timeout=60 fits inside one tick.
+
+   IMPLICATION: until the operator deploys the cron line, the job
+   row sits in `jobs` and the worker never runs. The student's
+   image will only update after the cron line is in place. P1.T15
+   spec calls this out (MIGRATION STEP 3: "Make sure
+   QUEUE_CONNECTION is set (database is fine for Phase 1)") — but
+   the cron line is a Phase 7 deliverable. We should document in
+   the implementation commit message that a stop-gap MUST be in
+   place before T16 ships.
+
+Worker memory cost
+---------------------------------------------------------------
+   The worker (PHP CLI process) has its own memory_limit. On most
+   cPanel hosts CLI memory_limit > PHP-FPM memory_limit (often
+   256 MB vs 128 MB). Post-T16 the worst-case GD allocation is
+   ~6.5 MB (1280x1280x4), so the worker can comfortably resize
+   even multiple jobs per tick.
+
+Worker concurrency
+---------------------------------------------------------------
+   Cron-driven runner = single worker, single tick. No concurrent
+   GD loops competing for memory. ✓
+
+Failure semantics
+---------------------------------------------------------------
+   - $tries=3: a transient GD failure (e.g. corrupted upload) is
+     retried up to 3 times before landing in `failed_jobs`.
+   - Each failure logs to laravel.log via Log::error.
+   - The temp file is deleted on the LAST attempt (or earlier on
+     "student gone / temp missing / raw empty") to prevent
+     accumulation.
+   - On terminal failure, the student keeps their OLD avatar.
+
+cPanel disk-quota risk
+---------------------------------------------------------------
+   - storage/app/private/tmp-profile/ is tiny under normal load
+     but unbounded under attack. The 5 MB guard from T16 caps the
+     per-file ceiling. A 10 GB disk quota gets used up by ~2 000
+     concurrent malicious uploads — out of normal-traffic range.
+   - The Phase 8 cleanup job will prune anything older than 24 h.
+
+OPcache / queue.payload caching
+---------------------------------------------------------------
+   The serialized job payload (in the `jobs` table) is < 2 KB
+   (studentId, tempRelativePath, a small Laravel envelope). Adding
+   the new job class does NOT meaningfully grow OPcache because
+   Laravel's framework code (Dispatchable, Queueable, etc.) is
+   already cached for SessionLiveEvent and AttendanceDataResetEvent.
+
+
+================================================================================
+10. ROLLBACK STRATEGY
+================================================================================
+
+Layer A — git revert (P1.T15 alone)
+---------------------------------------------------------------
+   Action     :  git revert <P1.T15 commit>
+   Effect     :  Removes app/Jobs/ResizeStudentProfileImage.php and
+                 the (empty) app/Jobs/ directory.
+   Risk       :  Zero. Nothing dispatches the job until P1.T16 lands.
+                 Worker queue stays empty.
+
+Layer B — git revert when P1.T15 AND P1.T16 are BOTH deployed
+---------------------------------------------------------------
+   Action     :  git revert <P1.T16 commit> first; then optionally
+                 git revert <P1.T15 commit>.
+   Order rule :  T16 MUST be reverted BEFORE T15 — otherwise the
+                 controller continues to dispatch jobs that no
+                 longer have a handler class, which queues the
+                 jobs and fails them on the next worker tick.
+   Effect     :  saveProfileImageFromUpload() returns to the
+                 synchronous GD path. saveProfileImageFromBase64()
+                 returns to the synchronous GD path. Upload latency
+                 returns to its pre-T15 baseline (~1-2 s on a 2 MB
+                 JPEG). Memory exposure also returns. Use only
+                 during incident response.
+
+Layer C — drain pending jobs without rollback
+---------------------------------------------------------------
+   If T15+T16 land but the worker isn't ticking (e.g. cron line
+   missing on a fresh deploy):
+     php artisan queue:work --once --tries=3 --timeout=60 --stop-when-empty
+   runs a single drain pass on demand. Safe to call from cPanel
+   "Cron Jobs" → "Run Now" or from SSH. After the drain, fix the
+   cron line.
+
+Layer D — abandon pending jobs
+---------------------------------------------------------------
+   If the queue accumulates bad jobs (e.g. all 5 MB-cap rejected
+   uploads from a single attack run):
+     DELETE FROM jobs WHERE queue='default' AND payload LIKE '%ResizeStudentProfileImage%';
+   then prune storage/app/private/tmp-profile/.
+   Affected students keep their OLD avatars. No data loss.
+
+Rollback ordering rule
+---------------------------------------------------------------
+   1. T15 alone   → straight revert. Zero side effects.
+   2. T15+T16     → revert T16 FIRST, then T15 (or leave T15 alive
+                    — the unused class is inert).
+   3. Never delete app/Jobs/ResizeStudentProfileImage.php from a
+      live host without first deleting the corresponding `jobs`
+      rows; the worker will fatal on the missing class until you do.
+
+
+================================================================================
+MODELS AFFECTED
+================================================================================
+
+Modified
+---------------------------------------------------------------
+   None in P1.T15 itself.
+
+Read by P1.T15 (at job-execution time)
+---------------------------------------------------------------
+   App\Models\Student
+     - Student::find($studentId)
+     - $student->saveProfileImageFromRawBytes($raw)   ← method added
+                                                        in P1.T16
+     - $student->save()                               ← triggers
+                                                        `updated_at`
+                                                        bump → cache
+                                                        bust on avatar
+                                                        URL
+   (Calling saveProfileImageFromRawBytes on a Student instance whose
+    model file has NOT yet had P1.T16 applied raises a
+    BadMethodCallException. ⇒ T15 must NOT ship to a host that
+    won't also receive T16 before the next worker tick.)
+
+
+================================================================================
+CONTROLLERS AFFECTED
+================================================================================
+
+Modified
+---------------------------------------------------------------
+   None in P1.T15 itself.
+
+Indirectly affected after T15+T16 (no source edits, just behavioural
+delta)
+---------------------------------------------------------------
+   StudentDashboardController::completeBasic        (Path A)
+   StudentDashboardController::updateProfile        (Path A)
+   StudentOnboardingController                      (Paths B + D)
+   Api\StudentProfileController::update             (Path C)
+     - Continue to call $student->saveProfileImageFromUpload()
+       or $student->saveProfileImageFromBase64() — same method
+       signatures, same return type (bool).
+     - But the underlying model methods change in T16 to dispatch
+       the job instead of resizing synchronously.
+
+Untouched
+---------------------------------------------------------------
+   StudentImageController::show                     (read path)
+   StudentController::destroy                       (deletes image
+                                                     on student
+                                                     deletion — uses
+                                                     Storage directly,
+                                                     not the queue)
+
+
+================================================================================
+SERVICES AFFECTED
+================================================================================
+
+Read-only — never invoke the upload pipeline
+---------------------------------------------------------------
+   App\Services\Api\ClassRepApiService
+     - Reads $s->profile_image and emits it in roster payloads.
+       Returns the RAW column value (not the URL). Will continue
+       to return whatever was saved before the worker last ran;
+       acceptable for roster listings.
+
+   App\Support\StudentApiPayload
+     - Same — formats `profile_image_url` for the mobile API
+       envelope from $student->profileImageUrl(). The URL pattern
+       is stable across T15.
+
+   App\Services\AttendanceOfflineSyncService
+     - Reads profile_image for queued mark payloads. No write.
+
+   App\Models\SystemSetting
+     - The `require_profile_image_on_onboarding` toggle. Read only.
+
+
+================================================================================
+STORAGE PATHS AFFECTED
+================================================================================
+
+  Path                                              Disk    Mutated by T15
+  --------------------------------------------------------------------------
+  storage/app/public/students/                      public  NO   (final files
+                                                                 are written
+                                                                 by the worker
+                                                                 via the same
+                                                                 helper used
+                                                                 today)
+  storage/app/private/tmp-profile/                  local   YES (NEW —
+                                                                 written by
+                                                                 the controller
+                                                                 in T16, read
+                                                                 + deleted by
+                                                                 the worker
+                                                                 in T15)
+  public/storage  (symlink → storage/app/public)    n/a     NO
+  storage/app/private/.gitignore                    local   NO
+  storage/app/public/.gitignore                     local   NO
+  storage/framework/cache/                          local   NO
+  storage/logs/laravel.log                          local   YES (Log::warning
+                                                                 + Log::error
+                                                                 entries from
+                                                                 the worker)
+
+
+================================================================================
+CONFIG / ENVIRONMENT DEPENDENCIES
+================================================================================
+
+  Config key                Used by         Default        Notes
+  --------------------------------------------------------------------------
+  filesystems.disks.local   Storage::disk   storage/app/   Must be writable
+                            ('local')       private        by the FPM user
+                                                           AND the worker
+                                                           user (same user
+                                                           on cPanel).
+  filesystems.disks.public  Storage::disk   storage/app/   Already used by
+                            ('public')      public         today's GD path.
+  queue.default             enqueue/run     database       T15 ships with
+                                                           `database` driver
+                                                           — guaranteed to
+                                                           work on cPanel
+                                                           because the `jobs`
+                                                           table is created
+                                                           by an existing
+                                                           migration.
+
+  Env var                   Required by T15
+  --------------------------------------------------------------------------
+  QUEUE_CONNECTION          must be 'database' (or 'sync' for tests). The
+                            phase_1 spec confirms `database` is fine for
+                            Phase 1; Phase 7 may promote to redis later.
+  DB_QUEUE_CONNECTION       optional (uses the default DB connection)
+  DB_QUEUE_TABLE            optional ('jobs' default)
+
+
+================================================================================
+APPENDIX A — VALIDATION SUITE AFTER P1.T15 IMPLEMENTATION
+================================================================================
+
+  1. php -l app/Jobs/ResizeStudentProfileImage.php           syntax OK
+  2. ReadLints                                                no errors
+  3. Reflection assertions:
+       - class ResizeStudentProfileImage implements ShouldQueue
+       - uses Dispatchable, InteractsWithQueue, Queueable, SerializesModels
+       - public int $tries = 3
+       - public int $timeout = 60
+       - constructor signature: (int $studentId, string $tempRelativePath)
+       - handle(): void exists and is public
+       - cleanupTemp(): void exists and is private
+  4. Static body assertions:
+       - calls Student::find($this->studentId)
+       - calls $student->saveProfileImageFromRawBytes($raw)
+       - calls Storage::disk('local')->delete(...)
+       - wraps the resize call in try/catch with Log::error
+       - swallows cleanupTemp exceptions
+  5. Static dispatch check:
+       - NOTHING currently dispatches the class. Verified via:
+         rg -l 'ResizeStudentProfileImage::dispatch'  → empty
+         (P1.T16 will be the first call site.)
+  6. Class can be reflected without booting Laravel:
+       - new ReflectionClass('App\Jobs\ResizeStudentProfileImage')
+         succeeds with stubbed parents (ShouldQueue, Dispatchable,
+         Queueable, SerializesModels, InteractsWithQueue).
+
+
+================================================================================
+APPENDIX B — POST-COMMIT OPERATOR RUNBOOK FOR P1.T15
+================================================================================
+
+  P1.T15 alone is a no-op at runtime. No operator action required.
+  HOWEVER, before deploying P1.T16 (which dispatches the job):
+
+  1. Verify `jobs` table exists:
+       php artisan migrate:status | grep create_jobs_table
+     Expected: 0001_01_01_000002_create_jobs_table  [Ran]
+
+  2. Verify QUEUE_CONNECTION:
+       grep ^QUEUE_CONNECTION .env
+     Expected: QUEUE_CONNECTION=database
+     If unset, set it and run `php artisan config:cache`.
+
+  3. Verify storage paths exist and are writable by the FPM user:
+       ls -ld storage/app/public/students 2>/dev/null
+         (auto-created if missing; ensure storage/ is owned by FPM
+          user with 775 perms — already required for Laravel.)
+       ls -ld storage/app/private 2>/dev/null
+         (will hold tmp-profile/ — must be writable.)
+
+  4. Install the cron-driven worker line (Phase 7 deliverable —
+     but required NOW if T16 ships):
+       * * * * * cd /home/<user>/public_html && php artisan queue:work \
+         --once --tries=3 --timeout=60 --stop-when-empty
+
+  5. Smoke test on staging:
+     - Upload a 2 MB JPEG via /student/dashboard
+     - SELECT * FROM jobs;                  → 1 row appears
+     - php artisan queue:work --once        → row disappears
+     - SELECT profile_image FROM students WHERE id=<id>;
+                                              → new filename present
+     - GET /api/students/<id>/profile-image  → new image returned
+
+================================================================================
+END OF P1_T15_PROFILE_IMAGE_ANALYSIS
+================================================================================
