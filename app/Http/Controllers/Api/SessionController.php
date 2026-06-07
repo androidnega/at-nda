@@ -8,10 +8,10 @@ use App\Models\Course;
 use App\Models\Student;
 use App\Services\ActiveSessionListBuilder;
 use App\Services\MissedSessionWarningService;
+use App\Support\PasswordPolicy;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
 class SessionController extends Controller
@@ -141,7 +141,7 @@ class SessionController extends Controller
         }
 
         $stu = Student::findByIndex($indexNumber);
-        if (! $stu || ! $this->validateApiPassword((string) $request->query('password'), $stu->password)) {
+        if (! $stu || ! PasswordPolicy::matches((string) $request->query('password'), $stu->password)) {
             return [];
         }
 
@@ -187,7 +187,7 @@ class SessionController extends Controller
             return response()->json(['message' => 'Student not found'], 404);
         }
 
-        if (! $this->validateApiPassword($validated['password'], $student->password)) {
+        if (! PasswordPolicy::matches($validated['password'], $student->password)) {
             return response()->json(['message' => 'Wrong password'], 401);
         }
 
@@ -210,18 +210,6 @@ class SessionController extends Controller
             'gps_accuracy' => $session->gps_accuracy !== null ? (float) $session->gps_accuracy : null,
             'updated_at' => $session->updated_at?->toIso8601String(),
         ]);
-    }
-
-    private function validateApiPassword(string $input, ?string $stored): bool
-    {
-        if (empty($stored)) {
-            return false;
-        }
-        if (str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$')) {
-            return Hash::check($input, $stored);
-        }
-
-        return $input === $stored;
     }
 
     /**
