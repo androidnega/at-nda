@@ -225,6 +225,36 @@ class ClassRepController extends Controller
             collect()
         );
 
+        // ─── Charts & trends data for the dashboard ───────────────
+        // All four are computed off the same $marksBase builder so we
+        // automatically respect the rep's class scope + the
+        // activeWeeksOnly() filter. Each lives behind a safeCall so a
+        // single broken query never kills the whole page.
+        $trendDays = 14;
+        $weeklyTrend = $this->safeCall(
+            fn () => $this->buildWeeklyTrend($marksBase, $trendDays),
+            'rep_overview.weekly_trend',
+            collect()
+        );
+
+        $modeBreakdown = $this->safeCall(
+            fn () => $this->buildModeBreakdown($marksBase),
+            'rep_overview.mode_breakdown',
+            collect()
+        );
+
+        $topCourses = $this->safeCall(
+            fn () => $this->buildTopCoursesForRep($marksBase),
+            'rep_overview.top_courses',
+            collect()
+        );
+
+        $topStudents = $this->safeCall(
+            fn () => $this->buildTopStudentsForRep($marksBase),
+            'rep_overview.top_students',
+            collect()
+        );
+
         return view('classrep.overview', [
             'student' => $student,
             'studentsCount' => $studentsCount,
@@ -235,8 +265,146 @@ class ClassRepController extends Controller
             'todayCourses' => $todayCourses,
             'attendanceMapPoints' => $attendanceMapPoints,
             'courseAnchors' => $courseAnchors,
+            'weeklyTrend' => $weeklyTrend,
+            'modeBreakdown' => $modeBreakdown,
+            'topCourses' => $topCourses,
+            'topStudents' => $topStudents,
+            'trendDays' => $trendDays,
             'dashboardRole' => 'classrep',
         ]);
+    }
+
+    /**
+     * Build the daily attendance count series for the rep's classes.
+     * Always returns exactly [$days] entries (zero-fills empty days)
+     * so the bar chart never has gaps. Newest day last.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
+     */
+    private function buildWeeklyTrend($marksBase, int $days = 14): Collection
+    {
+        $start = now()->subDays($days - 1)->startOfDay();
+        $countsByDate = [];
+
+        if ($marksBase !== null) {
+            $rows = (clone $marksBase)
+                ->where('attendance_time', '>=', $start)
+                ->selectRaw('DATE(attendance_time) as d, COUNT(*) as c')
+                ->groupBy('d')
+                ->pluck('c', 'd')
+                ->toArray();
+            $countsByDate = $rows;
+        }
+
+        $out = collect();
+        for ($i = $days - 1; $i >= 0; $i--) {
+            $d = now()->subDays($i);
+            $key = $d->format('Y-m-d');
+            $out->push([
+                'date' => $key,
+                'label' => $d->format('D j'),
+                'short' => $d->format('D'),
+                'count' => (int) ($countsByDate[$key] ?? 0),
+            ]);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Group marks by the originating session's capture mode for the
+     * donut chart. Falls back to 'location' so legacy rows without a
+     * session link still surface somewhere.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
+     */
+    private function buildModeBreakdown($marksBase): Collection
+    {
+        if ($marksBase === null) {
+            return collect();
+        }
+
+        $raw = (clone $marksBase)
+            ->leftJoin('attendance_sessions', 'attendances.attendance_session_id', '=', 'attendance_sessions.id')
+            ->selectRaw('COALESCE(attendance_sessions.mode, "location") as mode, COUNT(*) as total')
+            ->groupBy('mode')
+            ->pluck('total', 'mode')
+            ->toArray();
+
+        // Keep a fixed ordering so the chart palette stays stable.
+        return collect(['location', 'qr', 'hybrid', 'wifi'])
+            ->map(fn ($m) => [
+                'mode' => $m,
+                'label' => match ($m) {
+                    'qr' => 'QR scan',
+                    'hybrid' => 'Hybrid',
+                    'wifi' => 'Wi-Fi',
+                    default => 'Location',
+                },
+                'count' => (int) ($raw[$m] ?? 0),
+            ])
+            ->filter(fn ($r) => $r['count'] > 0)
+            ->values();
+    }
+
+    /**
+     * Top courses by attendance count within the rep's scope.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
+     */
+    private function buildTopCoursesForRep($marksBase, int $limit = 5): Collection
+    {
+        if ($marksBase === null) {
+            return collect();
+        }
+
+        return (clone $marksBase)
+            ->join('courses', 'attendances.course_id', '=', 'courses.id')
+            ->selectRaw('courses.id, courses.course_name, courses.course_code, COUNT(*) as total')
+            ->groupBy('courses.id', 'courses.course_name', 'courses.course_code')
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => (int) $r->id,
+                'name' => (string) $r->course_name,
+                'code' => (string) ($r->course_code ?? ''),
+                'count' => (int) $r->total,
+            ]);
+    }
+
+    /**
+     * Leaderboard of the rep's students by attendance count for the
+     * dashboard "Top performers" panel.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
+     */
+    private function buildTopStudentsForRep($marksBase, int $limit = 5): Collection
+    {
+        if ($marksBase === null) {
+            return collect();
+        }
+
+        return (clone $marksBase)
+            ->join('students', 'attendances.student_id', '=', 'students.id')
+            ->selectRaw('students.id, students.index_number, students.first_name, students.last_name, COUNT(*) as total')
+            ->groupBy('students.id', 'students.index_number', 'students.first_name', 'students.last_name')
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->get()
+            ->map(function ($r) {
+                $name = trim(($r->first_name ?? '').' '.($r->last_name ?? ''));
+                if ($name === '') {
+                    $name = (string) ($r->index_number ?? 'Student');
+                }
+
+                return [
+                    'id' => (int) $r->id,
+                    'name' => $name,
+                    'index' => (string) ($r->index_number ?? ''),
+                    'count' => (int) $r->total,
+                ];
+            });
     }
 
     /**
