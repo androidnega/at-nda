@@ -26,10 +26,27 @@ use Illuminate\Support\Facades\Route;
 */
 Route::prefix('v1')->group(base_path('routes/api/v1.php'));
 
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout']);
-Route::post('/me', [AuthController::class, 'me']);
+/*
+| Auth + lookup — throttled at 5/min/IP (same limiter as /api/v1/auth/login).
+| /login and /me both accept stored credentials in the body and issue a fresh
+| Sanctum token, so they must NOT sit behind auth:sanctum (the existing Flutter
+| client calls /me without a Bearer during cold-start profile refresh).
+| /students/quick-status is the anti-enumeration pre-auth funnel.
+*/
+Route::middleware('throttle:api-v1-login')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/me', [AuthController::class, 'me']);
+    Route::post('/students/quick-status', [StudentController::class, 'quickStatus']);
+});
 
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth:sanctum');
+
+/*
+| Authenticated student-app surface. Per-class endpoints are wrapped in
+| `class.access` so the caller must be in / rep for / lecture the
+| requested class.
+*/
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/timetable', [StudentTimetableController::class, 'show']);
     Route::get('/student/attendance-insights', [StudentAttendanceInsightsController::class, 'show']);
@@ -37,25 +54,42 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/lecturer/courses/{course}', [LecturerMobileApiController::class, 'courseDetail'])
         ->whereNumber('course');
     Route::post('/lecturer/messages/send', [LecturerMobileApiController::class, 'sendDirectMessage']);
+
+    Route::post('/student/profile', [StudentProfileController::class, 'update']);
+    Route::post('/update-profile', [StudentProfileController::class, 'updateProfile']);
+    Route::post('/device-token', [DeviceTokenController::class, 'store']);
+
+    Route::get('/faculties', [FacultyController::class, 'index']);
+    Route::get('/departments', [FacultyController::class, 'departments']);
+
+    Route::middleware('class.access')->group(function () {
+        Route::get('/students', [StudentController::class, 'index']);
+        Route::match(['get', 'post'], '/students/lookup', [StudentController::class, 'lookup']);
+        Route::get('/sessions/active', [SessionController::class, 'active']);
+        Route::get('/class/active-session', [ClassSessionController::class, 'activeSession']);
+        Route::get('/session/{session}/stats', [ClassSessionController::class, 'stats'])
+            ->whereNumber('session');
+        Route::get('/sessions/current-qr/{session}', [SessionController::class, 'currentQr'])
+            ->whereNumber('session');
+    });
+
+    // Per-row scope gating happens inside the controller (admin / staff vs.
+    // student); the route only needs Sanctum here.
+    Route::get('/students/removed', [StudentController::class, 'removed']);
+    Route::get('/students/status', [StudentController::class, 'status']);
 });
 
-Route::post('/student/profile', [StudentProfileController::class, 'update']);
-Route::post('/update-profile', [StudentProfileController::class, 'updateProfile']);
-Route::post('/device-token', [DeviceTokenController::class, 'store']);
-
-Route::get('/faculties', [FacultyController::class, 'index']);
-Route::get('/departments', [FacultyController::class, 'departments']);
-
-Route::get('/students/removed', [StudentController::class, 'removed']);
-Route::get('/students/status', [StudentController::class, 'status']);
-// Same binary as web /media/... but under /api/* so HandleCors applies (Flutter web).
+// Profile image binary intentionally open — cached <img> tags depend on it
+// and the controller enforces its own access rules. Same binary as web
+// /media/... but under /api/* so HandleCors applies (Flutter web).
 Route::get('/students/{student}/profile-image', [StudentImageController::class, 'show'])
     ->whereNumber('student');
-Route::get('/students', [StudentController::class, 'index']);
-Route::match(['get', 'post'], '/students/lookup', [StudentController::class, 'lookup']);
-Route::get('/sessions/active', [SessionController::class, 'active']);
-Route::get('/class/active-session', [ClassSessionController::class, 'activeSession']);
-Route::get('/session/{session}/stats', [ClassSessionController::class, 'stats'])->whereNumber('session');
+
+/*
+| Routes below carry their own bearer / password parsing in-controller.
+| They stay outside auth:sanctum to preserve the existing Flutter contract
+| (index+password in body/query). Phase 3 will migrate them.
+*/
 
 Route::match(['get', 'post'], '/class-rep/dashboard', [ClassRepRestController::class, 'dashboard']);
 Route::match(['get', 'post'], '/class-rep/students', [ClassRepRestController::class, 'students']);
@@ -71,7 +105,6 @@ Route::post('/rep/courses', [ClassRepApiController::class, 'courses']);
 Route::post('/rep/sessions/open', [ClassRepApiController::class, 'openSession']);
 Route::post('/rep/sessions/{session}/close', [ClassRepApiController::class, 'closeSession'])->whereNumber('session');
 Route::post('/sessions/{session}/location', [SessionController::class, 'updateLocation'])->whereNumber('session');
-Route::get('/sessions/current-qr/{session}', [SessionController::class, 'currentQr'])->whereNumber('session');
 Route::get('/settings', [SettingsController::class, 'index']);
 Route::post('/notifications/pending', [NotificationsController::class, 'pending']);
 Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
