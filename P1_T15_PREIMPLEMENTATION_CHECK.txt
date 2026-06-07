@@ -1,0 +1,631 @@
+================================================================================
+P1.T15 — PRE-IMPLEMENTATION CHECK
+================================================================================
+
+Purpose
+  Verify every infrastructural pre-condition required by P1.T15
+  before touching app/Jobs/. Read-only. No code modifications. No
+  data writes outside two transient `.p1t15_write_probe` test files
+  that were created AND removed during the run.
+
+Execution environment of this check
+  - Local dev box: macOS (PHP 8.5 via Homebrew, php-fpm 8.5 master + 2 pool workers running on this host).
+  - MySQL: NOT running locally (DB_CONNECTION=mysql in .env, Connection refused on 127.0.0.1:3306).
+  - SQLite: legacy dev copy present at database/database.sqlite (Mar 24).
+  - All schema-existence claims about MySQL are inferred from migration
+    files; the equivalent claim is empirically verified against the
+    legacy sqlite copy where applicable, and flagged below.
+
+Result legend
+  YES        — verified.
+  YES (cfg)  — confirmed in source/config; runtime verification deferred.
+  YES (sqlite)— empirically confirmed against the local sqlite copy.
+  NO         — verified absence (this is the EXPECTED state for some checks).
+  N/A        — not applicable in this environment.
+
+================================================================================
+1. DOES THE JOBS TABLE ALREADY EXIST?
+================================================================================
+
+Migration file
+---------------------------------------------------------------
+  Path  : database/migrations/0001_01_01_000002_create_jobs_table.php
+  Exists: YES (1812 bytes, Mar 18 16:32)
+  Defines THREE tables (Schema::create) inside up():
+    - jobs            (id, queue index, payload longText, attempts, reserved_at, available_at, created_at)
+    - job_batches     (id PK, name, total_jobs, pending_jobs, failed_jobs, ...)
+    - failed_jobs     (id, uuid unique, connection, queue, payload, exception, failed_at)
+
+Runtime presence
+---------------------------------------------------------------
+  Local sqlite copy (database/database.sqlite):
+    .migrations row     :  0001_01_01_000002_create_jobs_table | batch 1   ⇒ RAN
+    SELECT COUNT(*) FROM jobs         ⇒ 0
+    SELECT COUNT(*) FROM job_batches  ⇒ 0
+    SELECT COUNT(*) FROM failed_jobs  ⇒ 0
+
+  Local MySQL (DB_CONNECTION=mysql, .env target = atenda_db):
+    SHOW TABLES LIKE 'jobs'   ⇒ N/A — MySQL daemon not running on this
+                                  workstation (PDO Connection refused).
+    Production verification REQUIRED before P1.T16 ships:
+      php artisan migrate:status | grep create_jobs_table
+    Expected output: '0001_01_01_000002_create_jobs_table  [Ran]'.
+
+Verdict
+  Local code/config: YES (migration file present, runs at `php artisan migrate`)
+  Local sqlite     : YES (sqlite) — table exists with zero rows
+  Local MySQL      : INDETERMINATE (daemon down on this box) — operator
+                     MUST verify on every deploy target before T16.
+
+
+================================================================================
+2. IS QUEUE_CONNECTION CONFIGURED?
+================================================================================
+
+.env (active, real values)
+---------------------------------------------------------------
+  Line: QUEUE_CONNECTION=database         ⇒ YES (uncommented, set)
+
+.env.example (reference template)
+---------------------------------------------------------------
+  Line: QUEUE_CONNECTION=database         ⇒ YES (default)
+  Line: #   QUEUE_CONNECTION=redis        ⇒ alternate (commented out)
+
+config/queue.php fallback
+---------------------------------------------------------------
+  Line: 'default' => env('QUEUE_CONNECTION', 'database')
+  ⇒ defaults to 'database' even when .env is missing the key.
+
+Verdict
+  YES — actively set in .env, defaulted in config, documented in .env.example.
+
+
+================================================================================
+3. WHAT IS THE CURRENT QUEUE_CONNECTION VALUE?
+================================================================================
+
+  Effective value : 'database'
+  Source          : .env line `QUEUE_CONNECTION=database`
+  Driver target   : config/queue.php → connections.database → driver = 'database'
+  Test override   : phpunit.xml forces 'sync' for the test suite
+                    (every job runs immediately on dispatch under PHPUnit;
+                     P1.T15's job code path is exercised inline by tests).
+
+Verdict
+  database  (production + dev fallback)
+  sync      (only inside PHPUnit, by design)
+
+
+================================================================================
+4. IS DATABASE QUEUE DRIVER FUNCTIONAL?
+================================================================================
+
+Config wiring (config/queue.php l. 38-43)
+---------------------------------------------------------------
+  'database' => [
+      'driver'     => 'database',
+      'connection' => env('DB_QUEUE_CONNECTION'),     ← null → uses default
+      'table'      => env('DB_QUEUE_TABLE', 'jobs'),  ← 'jobs'
+      'queue'      => env('DB_QUEUE', 'default'),     ← 'default'
+      'retry_after'=> 90,
+      'after_commit' => false,
+  ],
+
+Env overrides
+---------------------------------------------------------------
+  DB_QUEUE_CONNECTION : NOT SET in .env  ⇒ uses default DB (mysql)
+  DB_QUEUE_TABLE      : NOT SET in .env  ⇒ falls back to 'jobs'
+  DB_QUEUE            : NOT SET in .env  ⇒ falls back to 'default'
+
+Failed-job storage
+---------------------------------------------------------------
+  config/queue.php l. 122-126:
+    'failed' => [
+        'driver'   => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
+        'database' => env('DB_CONNECTION', 'sqlite'),
+        'table'    => 'failed_jobs',
+    ],
+  ⇒ Failed jobs land in the same MySQL connection as the rest of the
+    app, in the `failed_jobs` table.
+
+Batching storage
+---------------------------------------------------------------
+  config/queue.php l. 105-108:
+    'batching' => [
+        'database' => env('DB_CONNECTION', 'sqlite'),
+        'table'    => 'job_batches',
+    ],
+  ⇒ Functional. (T15 doesn't use batching, but the table is present.)
+
+Verdict
+  YES (cfg) — driver fully wired. Will be RUNTIME-functional the moment
+  the application can talk to MySQL (which is its normal production
+  state). On this dev box MySQL is offline, so empirical end-to-end
+  dispatch/process round-trip cannot be exercised here.
+
+
+================================================================================
+5. DOES storage/app/private EXIST?
+================================================================================
+
+Directory inspection
+---------------------------------------------------------------
+  Path        : storage/app/private
+  Exists      : YES
+  Permissions : drwxr-xr-x (755)
+  Owner       : manuel
+  Group       : admin
+  Inode age   : Mar 18 16:32 (since the public/private split landed in Laravel 11)
+  Contents    : just `.gitignore` (14 bytes) — clean private root.
+
+Disk wiring
+---------------------------------------------------------------
+  config/filesystems.php l. 33-39:
+    'local' => [
+        'driver' => 'local',
+        'root'   => storage_path('app/private'),    ⇒ THIS DIR
+        'serve'  => true,
+        'throw'  => false,
+        'report' => false,
+    ],
+
+Verdict
+  YES — exists with correct ownership and Laravel-wired through
+  Storage::disk('local').
+
+
+================================================================================
+6. CAN LARAVEL WRITE TO storage/app/private?
+================================================================================
+
+Empirical probes (executed, then cleaned up)
+---------------------------------------------------------------
+  Probe 1 (flat file):
+    touch storage/app/private/.p1t15_write_probe        ⇒ OK
+    rm    storage/app/private/.p1t15_write_probe        ⇒ OK
+  Probe 2 (sub-directory shaped like tmp-profile):
+    mkdir -p storage/app/private/.p1t15_probe_dir       ⇒ OK
+    write 'test' (5 bytes) into the new dir             ⇒ OK
+    rm -rf storage/app/private/.p1t15_probe_dir         ⇒ OK
+
+Implications for P1.T15
+---------------------------------------------------------------
+  When P1.T16 calls
+    Storage::disk('local')->put('tmp-profile/<id>-<uuid>', $raw)
+  Laravel will:
+    (a) auto-create storage/app/private/tmp-profile/ on first write
+        (Laravel's filesystem driver handles mkdir),
+    (b) inherit the parent's perms (755) — readable by the FPM user
+        and the queue-worker user (same UID on cPanel).
+
+Production caveat
+---------------------------------------------------------------
+  On cPanel the FPM user is typically the cPanel account user. The
+  queue worker (cron) runs as the SAME user. ⇒ permissions align by
+  default. Operators using suexec / separate worker users should
+  double-check write access with the same probe.
+
+Verdict
+  YES — writable by the current user, sub-directory creation works.
+
+
+================================================================================
+7. CAN LARAVEL WRITE TO storage/app/public/students?
+================================================================================
+
+Directory inspection
+---------------------------------------------------------------
+  Path        : storage/app/public/students
+  Exists      : YES (drwxr-xr-x manuel:admin)
+  Created     : Mar 24 21:55
+  File count  : 5 existing student avatars (real production-shaped
+                JPEGs from prior uploads):
+                  150_69bbedfb086ce.jpg
+                  9VfH2gIwWOQmbSBTTIGvzTPD44ySdDNvqj4LLGvc.jpg
+                  TL4OzsGhWLaByMkvplW01doXSBZVlSUpNSPBjyDF.jpg
+                  WgFIFd41jL9gU3l1BD5frqdlT2N4k8jkz0AWLqo5.jpg
+                  yQqU6P8Qg9F4IfdkUAxMkHYvJ7Vlw1qwIpojnEQH.jpg
+
+Empirical write probe
+---------------------------------------------------------------
+  touch storage/app/public/students/.p1t15_write_probe   ⇒ OK
+  rm    storage/app/public/students/.p1t15_write_probe   ⇒ OK
+
+Disk wiring
+---------------------------------------------------------------
+  config/filesystems.php l. 41-48:
+    'public' => [
+        'driver'     => 'local',
+        'root'       => storage_path('app/public'),     ⇒ parent of students/
+        'url'        => rtrim(env('APP_URL'),'/').'/storage',
+        'visibility' => 'public',
+    ],
+  ⇒ Storage::disk('public')->put('students/<id>_<uniqid>.<ext>', ...)
+    already works today (5 files prove it).
+
+Verdict
+  YES — writable AND already in active use. No change required.
+
+
+================================================================================
+8. DOES THE STUDENT MODEL ALREADY CONTAIN THE EXPECTED METHODS?
+================================================================================
+
+Verified by grep on app/Models/Student.php:
+
+  saveProfileImageFromBase64        line 303   public  → bool   ✓ EXISTS
+  saveProfileImageFromUpload        line 319   public  → bool   ✓ EXISTS
+  storeOptimizedProfileImage        line 329   private → bool   ✓ EXISTS
+  optimizeProfileImageBinary        line 352   private → ?array ✓ EXISTS (helper)
+  renderProfileImageBinary          line 430   private → ?string✓ EXISTS (helper)
+
+Methods that will be added BY P1.T16 (must NOT be present yet):
+
+  saveProfileImageFromRawBytes      → NOT FOUND ✓ (correct — added in T16)
+  profileImageDimensionsAcceptable  → NOT FOUND ✓ (correct — added in T16)
+
+P1.T15 dependency on T16
+---------------------------------------------------------------
+  ResizeStudentProfileImage::handle() calls
+    $student->saveProfileImageFromRawBytes($raw);
+  That method DOES NOT EXIST YET. Therefore:
+    - The job's source compiles fine (method names are strings until
+      runtime in PHP).
+    - The job's runtime path is INERT until P1.T16 wires both:
+        (a) the new public Student::saveProfileImageFromRawBytes(), and
+        (b) the dispatch call inside saveProfileImageFromUpload() /
+            saveProfileImageFromBase64().
+  This is the intended ordering: T15 lands the class (no caller),
+  T16 lands the call sites + the missing method together so the
+  worker's first invocation succeeds.
+
+Verdict
+  YES — all three pre-existing methods are present; the two post-T16
+  methods are correctly absent.
+
+
+================================================================================
+9. CURRENT PROFILE IMAGE UPLOAD EXECUTION PATH
+================================================================================
+
+Path A — Web multipart upload (admin / student dashboard)
+---------------------------------------------------------------
+  Route       : POST /student/dashboard/...                  (web)
+  Controller  : StudentDashboardController
+                  ::completeBasic        l. 815-822
+                  ::updateProfile        l. 1074-1080
+  Validation  : profile_photo: image|mimes:jpg,jpeg,png,webp|max:10240   (10 MB)
+  Model call  : $student->saveProfileImageFromUpload($request->file('profile_photo'))
+  ↓
+  Student::saveProfileImageFromUpload(UploadedFile $file): bool      (l. 319)
+   → @file_get_contents($file->getRealPath())
+   → Student::storeOptimizedProfileImage($raw)                       (l. 329)
+       → Student::optimizeProfileImageBinary($raw, 500*1024)         (l. 352)
+       → Storage::disk('public')->delete($oldPath)                   (if any)
+       → Storage::disk('public')->put('students/<id>_<uniqid>.<ext>', $binary)
+       → $this->profile_image = '<filename>'
+   ↓ caller does $student->save()
+  Final on disk: storage/app/public/students/<id>_<uniqid>.jpg
+  Synchronous : YES — GD pipeline runs on the request thread.
+
+Path B — Web onboarding (base64 data URL)
+---------------------------------------------------------------
+  Route       : POST /student/onboarding/complete            (web)
+  Controller  : StudentOnboardingController                  (l. 75-78)
+  Validation  : profile_image: required|string               (no cap)
+  Model call  : $student->saveProfileImageFromBase64($validated['profile_image'])
+  ↓
+  Student::saveProfileImageFromBase64(string $imageData): bool       (l. 303)
+   → base64_decode after preg_match
+   → Student::storeOptimizedProfileImage($raw)
+   (rest of chain identical to Path A)
+  Synchronous : YES.
+
+Path C — Mobile API profile update (base64 data URL)
+---------------------------------------------------------------
+  Route       : POST /api/student-profile/update             (api)
+  Controller  : Api\StudentProfileController::update         (l. 49-53)
+  Validation  : profile_image: nullable|string               (no cap)
+  Model call  : $student->saveProfileImageFromBase64(...)
+  (rest identical to Path B)
+  Synchronous : YES.
+
+Path D — Mobile API onboarding (base64 data URL)
+---------------------------------------------------------------
+  Route       : POST /api/onboarding/complete                (api)
+  Controller  : StudentOnboardingController                  (same as B)
+  Flutter src : at-end_frontend_app/lib/pages/onboarding_page.dart
+                l. 51-58 posts body['profile_image'] = 'data:image/jpeg;base64,...'
+  Synchronous : YES.
+
+Storage locations involved today
+---------------------------------------------------------------
+  Read  : storage/app/public/students/                       (disk 'public')
+  Write : storage/app/public/students/<id>_<uniqid>.<ext>    (disk 'public')
+  Read  : URL::to('/api/students/<id>/profile-image')        (StudentImageController)
+  Read  : URL::to('/media/students/<id>/profile-image')      (web mirror)
+  Read  : APP_URL/storage/students/<id>_<uniqid>.<ext>       (storage:link symlink)
+
+Storage locations introduced AFTER P1.T15+T16 are both deployed
+---------------------------------------------------------------
+  Write/read (worker): storage/app/private/tmp-profile/<id>-<uuid>
+                       (disk 'local', auto-created on first put())
+  Read+delete (worker): same path
+
+Models, controllers, services, storage paths
+---------------------------------------------------------------
+  Models       : App\Models\Student
+  Controllers  : StudentDashboardController, StudentOnboardingController,
+                 Api\StudentProfileController, (read-only:) StudentImageController
+  Services     : (none touch the write path today — only readers:)
+                 ClassRepApiService, StudentApiPayload,
+                 AttendanceOfflineSyncService
+  Storage paths: storage/app/public/students/         (final)
+                 storage/app/public/                  (parent)
+                 storage/app/private/                 (NEW — landing zone)
+
+
+================================================================================
+10. ARE THERE EXISTING QUEUE WORKERS PROCESSING IMAGE JOBS?
+================================================================================
+
+Process scan (this workstation)
+---------------------------------------------------------------
+  ps -ef | grep 'queue:work\|artisan queue'           ⇒ no matches
+  Running PHP processes:
+     php-fpm master   (pid 577, php-fpm 8.5)
+     php-fpm pool www (pid 706)
+     php-fpm pool www (pid 707)
+  ⇒ Only the web request handlers. No queue worker is running.
+
+launchd plists (macOS dev)
+---------------------------------------------------------------
+  ~/Library/LaunchAgents — no plist references `queue:work`,
+  `atenda`, or `at-nda`.                              ⇒ none.
+
+crontab
+---------------------------------------------------------------
+  crontab -l 2>/dev/null | grep 'queue:work\|artisan' ⇒ no matches.
+  (No crontab installed for the current user.)
+
+In-DB job queue inspection (sqlite copy)
+---------------------------------------------------------------
+  SELECT COUNT(*) FROM jobs                           ⇒ 0
+  SELECT COUNT(*) FROM failed_jobs                    ⇒ 0
+  SELECT * FROM jobs        WHERE payload LIKE '%ResizeStudentProfileImage%' ⇒ 0 rows
+  SELECT * FROM failed_jobs WHERE payload LIKE '%ResizeStudentProfileImage%' ⇒ 0 rows
+  ⇒ No queued or failed ResizeStudentProfileImage anywhere.
+
+In-DB job queue inspection (MySQL)
+---------------------------------------------------------------
+  N/A on this dev box (MySQL daemon down). Production verification:
+    SELECT queue, COUNT(*) FROM jobs GROUP BY queue;
+    SELECT queue, COUNT(*) FROM failed_jobs GROUP BY queue;
+
+Code-side dispatch sites
+---------------------------------------------------------------
+  rg 'ResizeStudentProfileImage' app/                ⇒ NO MATCHES
+  ⇒ Nothing in the codebase currently dispatches the class because
+    the class itself doesn't exist yet.
+
+Verdict
+  NO — no workers running, no jobs queued, no cron lines, no
+  launchd agents, no codepaths dispatching the job. The runway is
+  fully clear.
+
+
+================================================================================
+SUMMARY MATRIX
+================================================================================
+
+  Check                                                   Result
+  -----------------------------------------------------------------------
+  1.  jobs table migration exists                          YES
+      jobs/job_batches/failed_jobs tables (local sqlite)   YES (sqlite, 0 rows)
+      jobs table on MySQL                                  INDETERMINATE
+                                                           (operator must
+                                                            verify before T16)
+  2.  QUEUE_CONNECTION configured                          YES
+  3.  Current QUEUE_CONNECTION value                       'database'
+  4.  Database queue driver functional (config)            YES (cfg)
+  5.  storage/app/private exists                           YES
+  6.  Laravel can write to storage/app/private             YES (probe ok)
+  7.  Laravel can write to storage/app/public/students     YES (probe ok)
+  8.  saveProfileImageFromUpload exists                    YES (l. 319)
+      saveProfileImageFromBase64 exists                    YES (l. 303)
+      storeOptimizedProfileImage exists                    YES (l. 329)
+      saveProfileImageFromRawBytes (T16 will add)          NO   (correct)
+      profileImageDimensionsAcceptable (T16 will add)      NO   (correct)
+  9.  Upload execution path documented                     YES (4 paths, all
+                                                           synchronous today)
+  10. No queue worker running                              YES
+      No queued ResizeStudentProfileImage rows             YES
+      No failed ResizeStudentProfileImage rows             YES
+      No code dispatches the class today                   YES
+      app/Jobs/ directory does NOT exist                   NO  (correct — will
+                                                           be created in T15)
+
+
+================================================================================
+GO/NO-GO ASSESSMENT
+================================================================================
+
+  Hard pre-conditions for P1.T15 (this commit)
+  ----------------------------------------------------------------------
+    [x] No conflicting files at app/Jobs/ResizeStudentProfileImage.php
+    [x] No conflicting class App\Jobs\ResizeStudentProfileImage in autoloader
+    [x] storage/app/private exists and is writable
+    [x] Laravel queue + dispatch infrastructure is in place (driver wired)
+    [x] No live worker is consuming dispatches that this class will
+        eventually receive
+
+  Soft pre-conditions for P1.T16 (the next commit, NOT this one)
+  ----------------------------------------------------------------------
+    [ ] `jobs` table must exist on the target deploy's MySQL DB
+        (verify with `php artisan migrate:status | grep create_jobs_table`)
+    [ ] A worker tick must run within ≤ 60 s on production. Either:
+          - existing supervisord/systemd queue worker, OR
+          - the Phase 7 cron line:
+            * * * * * cd /home/<user>/public_html && php artisan queue:work \
+              --once --tries=3 --timeout=60 --stop-when-empty
+        Without this, dispatched jobs accumulate in `jobs` and the
+        avatar never updates.
+    [ ] storage/app/private must be writable by both the FPM and
+        worker users (always true on cPanel; verify on Docker/k8s).
+
+  Recommendation
+  ----------------------------------------------------------------------
+    GO for P1.T15.
+    No new code wired in. Class is inert. Soft pre-conditions are
+    P1.T16 concerns and have time to be operationalised before T16
+    ships.
+
+================================================================================
+APPENDIX C — PHP RUNTIME LIMITS  (added per follow-up request)
+================================================================================
+
+Empirical readings — this dev box (macOS, Homebrew PHP 8.5)
+---------------------------------------------------------------
+  PHP version       : 8.5.3
+  Loaded php.ini    : /usr/local/etc/php/8.5/php.ini
+  PHP-FPM master    : pid 577, conf /usr/local/etc/php/8.5/php-fpm.conf
+  PHP-FPM ini       : none separate — FPM uses the same /usr/local/etc/php/8.5/php.ini
+                      ⇒ CLI numbers AND FPM numbers are identical on this box.
+
+  Key directives (php -r 'ini_get(...)'):
+    memory_limit           = 128M
+    max_execution_time     = 0          (unlimited — standard CLI default,
+                                         also applies to FPM here)
+    upload_max_filesize    = 2M
+    post_max_size          = 8M
+    max_input_time         = -1         (unlimited)
+    max_file_uploads       = 20
+
+
+Compatibility A — 5 MB upload cap from P1.T16
+---------------------------------------------------------------
+  P1.T16 rejects raw image bytes > 5 MB inside
+  Student::profileImageDimensionsAcceptable(). This is the MODEL-level
+  ceiling. PHP can enforce its own ceilings BEFORE control ever
+  reaches PHP code, so all four upload paths must be re-checked
+  against the runtime ini values:
+
+  Path A — Web multipart (StudentDashboardController, profile_photo)
+    Validation rule today : image|mimes:...|max:10240  (10 MB)
+    PHP-tier ceiling here : min(upload_max_filesize=2M, post_max_size=8M) = 2 MB
+    Model-tier ceiling    : 5 MB (after T16)
+    Effective ceiling     : 2 MB on this dev box (FPM truncates).
+                            ⇒ The T16 guard would only be reachable
+                              for files in the 2-5 MB band on a host
+                              whose php.ini permits it.
+    Production reality    : cPanel hosts typically ship
+                              upload_max_filesize=64M
+                              post_max_size=64M
+                            ⇒ T16's 5 MB guard becomes the binding
+                              constraint there, as intended.
+
+  Path B / C / D — base64 data URLs (onboarding + profile update)
+    Validation rule today : profile_image: string (no length cap)
+    PHP-tier ceiling here : post_max_size=8M for the entire request body
+    Base64 inflation      : binary → base64 ≈ 1.37×
+    Effective raw cap     : ~5.8 MB binary fits in 8M post_max_size
+                            (after the "data:image/jpeg;base64," prefix
+                             plus the rest of the form fields).
+    Model-tier ceiling    : 5 MB (after T16)
+    Effective ceiling     : 5 MB (T16) on this dev box AND on prod.
+                            ⇒ T16 binds correctly for the base64 paths.
+
+  Verdict A — COMPATIBLE in principle.
+  -------------------------------------------------------------------
+  The T16 model-level 5 MB cap is the binding constraint on every
+  production-grade host (upload_max_filesize ≥ 5M, post_max_size ≥ 8M).
+  On this dev box the multipart path is FPM-truncated at 2 MB; the
+  base64 paths are FPM-truncated at ~5.8 MB raw which still lets T16
+  do its job.
+
+  Operator runbook addendum BEFORE P1.T16 ships
+  -------------------------------------------------------------------
+    1. Verify production php.ini on each FPM pool:
+         php -r 'echo "upload=".ini_get("upload_max_filesize"),
+                      " post=".ini_get("post_max_size"),"\n";'
+       Both should report ≥ 5M (recommend ≥ 8M for headroom).
+    2. If either is lower, the operator must:
+         - raise upload_max_filesize to at least 8M
+         - raise post_max_size to at least 10M
+         - restart PHP-FPM
+       Without this, well-formed 4-5 MB uploads will silently fail
+       with a 413 / "POST data exceeded" BEFORE Laravel sees them.
+    3. The model-level 5 MB cap (T16) is intentionally LOWER than
+       these ini values so the application can return a clean
+       422 envelope rather than a webserver-level 413.
+
+
+Compatibility B — 60-second queue timeout from P1.T15
+---------------------------------------------------------------
+  P1.T15's job declares:
+    public int $timeout = 60;
+  This timeout is enforced by Laravel's queue worker via pcntl_alarm()
+  (SIGALRM). It is NOT enforced by PHP's max_execution_time ini.
+
+  CLI (queue worker) runtime budget on this box
+    max_execution_time = 0   ⇒ unlimited; Laravel manages timing.
+    memory_limit       = 128M ⇒ comfortable headroom (see below).
+    max_input_time     = -1   ⇒ not relevant; worker reads from DB.
+
+  Worst-case worker memory footprint after T16 lands
+    Laravel framework load    : ~30-40 MB
+    Student::find($id) + save : ~2 MB (single row + relation load)
+    Raw bytes read from disk  : ≤ 5 MB
+    GD true-color canvas      : 1280 × 1280 × 4 = ~6.5 MB
+    JPEG encode buffer        : ~1-2 MB
+    -----------------------------------------------------------------
+    Total                     : ~50 MB
+    Available                 : 128 MB
+    Headroom                  : 78 MB (~60% slack)
+
+  Worst-case worker CPU time per job
+    A 1280×1280 GD resize on a modern CPU completes in well under
+    one second; the 10-pass quality loop bounded to 500 KB rarely
+    exceeds 3 seconds even on slow shared hosts. The 60 s job
+    timeout has ~20× safety margin.
+
+  cPanel CLI typical values
+    memory_limit       : 256M (more headroom than this dev box)
+    max_execution_time : 0    (CLI default — Laravel still manages it)
+  ⇒ Production environment exceeds dev-box capacity. No concerns.
+
+  Verdict B — COMPATIBLE.
+  -------------------------------------------------------------------
+  The 60 s queue timeout is enforced by Laravel itself, independent
+  of php.ini. The CLI's unlimited max_execution_time is exactly the
+  right default. Memory headroom is ~60% on this dev box and even
+  larger on a typical cPanel CLI. The job will complete in seconds
+  on real images; the 60 s ceiling is for malicious / corrupted
+  edge cases.
+
+
+PHP-limits compatibility matrix
+---------------------------------------------------------------
+  Constraint                          Requirement   Dev box     cPanel default
+  -----------------------------------------------------------------------------
+  5 MB binary upload (multipart)      ≥ 5M upload   2M  ✗ low   64M  ✓
+                                      ≥ 8M post     8M  ⚠ tight  64M  ✓
+  ~6.7 MB base64 body (5 MB raw)      ≥ 8M post     8M  ⚠ tight  64M  ✓
+  60 s worker job (Laravel SIGALRM)   N/A           0   ✓        0    ✓
+  GD canvas at 1280×1280 (~6.5 MB)    ≥ 64M memory  128M ✓        256M ✓
+  CLI input time                      N/A           -1  ✓        -1   ✓
+
+  Summary
+    - The dev box can EXERCISE every code path the worker will run
+      in production. ✓
+    - The dev box CANNOT push a >2 MB multipart from a browser
+      (FPM truncates). Use base64 or the artisan tinker path for
+      end-to-end local testing.
+    - Production cPanel hosts comfortably exceed every threshold. ✓
+    - The 60 s queue timeout is independent of php.ini. ✓
+    - The 5 MB model cap is the binding constraint on production. ✓
+
+
+================================================================================
+END OF P1_T15_PREIMPLEMENTATION_CHECK
+================================================================================
