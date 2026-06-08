@@ -13,6 +13,16 @@
             <p class="text-sm text-gray-500 mt-1">{{ $course->assignedClassesLabel() ?: '—' }} · {{ $enrolledCount }} student{{ $enrolledCount === 1 ? '' : 's' }} enrolled</p>
         </div>
         <div class="flex flex-wrap gap-2 shrink-0">
+            @if(\Illuminate\Support\Facades\Route::has('lecturer.courses.online-week.create'))
+                <form action="{{ route('lecturer.courses.online-week.create', $course) }}" method="post" class="contents"
+                      onsubmit="return confirm('Open a new online lecture week for this course?');">
+                    @csrf
+                    <button type="submit"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-700 text-white text-sm font-semibold hover:bg-indigo-800">
+                        <i class="fas fa-globe"></i> Start online lecture
+                    </button>
+                </form>
+            @endif
             <a href="{{ route('dashboard.teaching.attendance.course.pdf', $course) }}" target="_blank"
                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-sm font-medium text-red-800 hover:bg-red-100">
                 <i class="fas fa-file-pdf"></i> Semester PDF
@@ -65,7 +75,8 @@
                     $bar = 'bg-rose-500';
                 }
             @endphp
-            <details class="group rounded-xl border border-gray-200 bg-white hover:border-primary/40 transition open:shadow-sm" data-week-card>
+            <details class="group rounded-xl border border-gray-200 bg-white hover:border-primary/40 transition open:shadow-sm"
+                     data-week-card data-week-id="{{ $week->id }}">
                 <summary class="cursor-pointer list-none p-3.5">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -354,6 +365,24 @@
         input.addEventListener('click', function (e) { e.stopPropagation(); });
         input.addEventListener('focus', function (e) { e.stopPropagation(); });
     });
+
+    // After "Start online lecture" the controller bounces back with
+    // ?focus_week=<id>. Expand that week card AND its inner roll-call
+    // sub-panel automatically so the lecturer lands straight on the
+    // mark sheet — no extra clicks required.
+    (function focusWeekFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var focusId = params.get('focus_week');
+        if (!focusId) return;
+        var card = document.querySelector('[data-week-card][data-week-id="' + focusId + '"]');
+        if (!card) return;
+        card.open = true;
+        var rc = card.querySelector('[data-rollcall-card]');
+        if (rc) rc.open = true;
+        setTimeout(function () {
+            (rc || card).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    })();
 
     // ────────────────────────────────────────────────────────────
     // Online roll-call: per-week bulk attendance form.

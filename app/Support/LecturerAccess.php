@@ -36,6 +36,7 @@ final class LecturerAccess
             'lecturer.courses.week.cancel',
             'lecturer.courses.week.uncancel',
             'lecturer.courses.week.roll-call',
+            'lecturer.courses.online-week.create',
         ];
     }
 

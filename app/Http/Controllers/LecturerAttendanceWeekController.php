@@ -48,6 +48,58 @@ class LecturerAttendanceWeekController extends Controller
         return back()->with('success', 'Week '.$attendanceWeek->week_number.' marked as cancelled.');
     }
 
+    /**
+     * Create (or reuse) today's attendance week for the course and flag it
+     * as an online lecture so the lecturer can immediately roll-call.
+     *
+     * Used when no week card exists yet because nobody opened a live
+     * session — for a purely remote class that path is never taken, so
+     * we skip the live-session step entirely and let the lecturer
+     * declare a week up front.
+     *
+     * Redirects back to the course attendance page with `?focus_week=<id>`
+     * so the view can auto-expand that week and open its roll-call form.
+     */
+    public function createOnlineWeek(Request $request, Course $course): RedirectResponse
+    {
+        $lecturer = $this->lecturer($request);
+        if (! $lecturer) {
+            return redirect()->route('lecturer.login');
+        }
+        if (! LecturerAccess::canManageCourse($lecturer, $course)) {
+            abort(403, 'This course is not assigned to you.');
+        }
+
+        $validated = $request->validate([
+            'platform' => 'nullable|string|max:60',
+            'note' => 'nullable|string|max:500',
+            'week_number' => 'nullable|integer|min:1|max:500',
+        ]);
+
+        $classId = $course->class_id ? (int) $course->class_id : null;
+        $overrideWeekNumber = isset($validated['week_number']) ? (int) $validated['week_number'] : null;
+
+        $week = $course->createOrGetAttendanceWeekForToday($classId, $overrideWeekNumber);
+
+        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
+            $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
+            $platform = $platform === '' ? null : $platform;
+            $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
+            if ($note === '') {
+                $note = null;
+            }
+            $week->update([
+                'is_online' => true,
+                'online_platform' => $platform ?? $week->online_platform,
+                'online_note' => $note ?? $week->online_note ?? 'Online lecture',
+            ]);
+        }
+
+        return redirect()
+            ->route('dashboard.teaching.attendance.course', ['course' => $course->id, 'focus_week' => $week->id])
+            ->with('success', 'Week '.$week->week_number.' opened as an online lecture. Tick attendees in the roll-call.');
+    }
+
     public function uncancel(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
     {
         $lecturer = $this->lecturer($request);
