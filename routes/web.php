@@ -179,6 +179,11 @@ Route::post('/lecturer/change-password', [LecturerAuthController::class, 'change
 Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(function () {
     Route::post('courses/{course}/weeks/{attendanceWeek}/cancel', [LecturerAttendanceWeekController::class, 'cancel'])->name('courses.week.cancel');
     Route::post('courses/{course}/weeks/{attendanceWeek}/uncancel', [LecturerAttendanceWeekController::class, 'uncancel'])->name('courses.week.uncancel');
+    // Bulk roll-call entry for an online lecture week (no GPS / no QR).
+    Route::post('courses/{course}/weeks/{attendanceWeek}/roll-call', [LecturerAttendanceWeekController::class, 'rollCall'])->name('courses.week.roll-call');
+    // Create (or reuse) today's week and flag it as an online lecture, so
+    // the lecturer can roll-call without first opening a live session.
+    Route::post('courses/{course}/online-week', [LecturerAttendanceWeekController::class, 'createOnlineWeek'])->name('courses.online-week.create');
 });
 
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
@@ -233,6 +238,11 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
         // Rep manually marks a student attendance with a reason.
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/manual-mark', [ClassRepController::class, 'manualMarkAttendance'])->name('class-attendance.manual-mark');
+        // Rep bulk roll-call for an online lecture week (no GPS / no QR).
+        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/roll-call', [ClassRepController::class, 'rollCallAttendance'])->name('class-attendance.roll-call');
+        // Rep creates (or reuses) today's week as an online lecture so a
+        // roll-call can happen without ever opening a live session.
+        Route::post('/class-attendance/course/{course}/online-week', [ClassRepController::class, 'createOnlineWeek'])->name('class-attendance.online-week.create');
         // Rep deletes a single attendance row (only when super admin has enabled it).
         Route::delete('/class-attendance/{attendance}', [ClassRepController::class, 'deleteAttendance'])->name('class-attendance.delete');
         // Read-only audit log scoped to courses / classes this rep manages.

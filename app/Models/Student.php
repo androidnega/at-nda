@@ -24,6 +24,15 @@ class Student extends Model implements AuthenticatableContract
     use HasApiTokens;
     use HasFactory;
 
+    /**
+     * Sentinel value stored in the profile_image column while a
+     * queued ResizeStudentProfileImage job is in flight. Carries
+     * the staged temp-file path so the worker / cleanup tooling
+     * can locate the bytes. See queueProfileImageResize() and
+     * StudentImageController::show() for the read-side handling.
+     */
+    public const PENDING_IMAGE_PREFIX = 'pending:';
+
     protected $fillable = ['index_number', 'first_name', 'middle_name', 'last_name', 'email', 'profile_image', 'phone_number', 'password', 'department_id', 'class_id', 'bound_ip'];
 
     protected $hidden = ['password'];
@@ -279,7 +288,16 @@ class Student extends Model implements AuthenticatableContract
             return $this->profile_image;
         }
 
-        // Same host as API (`/api/...`) so mobile clients using `API_BASE_URL` always resolve images.
+        // P1.T16: profile_image temporarily carries a PENDING_IMAGE_PREFIX
+        // sentinel ('pending:tmp-profile/<id>-<uuid>') while a queued
+        // ResizeStudentProfileImage job is in flight. We deliberately
+        // emit the SAME controller URL we would for a settled image —
+        // StudentImageController::show() detects the prefix and serves
+        // the transparent placeholder PNG until the worker overwrites
+        // profile_image with the optimized 'students/...' path. The
+        // ?v=<timestamp> cache buster flips on $student->save() when
+        // the worker commits, so the new bytes are picked up on the
+        // next render without any client-side change.
         $url = URL::to('/api/students/'.$this->id.'/profile-image');
         $v = $this->updated_at?->timestamp ?? $this->id;
 
@@ -300,7 +318,10 @@ class Student extends Model implements AuthenticatableContract
     }
 
     /**
-     * Store a data-URL base64 image on the public disk; replaces any previous file.
+     * Decode a `data:image/{type};base64,...` payload and queue the
+     * resize (or run it synchronously when the model has no id yet
+     * or the queue layer rejects the dispatch). Caller contract is
+     * unchanged: bool return, false on any kind of rejection.
      */
     public function saveProfileImageFromBase64(string $imageData): bool
     {
@@ -311,12 +332,17 @@ class Student extends Model implements AuthenticatableContract
         if ($raw === false || $raw === '') {
             return false;
         }
+        if (! $this->profileImageDimensionsAcceptable($raw)) {
+            return false;
+        }
 
-        return $this->storeOptimizedProfileImage($raw);
+        return $this->queueProfileImageResize($raw);
     }
 
     /**
-     * Store a web-uploaded profile photo with server-side optimization (max 500KB).
+     * Persist a multipart-uploaded photo via the queue (or
+     * synchronously for new students / console contexts). Caller
+     * contract is unchanged: bool return, false on rejection.
      */
     public function saveProfileImageFromUpload(UploadedFile $file): bool
     {
@@ -324,8 +350,122 @@ class Student extends Model implements AuthenticatableContract
         if ($raw === false || $raw === '') {
             return false;
         }
+        if (! $this->profileImageDimensionsAcceptable($raw)) {
+            return false;
+        }
+
+        return $this->queueProfileImageResize($raw);
+    }
+
+    /**
+     * Called by the queue worker (ResizeStudentProfileImage) with
+     * the raw bytes pulled from the temp file. Runs the dimension
+     * guard a second time (defence in depth — the upload helpers
+     * are the primary gate) and persists the optimized image via
+     * the existing synchronous storeOptimizedProfileImage()
+     * helper. Returns false if the bytes are rejected; on false
+     * the worker leaves the previous profile_image untouched.
+     */
+    public function saveProfileImageFromRawBytes(string $raw): bool
+    {
+        if (! $this->profileImageDimensionsAcceptable($raw)) {
+            return false;
+        }
 
         return $this->storeOptimizedProfileImage($raw);
+    }
+
+    /**
+     * Read the image's declared dimensions from its header and
+     * reject anything wider/taller than 4 000 px or larger than
+     * 5 MB raw. This is what stops a 6 000 × 6 000 PNG from
+     * allocating 144 MB inside imagecreatefromstring() — the
+     * fix for audit finding H-04.
+     */
+    private function profileImageDimensionsAcceptable(string $raw): bool
+    {
+        if (strlen($raw) > 5 * 1024 * 1024) {
+            return false;
+        }
+
+        $info = @getimagesizefromstring($raw);
+        if ($info === false || ! isset($info[0], $info[1])) {
+            return false;
+        }
+        [$width, $height] = $info;
+        if ($width <= 0 || $height <= 0 || $width > 4000 || $height > 4000) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Stage the raw bytes on the local disk and dispatch the
+     * ResizeStudentProfileImage queue job. On success the model's
+     * profile_image column is set to a sentinel string
+     *   'pending:tmp-profile/<id>-<uuid>'
+     * which:
+     *   - keeps isOnboarded() / missingBasicOnboardingFields() in
+     *     the "image present" state (so newly-onboarded users
+     *     don't get bounced back to the onboarding screen during
+     *     the worker tick window),
+     *   - causes profileImageUrl() to return the same controller
+     *     URL it returns for a settled image,
+     *   - causes StudentImageController::show() to serve the
+     *     transparent placeholder PNG until the worker overwrites
+     *     profile_image with the real 'students/<id>_<uniqid>.<ext>'
+     *     path.
+     *
+     * Falls back to the synchronous storeOptimizedProfileImage()
+     * pipeline when:
+     *   - the model has no id yet (admin imports, console
+     *     commands, model factories), OR
+     *   - any IO failure (temp-file write fails, dispatch fails)
+     *     — we still try to give the caller a working image rather
+     *     than a 500 to the user.
+     */
+    private function queueProfileImageResize(string $raw): bool
+    {
+        if ($this->id === null) {
+            return $this->storeOptimizedProfileImage($raw);
+        }
+
+        $relative = sprintf(
+            'tmp-profile/%d-%s',
+            $this->id,
+            \Illuminate\Support\Str::uuid()->toString(),
+        );
+
+        try {
+            Storage::disk('local')->put($relative, $raw);
+            \App\Jobs\ResizeStudentProfileImage::dispatch($this->id, $relative);
+        } catch (\Throwable $e) {
+            // Best-effort cleanup; the temp file may or may not have
+            // landed depending on which call threw. Either way, we
+            // give the caller a clean false so the controller can
+            // render its existing 422 / redirect-back-with-error
+            // envelope rather than a Laravel 500.
+            try {
+                if (Storage::disk('local')->exists($relative)) {
+                    Storage::disk('local')->delete($relative);
+                }
+            } catch (\Throwable $cleanup) {
+                // ignore — orphan tmp files are pruned by the
+                // Phase 8 cleanup command.
+            }
+            \Illuminate\Support\Facades\Log::warning('queueProfileImageResize: failed to dispatch resize job', [
+                'student_id' => $this->id,
+                'temp' => $relative,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        $this->profile_image = self::PENDING_IMAGE_PREFIX.$relative;
+
+        return true;
     }
 
     private function storeOptimizedProfileImage(string $raw): bool

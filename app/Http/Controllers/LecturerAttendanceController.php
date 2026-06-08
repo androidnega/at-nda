@@ -57,7 +57,9 @@ class LecturerAttendanceController extends Controller
         $attendanceWeeks = $course->attendanceWeeks()->orderBy('week_number')->get();
 
         // Build a present-set per week for fast lookup, then derive the absent
-        // list from the enrolled students that didn't appear.
+        // list from the enrolled students that didn't appear. We fetch the
+        // status too because the online roll-call flow writes status='absent'
+        // rows: only present/late rows should land in the present bucket.
         $weekIds = $attendanceWeeks->pluck('id')->all();
         $marksByWeek = $weekIds === []
             ? collect()
@@ -69,9 +71,10 @@ class LecturerAttendanceController extends Controller
 
         $weeklyAttendees = $attendanceWeeks->map(function (AttendanceWeek $week) use ($marksByWeek, $students): array {
             $marks = $marksByWeek->get((int) $week->id, collect());
-            $presentIds = $marks->pluck('student_id')->unique()->map(fn ($id) => (int) $id);
+            $presentMarks = $marks->filter(fn ($m) => Attendance::countsAsPresent($m->status));
+            $presentIds = $presentMarks->pluck('student_id')->unique()->map(fn ($id) => (int) $id);
             $presentSet = $presentIds->flip();
-            $latestByStudent = $marks->groupBy(fn ($m) => (int) $m->student_id)
+            $latestByStudent = $presentMarks->groupBy(fn ($m) => (int) $m->student_id)
                 ->map(fn ($rows) => $rows->sortByDesc('attendance_time')->first());
 
             $present = $students->filter(fn (Student $s) => $presentSet->has((int) $s->id))
@@ -89,6 +92,7 @@ class LecturerAttendanceController extends Controller
                 'absent' => $absent,
                 'present_count' => $present->count(),
                 'absent_count' => $absent->count(),
+                'present_ids' => $presentSet,
             ];
         });
 
@@ -97,6 +101,7 @@ class LecturerAttendanceController extends Controller
             'attendanceWeeks' => $attendanceWeeks,
             'weeklyAttendees' => $weeklyAttendees,
             'enrolledCount' => $enrolledCount,
+            'enrolledStudents' => $students,
             'dashboardRole' => 'lecturer',
         ]);
     }

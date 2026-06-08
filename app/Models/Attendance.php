@@ -65,6 +65,10 @@ class Attendance extends Model
                     }
                 }
             }
+            if (! \App\Support\SchemaFeatures::hasAttendancesLecturerManualMark()
+                && array_key_exists('marked_manually_by_lecturer_id', $attendance->getAttributes())) {
+                unset($attendance->attributes['marked_manually_by_lecturer_id']);
+            }
         });
     }
 
@@ -119,6 +123,7 @@ class Attendance extends Model
         'marked_manually_by_id',
         'manual_reason',
         'marked_manually_at',
+        'marked_manually_by_lecturer_id',
         'device_fingerprint',
         'client_meta',
     ];
@@ -148,9 +153,23 @@ class Attendance extends Model
         return ! empty($this->marked_manually_by_id);
     }
 
+    /**
+     * True when a lecturer entered this mark via the online-class
+     * roll-call flow.
+     */
+    public function isManuallyMarkedByLecturer(): bool
+    {
+        return ! empty($this->marked_manually_by_lecturer_id);
+    }
+
     public function markedManuallyBy(): BelongsTo
     {
         return $this->belongsTo(Student::class, 'marked_manually_by_id');
+    }
+
+    public function markedManuallyByLecturer(): BelongsTo
+    {
+        return $this->belongsTo(Lecturer::class, 'marked_manually_by_lecturer_id');
     }
 
     public function student(): BelongsTo

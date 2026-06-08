@@ -1735,14 +1735,23 @@ class ClassRepController extends Controller
             ->groupBy(fn ($a) => (int) $a->attendance_week_id);
 
         return collect($weeks)->map(function (AttendanceWeek $week) use ($byWeek, $enrolled): array {
-            $present = $byWeek->get((int) $week->id, collect());
-            $presentCount = $present->pluck('student_id')->unique()->count();
+            $allMarks = $byWeek->get((int) $week->id, collect());
+            // Roll-call writes status='absent' rows so the bulk form can
+            // round-trip them; those rows must NOT appear in the present
+            // list. Filter by Attendance::countsAsPresent (present / late).
+            $present = $allMarks->filter(fn ($a) => Attendance::countsAsPresent($a->status))->values();
+            $presentIds = $present->pluck('student_id')
+                ->unique()
+                ->map(fn ($id) => (int) $id)
+                ->flip();
+            $presentCount = $presentIds->count();
 
             return [
                 'week' => $week,
                 'present' => $present,
                 'present_count' => $presentCount,
                 'absent_count' => max(0, $enrolled - $presentCount),
+                'present_ids' => $presentIds,
             ];
         });
     }
@@ -1986,6 +1995,271 @@ class ClassRepController extends Controller
         ]);
 
         return back()->with('success', 'Marked '.$student->index_number.' as '.$validated['status'].' (manual entry).');
+    }
+
+    /**
+     * Bulk roll-call for an online lecture week. Rep version of
+     * {@see \App\Http\Controllers\LecturerAttendanceWeekController::rollCall}.
+     *
+     * Differences from the lecturer flow:
+     *   - Stamps `marked_manually_by_id` with the rep's student id (the
+     *     existing rep-manual-mark column) instead of the lecturer one.
+     *   - Restricts the mark set to students whose class_id falls inside
+     *     the rep's managed classes; anything outside is silently skipped
+     *     so a tampered form payload can't backdoor a mark for another
+     *     class.
+     *   - Anchors the synthesised "online" attendance_session_id to the
+     *     rep's class when the schema has attendance_sessions.class_id,
+     *     so per-class aggregations stay correct.
+     */
+    public function rollCallAttendance(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $debugId = bin2hex(random_bytes(4));
+        Log::info('[ROLL-CALL-REP] request.received', [
+            'debug_id' => $debugId,
+            'course_id' => (int) $course->id,
+            'week_id' => (int) $attendanceWeek->id,
+            'mark_count' => is_array($request->input('marks')) ? count($request->input('marks')) : 0,
+        ]);
+
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only manage attendance for your class courses.');
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+        if ($attendanceWeek->isCancelled()) {
+            return back()->with('error', 'Clear the cancellation on this week before running a roll-call.');
+        }
+
+        try {
+            $validated = $request->validate([
+                'note' => 'required|string|min:3|max:500',
+                'platform' => 'nullable|string|max:60',
+                'mark_online' => 'nullable|boolean',
+                'marks' => 'required|array|min:1',
+                'marks.*' => 'in:present,late,absent,skip',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('[ROLL-CALL-REP] validation.failed', [
+                'debug_id' => $debugId,
+                'errors' => $e->errors(),
+            ]);
+
+            throw $e;
+        }
+
+        $repClassId = $this->resolveRepClassId($rep, $course);
+        $repClassIds = $this->getRepClassIds($rep)->map(fn ($id) => (int) $id)->all();
+        if ($repClassIds === []) {
+            return back()->with('error', 'Could not resolve your class for this course.');
+        }
+
+        // Only students from the rep's managed class(es) are eligible —
+        // mirrors the per-student manual mark check.
+        $enrolledIds = Student::query()
+            ->whereIn('class_id', $repClassIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $enrolledSet = array_flip($enrolledIds);
+
+        $session = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->where('attendance_week_id', $attendanceWeek->id)
+            ->when(SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
+                $q->where('class_id', $repClassId);
+            })
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $session) {
+            $anchorDate = $attendanceWeek->week_date ?? now();
+            $attrs = [
+                'course_id' => $course->id,
+                'attendance_week_id' => $attendanceWeek->id,
+                'mode' => 'online',
+                'is_active' => false,
+                'venue_id' => $course->venue_id,
+                'start_time' => $anchorDate,
+                'end_time' => $anchorDate,
+                'lecturer_status' => 'in_class',
+            ];
+            if (SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId) {
+                $attrs['class_id'] = (int) $repClassId;
+            }
+            $session = AttendanceSession::create($attrs);
+        }
+
+        $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
+        $platform = $platform === '' ? null : $platform;
+        $reason = $platform !== null
+            ? ('Online ('.$platform.') — '.$validated['note'])
+            : ('Online — '.$validated['note']);
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use (
+            $validated,
+            $enrolledSet,
+            $session,
+            $course,
+            $attendanceWeek,
+            $rep,
+            $reason,
+            $request,
+            &$created,
+            &$updated,
+            &$skipped,
+        ) {
+            foreach ($validated['marks'] as $studentId => $status) {
+                $sid = (int) $studentId;
+                if (! isset($enrolledSet[$sid])) {
+                    $skipped++;
+
+                    continue;
+                }
+                if ($status === 'skip') {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $row = Attendance::query()
+                    ->where('student_id', $sid)
+                    ->where('attendance_session_id', $session->id)
+                    ->first();
+
+                $payload = [
+                    'status' => $status,
+                    'marked_manually_by_id' => (int) $rep->id,
+                    'manual_reason' => mb_substr($reason, 0, 500),
+                    'marked_manually_at' => now(),
+                    'device_ip' => (string) $request->ip(),
+                    'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
+                ];
+
+                if ($row) {
+                    $row->update($payload);
+                    $updated++;
+                } else {
+                    Attendance::create(array_merge($payload, [
+                        'student_id' => $sid,
+                        'course_id' => $course->id,
+                        'attendance_session_id' => $session->id,
+                        'attendance_week_id' => $attendanceWeek->id,
+                        'attendance_time' => now(),
+                        'synced' => true,
+                    ]));
+                    $created++;
+                }
+            }
+        });
+
+        $markOnline = (bool) ($validated['mark_online'] ?? true);
+        if ($markOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
+            $attendanceWeek->update([
+                'is_online' => true,
+                'online_platform' => $platform,
+                'online_note' => mb_substr($validated['note'], 0, 500),
+            ]);
+        }
+
+        AuditLogService::record(AuditLogService::MARK_MANUAL, [
+            'request' => $request,
+            'course_id' => (int) $course->id,
+            'class_id' => $repClassId ? (int) $repClassId : null,
+            'attendance_session_id' => (int) $session->id,
+            'subject_type' => 'attendance_week',
+            'subject_id' => (int) $attendanceWeek->id,
+            'payload' => [
+                'kind' => 'online_roll_call',
+                'created' => $created,
+                'updated' => $updated,
+                'skipped' => $skipped,
+                'platform' => $platform,
+                'note' => $validated['note'],
+                'week_number' => $attendanceWeek->week_number,
+                'marked_online' => $markOnline,
+            ],
+        ]);
+
+        Log::info('[ROLL-CALL-REP] success', [
+            'debug_id' => $debugId,
+            'session_id' => (int) $session->id,
+            'created' => $created,
+            'updated' => $updated,
+            'skipped' => $skipped,
+        ]);
+
+        return back()->with(
+            'success',
+            sprintf(
+                'Online roll-call saved for Week %d · %d added · %d updated · %d skipped.',
+                $attendanceWeek->week_number,
+                $created,
+                $updated,
+                $skipped
+            )
+        );
+    }
+
+    /**
+     * Rep counterpart of {@see \App\Http\Controllers\LecturerAttendanceWeekController::createOnlineWeek}.
+     *
+     * Creates (or reuses) today's attendance week for the course +
+     * the rep's class, flags it `is_online`, and redirects back with
+     * `?focus_week=<id>` so the page auto-expands and opens the
+     * roll-call modal. Lets the rep start an online lecture even when
+     * no live session was ever opened.
+     */
+    public function createOnlineWeek(Request $request, Course $course): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only manage attendance for your class courses.');
+        }
+
+        $validated = $request->validate([
+            'platform' => 'nullable|string|max:60',
+            'note' => 'nullable|string|max:500',
+            'week_number' => 'nullable|integer|min:1|max:500',
+        ]);
+
+        $repClassId = $this->resolveRepClassId($rep, $course);
+        if (! $repClassId) {
+            return back()->with('error', 'Could not resolve your class for this course.');
+        }
+
+        $overrideWeekNumber = isset($validated['week_number']) ? (int) $validated['week_number'] : null;
+        $week = $course->createOrGetAttendanceWeekForToday($repClassId, $overrideWeekNumber);
+
+        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
+            $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
+            $platform = $platform === '' ? null : $platform;
+            $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
+            if ($note === '') {
+                $note = null;
+            }
+            $week->update([
+                'is_online' => true,
+                'online_platform' => $platform ?? $week->online_platform,
+                'online_note' => $note ?? $week->online_note ?? 'Online lecture',
+            ]);
+        }
+
+        return redirect()
+            ->route('dashboard.class-attendance.course', ['course' => $course->id, 'focus_week' => $week->id])
+            ->with('success', 'Week '.$week->week_number.' opened as an online lecture. Tick attendees in the roll-call.');
     }
 
     /**
