@@ -204,9 +204,20 @@ class StudentController extends Controller
                 ->get();
         }
 
+        // Eager-load the relations the per-attendance detail modal needs
+        // so we don't N+1 across 15 rows when the admin opens the page.
+        // markedManuallyBy* lets the modal label "marked manually by rep X"
+        // / "marked by lecturer Y"; attendanceSession surfaces the capture
+        // mode (qr / hybrid / wifi) and the session's geofence anchor.
         $recentAttendanceQuery = $student->attendances()
             ->activeWeeksOnly()
-            ->with(['course', 'attendanceWeek'])
+            ->with([
+                'course',
+                'attendanceWeek',
+                'attendanceSession',
+                'markedManuallyBy:id,first_name,last_name,index_number',
+                'markedManuallyByLecturer:id,name,email',
+            ])
             ->latest('id')
             ->limit(15);
         if ($effectiveCourseIds !== []) {
