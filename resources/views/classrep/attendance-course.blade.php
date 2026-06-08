@@ -68,34 +68,9 @@
     <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">{{ session('error') }}</div>
 @endif
 
-<form method="GET" action="{{ route('dashboard.class-attendance.course', $course) }}" id="attendance-filters-form" class="mb-4 space-y-3">
-    <div class="flex flex-wrap items-end gap-2">
-        <div>
-            <label for="date_from" class="block text-[10px] font-medium text-gray-500 mb-1">From</label>
-            <input type="date" name="date_from" id="date_from" value="{{ request('date_from') }}"
-                class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-primary/30">
-        </div>
-        <div>
-            <label for="date_to" class="block text-[10px] font-medium text-gray-500 mb-1">To</label>
-            <input type="date" name="date_to" id="date_to" value="{{ request('date_to') }}"
-                class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-primary/30">
-        </div>
-        <button type="submit" class="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/90">Apply</button>
-        @if(request()->hasAny(['date_from', 'date_to', 'search']))
-            <a href="{{ route('dashboard.class-attendance.course', $course) }}" class="text-xs text-gray-500 hover:text-gray-700 py-1.5">Clear filters</a>
-        @endif
-    </div>
-    <div class="max-w-md">
-        <label for="attendance-search" class="block text-[10px] font-medium text-gray-500 mb-1">Search index number</label>
-        <div class="relative">
-            <i class="fas fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[11px]"></i>
-            <input type="search" name="search" id="attendance-search" value="{{ request('search') }}"
-                placeholder="Type to filter…"
-                autocomplete="off"
-                class="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-xs focus:ring-2 focus:ring-primary/30 focus:border-primary/40">
-        </div>
-    </div>
-</form>
+{{-- Filter bar (date range + index search) removed by request — the
+     per-week grid below is the canonical view, and the controller still
+     accepts ?date_from / ?date_to / ?search for direct URL filtering. --}}
 
 @if(isset($weeklyAttendees) && $weeklyAttendees->isNotEmpty())
 <div class="mb-4">
@@ -298,6 +273,15 @@
                                         class="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 ml-auto">
                                     <i class="fas fa-ban text-[10px]"></i>
                                     Cancel week
+                                </button>
+                            @endif
+
+                            @if(\App\Models\SystemSetting::repsCanDeleteAttendance() && \Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.delete'))
+                                <button type="button"
+                                        data-week-modal-open="week-delete-{{ $week->id }}"
+                                        class="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-800 hover:bg-rose-50">
+                                    <i class="fas fa-trash text-[10px]"></i>
+                                    Delete week
                                 </button>
                             @endif
                         </div>
@@ -657,6 +641,46 @@
                                             class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                                     <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90">
                                         <i class="fas fa-upload text-[11px]"></i> Upload
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+
+                @if(\App\Models\SystemSetting::repsCanDeleteAttendance() && \Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.delete'))
+                    <div data-week-modal="week-delete-{{ $week->id }}"
+                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                         role="dialog" aria-modal="true" aria-labelledby="week-delete-{{ $week->id }}-title">
+                        <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                                <div>
+                                    <p class="text-[10px] font-bold uppercase tracking-wider text-rose-700">Delete week</p>
+                                    <h3 id="week-delete-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }}</h3>
+                                    <p class="text-[11px] text-gray-600 mt-0.5">
+                                        This permanently removes <strong>{{ $row['present_count'] ?? 0 }}</strong> attendance row{{ ($row['present_count'] ?? 0) === 1 ? '' : 's' }} for this week. The week itself stays so numbering doesn't shift; only the marks inside are wiped. Every deleted row is logged with your reason for audit.
+                                    </p>
+                                </div>
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <form action="{{ route('dashboard.class-attendance.week.delete', [$course, $week]) }}" method="post" class="p-4 space-y-3"
+                                  onsubmit="return confirm('Delete ALL attendance marks for week {{ $week->week_number }}? This cannot be undone.');">
+                                @csrf
+                                @method('DELETE')
+                                <div>
+                                    <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Reason <span class="text-rose-600">*</span></label>
+                                    <input type="text" name="reason" required minlength="3" maxlength="500"
+                                           placeholder="e.g. duplicate week, wrong class, lecturer correction"
+                                           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-rose-200 focus:border-rose-400">
+                                </div>
+                                <div class="flex justify-end gap-2 pt-1">
+                                    <button type="button" data-week-modal-close
+                                            class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Keep marks</button>
+                                    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-800">
+                                        <i class="fas fa-trash text-[11px]"></i> Delete week
                                     </button>
                                 </div>
                             </form>

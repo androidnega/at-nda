@@ -245,6 +245,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/online-week', [ClassRepController::class, 'createOnlineWeek'])->name('class-attendance.online-week.create');
         // Rep deletes a single attendance row (only when super admin has enabled it).
         Route::delete('/class-attendance/{attendance}', [ClassRepController::class, 'deleteAttendance'])->name('class-attendance.delete');
+        // Rep deletes every attendance row in a single teaching week, for one course.
+        // Same super-admin gate as the per-row delete; preserves the week row itself
+        // so week numbering stays stable, only wipes the marks inside.
+        Route::delete('/class-attendance/course/{course}/weeks/{attendanceWeek}', [ClassRepController::class, 'deleteAttendanceWeek'])->name('class-attendance.week.delete');
         // Read-only audit log scoped to courses / classes this rep manages.
         // Audit logs are admin-only (see /dashboard/audit-logs below).
         // Older deploys exposed a rep view here; it has been removed

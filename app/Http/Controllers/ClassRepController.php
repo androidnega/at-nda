@@ -2313,6 +2313,80 @@ class ClassRepController extends Controller
     }
 
     /**
+     * Delete every attendance row recorded in a single teaching week, for
+     * the rep's course. Distinct from cancelAttendanceWeek() (which only
+     * sets cancelled_at and leaves the rows in place for audit / undo).
+     *
+     * Gated by the same super-admin toggle that controls per-row delete
+     * (allow_rep_attendance_deletion). Records ONE WEEK_DELETED audit
+     * event with a snapshot of every deleted row + the rep's reason so a
+     * dispute can be replayed later. The AttendanceWeek row itself is
+     * preserved (so week numbering stays stable); only the marks inside
+     * it are removed.
+     */
+    public function deleteAttendanceWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! SystemSetting::repsCanDeleteAttendance()) {
+            return back()->with('error', 'Attendance deletion is currently disabled by the super admin.');
+        }
+
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403, 'You can only delete attendance for your class courses.');
+        }
+        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|min:3|max:500',
+        ]);
+
+        $marks = Attendance::query()
+            ->where('attendance_week_id', $attendanceWeek->id)
+            ->get(['id', 'student_id', 'course_id', 'attendance_session_id', 'attendance_week_id', 'status', 'attendance_time']);
+
+        $snapshot = $marks->map(fn ($a) => [
+            'attendance_id' => (int) $a->id,
+            'student_id' => (int) $a->student_id,
+            'course_id' => (int) $a->course_id,
+            'session_id' => $a->attendance_session_id ? (int) $a->attendance_session_id : null,
+            'week_id' => $a->attendance_week_id ? (int) $a->attendance_week_id : null,
+            'status' => $a->status,
+            'attendance_time' => $a->attendance_time?->toIso8601String(),
+        ])->values()->all();
+
+        AuditLogService::record(AuditLogService::WEEK_DELETED, [
+            'request' => $request,
+            'course_id' => (int) $course->id,
+            'class_id' => $this->resolveRepClassId($rep, $course),
+            'subject_type' => 'attendance_week',
+            'subject_id' => (int) $attendanceWeek->id,
+            'payload' => [
+                'week_id' => (int) $attendanceWeek->id,
+                'week_number' => (int) $attendanceWeek->week_number,
+                'reason' => $validated['reason'],
+                'deleted_count' => $marks->count(),
+                'deleted_marks' => $snapshot,
+            ],
+        ]);
+
+        $deleted = Attendance::query()
+            ->where('attendance_week_id', $attendanceWeek->id)
+            ->delete();
+
+        return back()->with(
+            'success',
+            'Week '.$attendanceWeek->week_number.' attendance cleared ('
+                .$deleted.' row'.($deleted === 1 ? '' : 's').' deleted and logged).'
+        );
+    }
+
+    /**
      * Download attendance rows for this course as JSON (backup / restore).
      */
     public function exportAttendanceJson(Request $request, Course $course): JsonResponse|RedirectResponse

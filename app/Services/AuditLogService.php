@@ -27,6 +27,7 @@ class AuditLogService
     public const MARK_CREATED = 'mark_created';
     public const MARK_MANUAL = 'mark_manual';
     public const MARK_DELETED = 'mark_deleted';
+    public const WEEK_DELETED = 'week_deleted';
 
     /** Session integrity & fraud. */
     public const FRAUD_DETECTED = 'fraud_detected';
