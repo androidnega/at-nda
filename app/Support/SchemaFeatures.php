@@ -43,6 +43,10 @@ final class SchemaFeatures
 
     private static ?bool $attendancesDeviceFingerprint = null;
 
+    private static ?bool $attendanceWeeksOnlineFlag = null;
+
+    private static ?bool $attendancesLecturerManualMark = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -152,6 +156,22 @@ final class SchemaFeatures
         return self::$attendancesDeviceFingerprint ??= (
             Schema::hasTable('attendances')
             && Schema::hasColumn('attendances', 'device_fingerprint')
+        );
+    }
+
+    public static function hasAttendanceWeeksOnlineFlag(): bool
+    {
+        return self::$attendanceWeeksOnlineFlag ??= (
+            Schema::hasTable('attendance_weeks')
+            && Schema::hasColumn('attendance_weeks', 'is_online')
+        );
+    }
+
+    public static function hasAttendancesLecturerManualMark(): bool
+    {
+        return self::$attendancesLecturerManualMark ??= (
+            Schema::hasTable('attendances')
+            && Schema::hasColumn('attendances', 'marked_manually_by_lecturer_id')
         );
     }
 }

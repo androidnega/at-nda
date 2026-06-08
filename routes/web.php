@@ -179,6 +179,8 @@ Route::post('/lecturer/change-password', [LecturerAuthController::class, 'change
 Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(function () {
     Route::post('courses/{course}/weeks/{attendanceWeek}/cancel', [LecturerAttendanceWeekController::class, 'cancel'])->name('courses.week.cancel');
     Route::post('courses/{course}/weeks/{attendanceWeek}/uncancel', [LecturerAttendanceWeekController::class, 'uncancel'])->name('courses.week.uncancel');
+    // Bulk roll-call entry for an online lecture week (no GPS / no QR).
+    Route::post('courses/{course}/weeks/{attendanceWeek}/roll-call', [LecturerAttendanceWeekController::class, 'rollCall'])->name('courses.week.roll-call');
 });
 
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
