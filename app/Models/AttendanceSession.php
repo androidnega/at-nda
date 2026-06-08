@@ -35,6 +35,7 @@ class AttendanceSession extends Model
         'allowed_wifi_ssid',
         'lecturer_status',
         'session_code',
+        'online_submode',
     ];
 
 

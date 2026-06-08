@@ -125,6 +125,15 @@ Route::middleware(['student.attendance', 'student.session.integrity', 'no-store'
     Route::post('mark', [AttendanceController::class, 'mark'])->name('mark');
     Route::post('sync', [AttendanceController::class, 'sync'])->name('sync');
     Route::get('direct/{course}', [AttendanceController::class, 'directEntry'])->name('direct');
+
+    // Online-session entry points: separate from the in-person flow above.
+    // The student lands on /web/attendance/{course}/online when their course
+    // has an active online session; they pick QR-screenshot upload OR
+    // type the manual code, both validated server-side.
+    Route::get('{course}/online', [\App\Http\Controllers\OnlineAttendanceController::class, 'show'])->name('online.show');
+    Route::post('{course}/online/qr', [\App\Http\Controllers\OnlineAttendanceController::class, 'submitQr'])->name('online.qr');
+    Route::post('{course}/online/code', [\App\Http\Controllers\OnlineAttendanceController::class, 'submitCode'])->name('online.code');
+
     Route::get('{course}/success', [AttendanceController::class, 'success'])->name('success');
     Route::get('{course}', [AttendanceController::class, 'form'])->name('form');
 });

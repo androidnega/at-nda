@@ -845,7 +845,11 @@ class ClassRepController extends Controller
 
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
-            'mode' => 'nullable|in:location,qr,hybrid,wifi',
+            // 'online' is a parallel channel: no GPS, no QR scan, no Wi-Fi
+            // anchor, no venue. Always allowed regardless of the institution-
+            // wide instant-mode lock so reps can run a make-up online lecture
+            // even on a campus that's standardised on Wi-Fi or GPS.
+            'mode' => 'nullable|in:location,qr,hybrid,wifi,online',
             'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
             'location_lat' => 'nullable|numeric',
@@ -854,8 +858,20 @@ class ClassRepController extends Controller
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
             'week_number' => 'nullable|integer|min:1|max:500',
             'venue_id' => 'nullable|integer|exists:venues,id',
+            // Online-only sub-mode: 'qr' = student uploads a QR screenshot,
+            // 'code' = student types the session_code, 'both' = either works.
+            'online_submode' => 'nullable|in:qr,code,both',
+            'online_platform' => 'nullable|string|max:60',
+            'online_note' => 'nullable|string|max:500',
         ]);
-        $validated['mode'] = $forcedMode;
+        // The rep-submitted mode wins only when it's 'online'; every other
+        // value is overridden by the admin-forced mode so reps can't bypass
+        // the institution's chosen in-person mechanism.
+        $isOnline = (($validated['mode'] ?? null) === 'online');
+        $validated['mode'] = $isOnline ? 'online' : $forcedMode;
+        // Default sub-mode is 'both' so a rep who didn't pick one still
+        // gets the maximally permissive online flow.
+        $onlineSubmode = $isOnline ? ($validated['online_submode'] ?? 'both') : null;
 
         $course = Course::findOrFail($validated['course_id']);
         if (! $this->repCanAccessCourse($student, $course)) {
@@ -878,9 +894,18 @@ class ClassRepController extends Controller
         $week = $course->createOrGetAttendanceWeekForToday($repClassId, $overrideWeekNumber);
 
         $duration = (int) ($validated['duration_minutes'] ?? 60);
-        $expectedEnd = $course->computeSessionExpiresAt($duration, $repClassId);
+        // Online sessions cap at 120 min — they're meant to be tight roll-call
+        // windows, not all-day standing sessions. In-person sessions keep
+        // the full 480 max for marathon labs / continuous-assessment days.
+        if ($isOnline && $duration > 120) {
+            $duration = 120;
+        }
+        $expectedEnd = $isOnline
+            ? now()->copy()->addMinutes($duration)
+            : $course->computeSessionExpiresAt($duration, $repClassId);
         $expiresAt = $expectedEnd->copy();
-        $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
+        // Online sessions are anchor-less: no GPS, no Wi-Fi SSID, no venue.
+        $needsAnchor = ! $isOnline && in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
         $lat = $validated['location_lat'] ?? null;
@@ -912,12 +937,15 @@ class ClassRepController extends Controller
             (int) $week->id,
             [
                 'mode' => $validated['mode'],
+                'online_submode' => $onlineSubmode,
                 'attendance_mode' => $attendanceMode,
                 'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
                 'checkout_enabled' => false,
                 'session_token' => Str::random(32),
                 'lecturer_id' => $sessionLecturerId,
-                'venue_id' => $sessionVenueId,
+                // Anchor-less for online: drop the venue too, otherwise the
+                // rep dashboard still labels the session with a physical room.
+                'venue_id' => $isOnline ? null : $sessionVenueId,
                 'start_time' => now(),
                 'end_time' => $expiresAt,
                 'expected_end_time' => $expectedEnd,
@@ -928,6 +956,20 @@ class ClassRepController extends Controller
                 'attendance_range_m' => $needsAnchor ? $range : null,
             ]
         );
+
+        // For an online session, mirror createOnlineWeek's behaviour: flag
+        // the week as online + record the platform/note so the week badge
+        // and reports can derive "this was an online lecture" without
+        // looking at every session row.
+        if ($isOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
+            $platform = isset($validated['online_platform']) ? trim((string) $validated['online_platform']) : '';
+            $note = isset($validated['online_note']) ? trim((string) $validated['online_note']) : '';
+            $week->update([
+                'is_online' => true,
+                'online_platform' => $platform !== '' ? $platform : ($week->online_platform ?: null),
+                'online_note' => $note !== '' ? $note : ($week->online_note ?: 'Online lecture'),
+            ]);
+        }
 
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 

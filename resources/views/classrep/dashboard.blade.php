@@ -94,19 +94,77 @@
                                     ? 'Location (GPS)'
                                     : ($forcedMode === 'wifi' ? 'Wi‑Fi (same network)' : 'Hybrid (GPS + QR)');
                             @endphp
-                            <select name="mode" id="session-mode" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" disabled>
-                                <option value="{{ $forcedMode }}" selected>{{ $forcedModeLabel }}</option>
+                            <select id="session-mode-display" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" disabled>
+                                <option value="{{ $forcedMode }}" selected data-display="inperson">{{ $forcedModeLabel }}</option>
+                                <option value="online" data-display="online">Online lecture (no GPS / QR / Wi‑Fi)</option>
                             </select>
                             <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
                         </div>
-                        <input type="hidden" name="mode" value="{{ $forcedMode }}">
-                        <p class="text-[11px] text-slate-400 mt-1">
+                        {{-- The actual mode submitted to the server. Stays
+                             as the forced in-person mode until the rep
+                             ticks the "online" checkbox below; then we
+                             flip it to 'online' (and the visible select
+                             above mirrors the change). --}}
+                        <input type="hidden" name="mode" id="session-mode-input" value="{{ $forcedMode }}">
+                        <label for="session-online-toggle" class="mt-2 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 px-2.5 py-2 cursor-pointer hover:bg-slate-50">
+                            <input type="checkbox" id="session-online-toggle" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30">
+                            <span class="flex-1">
+                                <span class="block text-[12.5px] font-semibold text-slate-800">This is an online lecture</span>
+                                <span class="block text-[10.5px] text-slate-500 leading-snug">Skips GPS / QR scan / Wi‑Fi. Students mark themselves with the QR or session code shown on the active-session card.</span>
+                            </span>
+                        </label>
+                        <p class="text-[11px] text-slate-400 mt-1" id="session-mode-hint">
                             @if($attendanceMode === 'checkin_checkout')
                                 Check-in / Check-out is active: this is location-only.
                             @else
                                 Instant mode is locked by admin settings.
                             @endif
                         </p>
+
+                        {{-- Online-only sub-mode picker. Hidden until the
+                             rep ticks the online toggle above; inputs are
+                             disabled while hidden so they don't post
+                             alongside an in-person session. --}}
+                        <div class="hidden mt-3 border border-indigo-200 rounded-lg p-3 space-y-3 bg-indigo-50/40" id="session-online-section" aria-hidden="true">
+                            <div class="space-y-1.5">
+                                <span class="{{ $labelBase }}">How students mark in</span>
+                                <div class="grid grid-cols-3 gap-2 text-center text-[11px] font-semibold">
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="online_submode" value="both" class="peer sr-only" disabled checked>
+                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
+                                            <i class="fas fa-shuffle text-[11px] block mb-0.5"></i> Either
+                                        </span>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="online_submode" value="qr" class="peer sr-only" disabled>
+                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
+                                            <i class="fas fa-qrcode text-[11px] block mb-0.5"></i> QR only
+                                        </span>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="online_submode" value="code" class="peer sr-only" disabled>
+                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
+                                            <i class="fas fa-keyboard text-[11px] block mb-0.5"></i> Code only
+                                        </span>
+                                    </label>
+                                </div>
+                                <p class="text-[10.5px] text-slate-500 mt-1">"Either" gives students both options. Use "Code only" when phone cameras can't read the QR; "QR only" discourages code‑sharing in chat.</p>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div class="space-y-1.5">
+                                    <label for="online_platform" class="{{ $labelBase }}">Platform <span class="text-slate-400 font-normal">(optional)</span></label>
+                                    <input type="text" name="online_platform" id="online_platform" maxlength="60" value="{{ old('online_platform') }}" placeholder="Zoom, Meet, Teams…"
+                                        disabled
+                                        class="{{ $fieldBase }}">
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label for="online_note" class="{{ $labelBase }}">Note <span class="text-slate-400 font-normal">(optional)</span></label>
+                                    <input type="text" name="online_note" id="online_note" maxlength="500" value="{{ old('online_note') }}" placeholder="e.g. Make‑up class — Topic 4"
+                                        disabled
+                                        class="{{ $fieldBase }}">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="space-y-1.5">
                         <label for="duration_minutes" class="{{ $labelBase }}">Duration</label>
@@ -300,6 +358,57 @@
                                     <p class="text-[10px] text-slate-500 mt-2">Until {{ $activeSession->expires_at->format('g:i A') }}</p>
                                 @endif
                             </div>
+
+                            {{-- Online-session helper panel: shows the session
+                                 code (always typeable) and a download link
+                                 for the QR PNG, plus the student URL the rep
+                                 can paste into Zoom chat. Only renders when
+                                 mode='online'; in-person sessions get the
+                                 inline QR / Form buttons further down. --}}
+                            @if($activeSession->mode === 'online')
+                                @php
+                                    $allowQr = in_array($activeSession->online_submode ?? 'both', ['qr', 'both', null], true);
+                                    $allowCode = in_array($activeSession->online_submode ?? 'both', ['code', 'both', null], true);
+                                    $studentUrl = route('web.attendance.online.show', ['course' => $course->id]);
+                                @endphp
+                                <div class="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 mb-3 space-y-2">
+                                    <p class="text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Online lecture — share with students</p>
+                                    @if($allowCode && $activeSession->session_code)
+                                        <div class="flex items-stretch gap-2">
+                                            <input type="text" readonly value="{{ $activeSession->session_code }}"
+                                                   class="flex-1 min-w-0 text-center font-mono font-bold text-sm tabular-nums tracking-wider rounded-md border border-indigo-200 bg-white px-2 py-2 text-slate-900"
+                                                   data-online-code>
+                                            <button type="button" class="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
+                                                    data-online-copy="{{ $activeSession->session_code }}">
+                                                <i class="fas fa-copy text-[10px]"></i> Copy
+                                            </button>
+                                        </div>
+                                    @endif
+                                    <div class="flex flex-wrap gap-2">
+                                        @if($allowQr && \Illuminate\Support\Facades\Route::has('dashboard.live-sessions.qr'))
+                                            <a href="{{ route('dashboard.live-sessions.qr', $activeSession) }}" target="_blank" rel="noopener"
+                                               class="flex-1 inline-flex justify-center items-center gap-1.5 rounded-md bg-indigo-700 px-3 py-2 text-[11px] font-semibold text-white hover:bg-indigo-800">
+                                                <i class="fas fa-qrcode text-[10px]"></i> Download QR
+                                            </a>
+                                        @endif
+                                        <button type="button" class="flex-1 inline-flex justify-center items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3 py-2 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
+                                                data-online-share-url="{{ $studentUrl }}">
+                                            <i class="fas fa-link text-[10px]"></i> Copy student link
+                                        </button>
+                                    </div>
+                                    <p class="text-[10.5px] text-slate-600 leading-snug">
+                                        Students open <span class="font-mono">{{ $studentUrl }}</span>
+                                        @if($allowQr && $allowCode)
+                                            and either upload the QR screenshot OR type the code above.
+                                        @elseif($allowQr)
+                                            and upload a screenshot of the QR.
+                                        @else
+                                            and type the code above.
+                                        @endif
+                                    </p>
+                                </div>
+                            @endif
+
                             <div class="flex flex-wrap gap-2">
                                 @if(in_array($activeSession->mode, ['qr', 'hybrid']))
                                     <a href="{{ route('dashboard.live-sessions.qr', $activeSession) }}" target="_blank" class="flex-1 min-w-[4rem] inline-flex justify-center items-center gap-1.5 px-3 py-2 rounded-md text-[11px] font-semibold bg-primary text-white hover:bg-primary/90">
@@ -447,7 +556,15 @@
 (function() {
     var form = document.getElementById('open-session-form');
     var btn = document.getElementById('open-session-btn');
-    var modeSelect = document.getElementById('session-mode');
+    // Source of truth for the submitted mode is the hidden input. The
+    // visible <select> is purely cosmetic (#session-mode-display) and
+    // mirrors the online checkbox.
+    var modeSelect = document.getElementById('session-mode-input');
+    var modeDisplay = document.getElementById('session-mode-display');
+    var onlineToggle = document.getElementById('session-online-toggle');
+    var onlineSection = document.getElementById('session-online-section');
+    var onlineFields = onlineSection ? onlineSection.querySelectorAll('input, select, textarea') : [];
+    var inPersonForcedMode = modeSelect ? modeSelect.value : 'hybrid';
     var locationSection = document.getElementById('session-location-section');
     var rangeInput = document.getElementById('attendance_range_m');
     var courseSelect = document.getElementById('course_id');
@@ -1090,6 +1207,54 @@
         syncModeUi();
     }
 
+    /* Online-toggle wiring: when the rep ticks "This is an online lecture",
+       flip the hidden mode to 'online', mirror the visible select, reveal
+       the online sub-section and enable its inputs (so they actually post),
+       and hide all the in-person anchor sections. Untick to revert. */
+    function applyOnlineToggle(state) {
+        if (!modeSelect || !onlineToggle) return;
+        if (state) {
+            modeSelect.value = 'online';
+            if (modeDisplay) {
+                Array.from(modeDisplay.options).forEach(o => o.selected = (o.value === 'online'));
+            }
+            if (onlineSection) {
+                onlineSection.classList.remove('hidden');
+                onlineSection.setAttribute('aria-hidden', 'false');
+            }
+            onlineFields.forEach(el => el.removeAttribute('disabled'));
+            // Hide in-person sections.
+            if (locationSection) {
+                locationSection.classList.add('hidden');
+                locationSection.setAttribute('aria-hidden', 'true');
+            }
+            if (wifiSection) {
+                wifiSection.classList.add('hidden');
+                wifiSection.setAttribute('aria-hidden', 'true');
+            }
+            if (rangeInput) rangeInput.removeAttribute('required');
+            if (wifiSsidInput) wifiSsidInput.removeAttribute('required');
+            if (latHidden) latHidden.value = '';
+            if (lngHidden) lngHidden.value = '';
+        } else {
+            modeSelect.value = inPersonForcedMode;
+            if (modeDisplay) {
+                Array.from(modeDisplay.options).forEach(o => o.selected = (o.value === inPersonForcedMode));
+            }
+            if (onlineSection) {
+                onlineSection.classList.add('hidden');
+                onlineSection.setAttribute('aria-hidden', 'true');
+            }
+            onlineFields.forEach(el => el.setAttribute('disabled', 'disabled'));
+            syncModeUi();
+        }
+    }
+    if (onlineToggle) {
+        onlineToggle.addEventListener('change', function () {
+            applyOnlineToggle(onlineToggle.checked);
+        });
+    }
+
     if (form && btn) {
         form.addEventListener('submit', function(e) {
             clearLocationError();
@@ -1140,5 +1305,41 @@
 </script>
 @endif
 @include('partials.session-countdown-script')
+
+{{-- Online-session helper buttons: "Copy" the session code or the student
+     link. Lives outside the in-person script block so it works even when
+     this rep can't open sessions (e.g. only viewing other reps' cards). --}}
+<script>
+(function () {
+    function copyText(text, btn) {
+        var fallback = function () {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(fallback);
+        } else {
+            fallback();
+        }
+        if (btn) {
+            var orig = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check text-[10px]"></i> Copied';
+            setTimeout(function () { btn.innerHTML = orig; }, 1400);
+        }
+    }
+    document.querySelectorAll('[data-online-copy]').forEach(function (btn) {
+        btn.addEventListener('click', function () { copyText(btn.getAttribute('data-online-copy') || '', btn); });
+    });
+    document.querySelectorAll('[data-online-share-url]').forEach(function (btn) {
+        btn.addEventListener('click', function () { copyText(btn.getAttribute('data-online-share-url') || '', btn); });
+    });
+})();
+</script>
 
 @endsection
