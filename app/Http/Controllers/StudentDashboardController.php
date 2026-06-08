@@ -732,8 +732,12 @@ class StudentDashboardController extends Controller
         }
 
         $profileLayout = $student->isRep() ? 'classrep' : 'student';
+        // Same gate as in profileUpdate(): only reps can edit legal name +
+        // faculty + department from the self-service profile page. Regular
+        // students see those fields as read-only.
+        $canEditIdentity = $student->isRep();
 
-        return view('student.profile', compact('student', 'faculties', 'prefillFacultyId', 'prefillDepartmentId', 'profileLayout'));
+        return view('student.profile', compact('student', 'faculties', 'prefillFacultyId', 'prefillDepartmentId', 'profileLayout', 'canEditIdentity'));
     }
 
     public function onboardingForm(Request $request): View|RedirectResponse
@@ -1051,25 +1055,43 @@ class StudentDashboardController extends Controller
         $settings = SystemSetting::get();
         $requirePhoto = $settings->require_profile_image_on_onboarding ?? true;
 
+        // Identity (legal name + faculty + department) is intentionally
+        // read-only for regular students on the self-service profile page —
+        // those values come from the admin-managed roster import and must
+        // not be re-writeable by the student. Class reps keep full edit
+        // rights because they often need to correct typos in their own
+        // entry and in the entries of students they manage.
+        //
+        // First-time onboarding still goes through a separate flow
+        // (onboardingStore) where students MUST set their name, so this
+        // lock only applies to the post-onboarding profile-edit page.
+        $canEditIdentity = $student->isRep();
+
         $rules = [
-            'first_name' => 'required|string|max:255',
-            'middle_name' => 'nullable|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'faculty_id' => 'required|exists:faculties,id',
-            'department_id' => 'required|exists:departments,id',
             'phone_number' => 'nullable|string|max:30',
             'profile_photo' => ($requirePhoto && ! $student->profile_image)
                 ? ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
                 : ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ];
+        if ($canEditIdentity) {
+            $rules += [
+                'first_name' => 'required|string|max:255',
+                'middle_name' => 'nullable|string|max:255',
+                'last_name' => 'required|string|max:255',
+                'faculty_id' => 'required|exists:faculties,id',
+                'department_id' => 'required|exists:departments,id',
+            ];
+        }
         if (SchemaFeatures::hasStudentsEmail()) {
             $rules['email'] = 'nullable|email|max:255';
         }
         $validated = $request->validate($rules);
 
-        $department = Department::find($validated['department_id']);
-        if ($department && $department->faculty_id != $validated['faculty_id']) {
-            return redirect()->back()->with('error', 'That department doesn’t match the faculty you selected.');
+        if ($canEditIdentity) {
+            $department = Department::find($validated['department_id']);
+            if ($department && $department->faculty_id != $validated['faculty_id']) {
+                return redirect()->back()->with('error', 'That department doesn’t match the faculty you selected.');
+            }
         }
 
         if ($request->hasFile('profile_photo')) {
@@ -1082,18 +1104,23 @@ class StudentDashboardController extends Controller
             $student->phone_number = preg_replace('/[^0-9+]/', '', $validated['phone_number']);
         }
 
-        $middle = $validated['middle_name'] ?? null;
-        $payload = [
-            'first_name' => $validated['first_name'],
-            'middle_name' => ($middle !== null && trim((string) $middle) !== '') ? trim((string) $middle) : null,
-            'last_name' => $validated['last_name'],
-            'department_id' => $validated['department_id'],
-        ];
+        $payload = [];
+        if ($canEditIdentity) {
+            $middle = $validated['middle_name'] ?? null;
+            $payload += [
+                'first_name' => $validated['first_name'],
+                'middle_name' => ($middle !== null && trim((string) $middle) !== '') ? trim((string) $middle) : null,
+                'last_name' => $validated['last_name'],
+                'department_id' => $validated['department_id'],
+            ];
+        }
         if (SchemaFeatures::hasStudentsEmail() && array_key_exists('email', $validated)) {
             $email = $validated['email'] !== null ? trim((string) $validated['email']) : '';
             $payload['email'] = $email !== '' ? mb_strtolower($email) : null;
         }
-        $student->fill($payload);
+        if ($payload !== []) {
+            $student->fill($payload);
+        }
         $student->save();
 
         return redirect()->route('dashboard.dashboard')->with('success', 'Profile updated');

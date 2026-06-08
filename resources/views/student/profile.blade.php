@@ -52,7 +52,13 @@
 
     <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 sm:p-7">
         <h1 class="text-xl font-bold text-slate-900 dark:text-slate-100">{{ $student->hasCompletedProfile() ? 'Your profile' : 'Complete your profile' }}</h1>
-        <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Name, department, phone and photo stay in sync with the mobile app.</p>
+        <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            @if($canEditIdentity ?? false)
+                Name, department, phone and photo stay in sync with the mobile app.
+            @else
+                Update your phone and photo here. Name + faculty + department are admin-managed — ask your rep to fix any typos.
+            @endif
+        </p>
 
         @if (session('error'))
             <div class="mt-4 p-4 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 rounded-xl text-sm border border-red-100 dark:border-red-900/50">{{ session('error') }}</div>
@@ -62,26 +68,81 @@
             <div class="mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 rounded-xl text-sm border border-emerald-100 dark:border-emerald-900/50">{{ session('success') }}</div>
         @endif
 
+        @php
+            // Identity (legal name + faculty + dept) is admin-managed for
+            // regular students; only class reps can edit those from this
+            // page. The controller enforces the same gate server-side so
+            // a tampered POST is harmless.
+            $canEditIdentity = $canEditIdentity ?? false;
+            $deptFacultyName = $student->department?->faculty?->name
+                ?? $student->schoolClass?->faculty?->name
+                ?? '—';
+            $deptName = $student->department?->name
+                ?? $student->schoolClass?->department?->name
+                ?? '—';
+        @endphp
         <form method="POST" action="{{ route('student.profile.update') }}" enctype="multipart/form-data" class="mt-6 space-y-4">
             @csrf
-            <div>
-                <label for="first_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">First Name</label>
-                <input type="text" id="first_name" name="first_name" value="{{ old('first_name', $student->first_name) }}" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('first_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="middle_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Middle name <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
-                <input type="text" id="middle_name" name="middle_name" value="{{ old('middle_name', $student->middle_name) }}" autocomplete="additional-name"
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('middle_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="last_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Last Name</label>
-                <input type="text" id="last_name" name="last_name" value="{{ old('last_name', $student->last_name) }}" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('last_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
+
+            @unless($canEditIdentity)
+                {{-- Locked identity card: shown to regular students. Renders
+                     the immutable values inline so the page still feels like
+                     a profile, and explains why they can't be edited here. --}}
+                <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-4">
+                    <div class="flex items-start gap-2">
+                        <i class="fas fa-lock text-slate-400 dark:text-slate-500 mt-0.5"></i>
+                        <div class="min-w-0">
+                            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name &amp; programme</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Locked — managed by your class rep / admin. If anything is wrong, please ask them to correct it.</p>
+                        </div>
+                    </div>
+                    <dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">First name</dt>
+                            <dd class="text-slate-900 dark:text-slate-100 font-medium">{{ $student->first_name ?: '—' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Middle name</dt>
+                            <dd class="text-slate-900 dark:text-slate-100 font-medium">{{ $student->middle_name ?: '—' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Last name</dt>
+                            <dd class="text-slate-900 dark:text-slate-100 font-medium">{{ $student->last_name ?: '—' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Index</dt>
+                            <dd class="text-slate-900 dark:text-slate-100 font-mono">{{ $student->index_number }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Faculty</dt>
+                            <dd class="text-slate-900 dark:text-slate-100">{{ $deptFacultyName }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Department</dt>
+                            <dd class="text-slate-900 dark:text-slate-100">{{ $deptName }}</dd>
+                        </div>
+                    </dl>
+                </div>
+            @else
+                <div>
+                    <label for="first_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">First Name</label>
+                    <input type="text" id="first_name" name="first_name" value="{{ old('first_name', $student->first_name) }}" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('first_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="middle_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Middle name <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
+                    <input type="text" id="middle_name" name="middle_name" value="{{ old('middle_name', $student->middle_name) }}" autocomplete="additional-name"
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('middle_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="last_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Last Name</label>
+                    <input type="text" id="last_name" name="last_name" value="{{ old('last_name', $student->last_name) }}" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('last_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+            @endunless
             <div>
                 <label for="phone_number" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Phone <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
                 <input type="text" id="phone_number" name="phone_number" value="{{ old('phone_number', $student->phone_number) }}" inputmode="tel" autocomplete="tel"
@@ -107,25 +168,27 @@
                 'label' => $student->profile_image ? 'Update profile photo' : 'Profile photo',
             ])
             @error('profile_photo')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            <div>
-                <label for="faculty_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Faculty</label>
-                <select id="faculty_id" name="faculty_id" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                    <option value="">Select faculty...</option>
-                    @foreach($faculties as $f)
-                    <option value="{{ $f->id }}" {{ (old('faculty_id') ?? $prefillFacultyId ?? '') == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
-                    @endforeach
-                </select>
-                @error('faculty_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="department_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Department</label>
-                <select id="department_id" name="department_id" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                    <option value="">Select faculty first...</option>
-                </select>
-                @error('department_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
+            @if($canEditIdentity)
+                <div>
+                    <label for="faculty_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Faculty</label>
+                    <select id="faculty_id" name="faculty_id" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                        <option value="">Select faculty...</option>
+                        @foreach($faculties as $f)
+                        <option value="{{ $f->id }}" {{ (old('faculty_id') ?? $prefillFacultyId ?? '') == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('faculty_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="department_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Department</label>
+                    <select id="department_id" name="department_id" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                        <option value="">Select faculty first...</option>
+                    </select>
+                    @error('department_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+            @endif
             <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-400 text-white py-3 rounded-xl font-semibold transition-colors shadow-sm">
                 Save changes
             </button>
@@ -137,8 +200,12 @@
 @push('scripts')
 <script>
 (function() {
+    // Regular students don't see faculty / department selects (locked
+    // identity card replaces them). Bail early so we don't throw on a
+    // null facultySelect.
     const facultySelect = document.getElementById('faculty_id');
     const deptSelect = document.getElementById('department_id');
+    if (!facultySelect || !deptSelect) return;
     const faculties = @json($faculties);
     const oldDept = '{{ old("department_id") ?? $prefillDepartmentId ?? "" }}';
 
