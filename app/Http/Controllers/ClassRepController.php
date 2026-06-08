@@ -2375,14 +2375,25 @@ class ClassRepController extends Controller
             ],
         ]);
 
-        $deleted = Attendance::query()
-            ->where('attendance_week_id', $attendanceWeek->id)
-            ->delete();
+        $weekId = (int) $attendanceWeek->id;
+        $weekNumber = (int) $attendanceWeek->week_number;
+        $deleted = DB::transaction(function () use ($weekId) {
+            $cnt = Attendance::query()
+                ->where('attendance_week_id', $weekId)
+                ->delete();
+            AttendanceSession::query()
+                ->where('attendance_week_id', $weekId)
+                ->delete();
+            AttendanceWeek::query()
+                ->where('id', $weekId)
+                ->delete();
+
+            return $cnt;
+        });
 
         return back()->with(
             'success',
-            'Week '.$attendanceWeek->week_number.' attendance cleared ('
-                .$deleted.' row'.($deleted === 1 ? '' : 's').' deleted and logged).'
+            'Week '.$weekNumber.' deleted — '.$deleted.' attendance row'.($deleted === 1 ? '' : 's').' removed. The week card has been cleared from this course.'
         );
     }
 

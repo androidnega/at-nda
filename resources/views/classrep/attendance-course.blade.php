@@ -33,15 +33,55 @@
         </div>
         <div class="flex flex-wrap items-center gap-2">
             @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.online-week.create'))
-                <form action="{{ route('dashboard.class-attendance.online-week.create', $course) }}" method="post" class="contents"
-                      onsubmit="return confirm('Open a new online lecture week for this course?');">
-                    @csrf
-                    <button type="submit"
-                            class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-800">
-                        <i class="fas fa-globe"></i>
-                        Start online lecture
-                    </button>
-                </form>
+                <button type="button" data-week-modal-open="online-lecture-create"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-800">
+                    <i class="fas fa-globe"></i>
+                    Start online lecture
+                </button>
+                <div data-week-modal="online-lecture-create"
+                     class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+                     role="dialog" aria-modal="true" aria-labelledby="online-lecture-create-title">
+                    <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+                        <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+                            <div>
+                                <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Online lecture</p>
+                                <h3 id="online-lecture-create-title" class="text-base font-bold text-gray-900">Start an online lecture</h3>
+                                <p class="text-[11px] text-gray-500 mt-0.5">Pick the week this lecture belongs to. Nothing is marked for students yet — you'll do roll-call after.</p>
+                            </div>
+                            <button type="button" data-week-modal-close
+                                    class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                                <i class="fas fa-xmark"></i>
+                            </button>
+                        </div>
+                        <form action="{{ route('dashboard.class-attendance.online-week.create', $course) }}" method="post" class="p-4 space-y-3">
+                            @csrf
+                            <div>
+                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Week number <span class="text-rose-600">*</span></label>
+                                <input type="number" name="week_number" min="1" max="500" required
+                                       value="{{ ($attendanceWeeks ?? collect())->max('week_number') ? ($attendanceWeeks->max('week_number') + 1) : 1 }}"
+                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                                <p class="text-[10.5px] text-gray-500 mt-1">Existing weeks for this course: {{ ($attendanceWeeks ?? collect())->pluck('week_number')->sort()->values()->join(', ') ?: 'none yet' }}.</p>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Platform</label>
+                                <input type="text" name="platform" maxlength="60" placeholder="e.g. Zoom, Google Meet, MS Teams"
+                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Note (optional)</label>
+                                <input type="text" name="note" maxlength="500" placeholder="e.g. Lecture on rotational dynamics"
+                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
+                            </div>
+                            <div class="flex justify-end gap-2 pt-1">
+                                <button type="button" data-week-modal-close
+                                        class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                                <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
+                                    <i class="fas fa-globe text-[11px]"></i> Open week
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             @endif
             @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.pdf'))
                 <a href="{{ route('dashboard.class-attendance.course.pdf', $course) }}" target="_blank" rel="noopener"
@@ -533,7 +573,7 @@
                                         @php
                                             $sid = (int) $cm->id;
                                             $isPresent = $presentSet->has($sid);
-                                            $current = $isPresent ? 'present' : 'absent';
+                                            $current = $isPresent ? 'present' : 'skip';
                                             $displayName = trim(($cm->last_name ?? '').' '.($cm->first_name ?? ''));
                                             $searchKey = strtolower(($cm->index_number ?? '').' '.$displayName);
                                         @endphp
@@ -546,7 +586,12 @@
                                                 <span class="ml-1 text-gray-700">{{ $displayName }}</span>
                                             </span>
                                             <span class="inline-flex shrink-0 rounded-md border border-gray-200 overflow-hidden text-[10px] font-semibold">
-                                                <label class="px-2 py-0.5 cursor-pointer {{ $current === 'present' ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-800 hover:bg-emerald-50' }}">
+                                                <label class="px-2 py-0.5 cursor-pointer {{ $current === 'skip' ? 'bg-gray-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100' }}" title="Not marked yet">
+                                                    <input type="radio" name="marks[{{ $sid }}]" value="skip" class="sr-only" data-rollcall-radio
+                                                           {{ $current === 'skip' ? 'checked' : '' }}>
+                                                    —
+                                                </label>
+                                                <label class="px-2 py-0.5 cursor-pointer border-l border-gray-200 {{ $current === 'present' ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-800 hover:bg-emerald-50' }}">
                                                     <input type="radio" name="marks[{{ $sid }}]" value="present" class="sr-only" data-rollcall-radio
                                                            {{ $current === 'present' ? 'checked' : '' }}>
                                                     P
@@ -1311,6 +1356,7 @@ document.querySelectorAll('[data-rollcall-form]').forEach(function (form) {
         present: { on: 'bg-emerald-600 text-white', off: 'bg-white text-emerald-800 hover:bg-emerald-50' },
         late:    { on: 'bg-amber-500 text-white',   off: 'bg-white text-amber-800 hover:bg-amber-50' },
         absent:  { on: 'bg-rose-600 text-white',    off: 'bg-white text-rose-800 hover:bg-rose-50' },
+        skip:    { on: 'bg-gray-500 text-white',    off: 'bg-white text-gray-600 hover:bg-gray-100' },
     };
 
     function repaintRow(row) {
@@ -1329,14 +1375,14 @@ document.querySelectorAll('[data-rollcall-form]').forEach(function (form) {
     }
 
     function refreshSummary() {
-        const counts = { present: 0, late: 0, absent: 0 };
+        const counts = { present: 0, late: 0, absent: 0, skip: 0 };
         rows.forEach(function (row) {
             const checked = row.querySelector('[data-rollcall-radio]:checked');
             if (!checked) return;
             counts[checked.value] = (counts[checked.value] || 0) + 1;
         });
         if (summary) {
-            summary.textContent = 'Present ' + counts.present + ' · Late ' + counts.late + ' · Absent ' + counts.absent;
+            summary.textContent = 'Present ' + counts.present + ' · Late ' + counts.late + ' · Absent ' + counts.absent + ' · Unmarked ' + counts.skip;
         }
     }
 
@@ -1378,7 +1424,7 @@ document.querySelectorAll('[data-rollcall-form]').forEach(function (form) {
             e.preventDefault();
             const which = btn.dataset.rollcallBulk;
             if (which === 'reset') return reset();
-            if (which === 'present' || which === 'absent' || which === 'late') return setAll(which);
+            if (which === 'present' || which === 'absent' || which === 'late' || which === 'skip') return setAll(which);
         });
     });
 
