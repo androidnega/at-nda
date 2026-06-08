@@ -252,7 +252,7 @@
                 {{ $initials }}
             </div>
             <div class="min-w-0">
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Welcome back,</p>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">{{ \App\Support\Greeting::random() }}</p>
                 <p class="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">{{ $displayName }}</p>
             </div>
         </div>

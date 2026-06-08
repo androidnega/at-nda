@@ -102,7 +102,7 @@
                         Class Rep · Dashboard
                     </p>
                     <h1 class="text-2xl sm:text-[1.85rem] font-bold mt-1.5 tracking-tight">
-                        Hello, {{ $repGreetingName }} 👋
+                        {{ \App\Support\Greeting::random() }} {{ $repGreetingName }} 👋
                     </h1>
                     <p class="text-teal-100/80 text-sm mt-1.5 max-w-xl">
                         {{ now()->format('l, F j, Y') }} · Here's your class activity at a glance.
