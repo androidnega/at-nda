@@ -107,11 +107,20 @@ final class AttendanceSessionClassScope
     /**
      * Rep dashboard counts: only marks from sessions opened for the rep's class(es).
      *
-     * @param  Builder<Attendance>  $query
+     * Accepts either a Builder or a Relation. The rep "open student" page
+     * passes `$student->attendances()->whereIn(...)->activeWeeksOnly()`
+     * which is still a HasMany — Eloquent relations forward
+     * where / whereHas / whereRaw through __call so the body works on
+     * both, but PHP's strict scalar type-hint used to reject the Relation
+     * path and bubble a hard TypeError on production
+     * (rep /dashboard/students/{id} 500). Same widening precedent as
+     * {@see self::applyForClass()} / {@see self::applyForClasses()}.
+     *
+     * @param  Builder<Attendance>|Relation<Attendance, mixed, mixed>  $query
      * @param  list<int>  $classIds
-     * @return Builder<Attendance>
+     * @return Builder<Attendance>|Relation<Attendance, mixed, mixed>
      */
-    public static function scopeAttendanceMarksForClasses(Builder $query, array $classIds): Builder
+    public static function scopeAttendanceMarksForClasses(Builder|Relation $query, array $classIds): Builder|Relation
     {
         $ids = collect($classIds)
             ->map(fn ($id) => (int) $id)
