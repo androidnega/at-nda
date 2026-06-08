@@ -296,6 +296,22 @@ class ClassRepController extends Controller
      * donut chart. Falls back to 'location' so legacy rows without a
      * session link still surface somewhere.
      *
+     * Implementation notes:
+     *  - We materialise the eligible attendance IDs through $marksBase
+     *    first, then aggregate over a clean DB::table query. Running
+     *    `selectRaw + groupBy` directly on the Eloquent\Builder used to
+     *    fight Laravel's implicit `attendances.*` columns under MySQL
+     *    strict ONLY_FULL_GROUP_BY (the query threw, safeCall() caught
+     *    it, and the chart silently rendered "Nothing to chart yet"
+     *    even when the DB had thousands of marks).
+     *  - We treat both NULL and empty-string mode as 'location' so
+     *    legacy sessions written before the column got a default still
+     *    map onto a chart slice instead of disappearing.
+     *  - We surface unknown / future modes under an "Other" bucket so
+     *    the operator never sees an empty chart while data sits in the
+     *    DB; previously any value outside [location, qr, hybrid, wifi]
+     *    was silently filtered out.
+     *
      * @param  \Illuminate\Database\Eloquent\Builder|null  $marksBase
      */
     private function buildModeBreakdown($marksBase): Collection
@@ -304,27 +320,42 @@ class ClassRepController extends Controller
             return collect();
         }
 
-        $raw = (clone $marksBase)
+        $idQuery = (clone $marksBase)->select('attendances.id');
+
+        $raw = DB::table('attendances')
+            ->whereIn('attendances.id', $idQuery)
             ->leftJoin('attendance_sessions', 'attendances.attendance_session_id', '=', 'attendance_sessions.id')
-            ->selectRaw('COALESCE(attendance_sessions.mode, "location") as mode, COUNT(*) as total')
+            ->selectRaw('COALESCE(NULLIF(attendance_sessions.mode, ""), "location") as mode, COUNT(*) as total')
             ->groupBy('mode')
             ->pluck('total', 'mode')
             ->toArray();
 
-        // Keep a fixed ordering so the chart palette stays stable.
-        return collect(['location', 'qr', 'hybrid', 'wifi'])
-            ->map(fn ($m) => [
-                'mode' => $m,
-                'label' => match ($m) {
-                    'qr' => 'QR scan',
-                    'hybrid' => 'Hybrid',
-                    'wifi' => 'Wi-Fi',
-                    default => 'Location',
-                },
-                'count' => (int) ($raw[$m] ?? 0),
-            ])
-            ->filter(fn ($r) => $r['count'] > 0)
-            ->values();
+        $known = [
+            'location' => 'Location',
+            'qr'       => 'QR scan',
+            'hybrid'   => 'Hybrid',
+            'wifi'     => 'Wi-Fi',
+        ];
+
+        $rows = collect();
+        foreach ($known as $mode => $label) {
+            $count = (int) ($raw[$mode] ?? 0);
+            if ($count > 0) {
+                $rows->push(['mode' => $mode, 'label' => $label, 'count' => $count]);
+            }
+        }
+
+        $other = 0;
+        foreach ($raw as $mode => $count) {
+            if (! array_key_exists((string) $mode, $known)) {
+                $other += (int) $count;
+            }
+        }
+        if ($other > 0) {
+            $rows->push(['mode' => 'other', 'label' => 'Other', 'count' => $other]);
+        }
+
+        return $rows->values();
     }
 
     /**
