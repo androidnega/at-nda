@@ -14,7 +14,7 @@ class DashboardController extends Controller
     public function index(Request $request): View|RedirectResponse
     {
         if ($request->session()->has('admin_id')) {
-            return app(AdminController::class)->dashboard();
+            return app(AdminController::class)->dashboard($request);
         }
         if ($request->session()->has('lecturer_id')) {
             return app(LecturerDashboardController::class)->dashboard($request);
