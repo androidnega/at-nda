@@ -54,7 +54,13 @@ class LecturerAttendanceController extends Controller
             ->get();
         $enrolledCount = $students->count();
 
-        $attendanceWeeks = $course->attendanceWeeks()->orderBy('week_number')->get();
+        // Eager-load `sessions` so AttendanceWeek::isOnline() can use the
+        // session-driven check without firing a per-week EXISTS query
+        // when the weekly grid renders.
+        $attendanceWeeks = $course->attendanceWeeks()
+            ->with(['sessions:id,attendance_week_id,mode'])
+            ->orderBy('week_number')
+            ->get();
 
         // Build a present-set per week for fast lookup, then derive the absent
         // list from the enrolled students that didn't appear. We fetch the

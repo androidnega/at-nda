@@ -814,7 +814,11 @@ class ClassRepController extends Controller
 
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
-            'mode' => 'nullable|in:location,qr,hybrid,wifi',
+            // 'online' is allowed regardless of the admin's instant-mode
+            // lock: it's a different conceptual channel (no GPS, no QR,
+            // no Wi‑Fi anchor) so it can always run alongside whatever
+            // in-person mode the institution has standardised on.
+            'mode' => 'nullable|in:location,qr,hybrid,wifi,online',
             'lecturer_status' => 'required|in:present,absent',
             'duration_minutes' => 'nullable|integer|min:5|max:480',
             'location_lat' => 'nullable|numeric',
@@ -823,8 +827,15 @@ class ClassRepController extends Controller
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
             'week_number' => 'nullable|integer|min:1|max:500',
             'venue_id' => 'nullable|integer|exists:venues,id',
+            'online_platform' => 'nullable|string|max:60',
+            'online_note' => 'nullable|string|max:500',
         ]);
-        $validated['mode'] = $forcedMode;
+
+        // The rep-submitted mode wins only when it's 'online'; every other
+        // value is overridden by the admin-forced mode so reps can't bypass
+        // the institution's chosen in-person mechanism.
+        $isOnline = ($validated['mode'] ?? null) === 'online';
+        $validated['mode'] = $isOnline ? 'online' : $forcedMode;
 
         $course = Course::findOrFail($validated['course_id']);
         if (! $this->repCanAccessCourse($student, $course)) {
@@ -849,7 +860,8 @@ class ClassRepController extends Controller
         $duration = (int) ($validated['duration_minutes'] ?? 60);
         $expectedEnd = $course->computeSessionExpiresAt($duration, $repClassId);
         $expiresAt = $expectedEnd->copy();
-        $needsAnchor = in_array($validated['mode'], ['location', 'hybrid'], true);
+        // Online sessions are anchor-less: no GPS, no QR, no Wi‑Fi SSID.
+        $needsAnchor = ! $isOnline && in_array($validated['mode'], ['location', 'hybrid'], true);
         $wifiSsid = isset($validated['allowed_wifi_ssid']) ? trim((string) $validated['allowed_wifi_ssid']) : null;
 
         $lat = $validated['location_lat'] ?? null;
@@ -898,6 +910,24 @@ class ClassRepController extends Controller
             ]
         );
 
+        // When the session is opened as online, flag the week + cache the
+        // platform / note so the badge has data to show. Doing it here
+        // (and only here / in createOnlineWeek) keeps in-person weeks from
+        // accidentally inheriting an "Online" tag.
+        if ($isOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
+            $platform = isset($validated['online_platform']) ? trim((string) $validated['online_platform']) : '';
+            $platform = $platform === '' ? null : $platform;
+            $note = isset($validated['online_note']) ? mb_substr(trim((string) $validated['online_note']), 0, 500) : null;
+            if ($note === '') {
+                $note = null;
+            }
+            $week->update([
+                'is_online' => true,
+                'online_platform' => $platform ?? $week->online_platform,
+                'online_note' => $note ?? $week->online_note ?? 'Online lecture',
+            ]);
+        }
+
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
         app(FcmNotificationService::class)->sendSessionStartedToClass($course, $repClassId);
@@ -924,6 +954,15 @@ class ClassRepController extends Controller
                 ],
             ]
         );
+
+        // Online sessions don't surface in the live-session widget (no
+        // countdown, no QR, no GPS): redirect straight to the attendance
+        // course view with focus_week so the roll-call sheet auto-opens.
+        if ($isOnline) {
+            return redirect()
+                ->route('dashboard.class-attendance.course', ['course' => $course->id, 'focus_week' => $week->id])
+                ->with('success', 'Online lecture started for Week '.$week->week_number.'. Tick attendees in the roll-call.');
+        }
 
         $activeMinutes = max(1, (int) ceil(($expectedEnd->getTimestamp() - now()->getTimestamp()) / 60));
 
@@ -1570,7 +1609,12 @@ class ClassRepController extends Controller
         // its own week counter, so reps should not see other classes' rows).
         try {
             $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
-            $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
+            // Eager-load `sessions` so AttendanceWeek::isOnline() — which is
+            // now session-driven — doesn't fire one EXISTS query per week
+            // when the grid renders.
+            $weeksQuery = $course->attendanceWeeks()
+                ->with(['sessions:id,attendance_week_id,mode'])
+                ->orderBy('week_number');
             if (SchemaFeatures::hasAttendanceWeeksClassId() && $repClassIds !== []) {
                 $weeksQuery->where(function ($q) use ($repClassIds) {
                     $q->whereIn('class_id', $repClassIds)->orWhereNull('class_id');
@@ -2009,7 +2053,6 @@ class ClassRepController extends Controller
             $validated = $request->validate([
                 'note' => 'required|string|min:3|max:500',
                 'platform' => 'nullable|string|max:60',
-                'mark_online' => 'nullable|boolean',
                 'marks' => 'required|array|min:1',
                 'marks.*' => 'in:present,late,absent,skip',
             ]);
@@ -2050,8 +2093,11 @@ class ClassRepController extends Controller
             $anchorDate = $attendanceWeek->week_date ?? now();
             $attrs = [
                 'course_id' => $course->id,
+                // See the matching note in LecturerAttendanceWeekController::rollCall.
+                // 'manual' is intentional — a bare roll-call should never
+                // retroactively re-label the week as online.
                 'attendance_week_id' => $attendanceWeek->id,
-                'mode' => 'online',
+                'mode' => 'manual',
                 'is_active' => false,
                 'venue_id' => $course->venue_id,
                 'start_time' => $anchorDate,
@@ -2131,14 +2177,9 @@ class ClassRepController extends Controller
             }
         });
 
-        $markOnline = (bool) ($validated['mark_online'] ?? true);
-        if ($markOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $attendanceWeek->update([
-                'is_online' => true,
-                'online_platform' => $platform,
-                'online_note' => mb_substr($validated['note'], 0, 500),
-            ]);
-        }
+        // See LecturerAttendanceWeekController::rollCall — we no longer
+        // flip is_online from roll-call. Badge is set only by openSession
+        // (with mode=online) or createOnlineWeek.
 
         AuditLogService::record(AuditLogService::MARK_MANUAL, [
             'request' => $request,
@@ -2148,14 +2189,14 @@ class ClassRepController extends Controller
             'subject_type' => 'attendance_week',
             'subject_id' => (int) $attendanceWeek->id,
             'payload' => [
-                'kind' => 'online_roll_call',
+                'kind' => 'roll_call',
+                'session_mode' => $session->mode,
                 'created' => $created,
                 'updated' => $updated,
                 'skipped' => $skipped,
                 'platform' => $platform,
                 'note' => $validated['note'],
                 'week_number' => $attendanceWeek->week_number,
-                'marked_online' => $markOnline,
             ],
         ]);
 
@@ -2212,19 +2253,66 @@ class ClassRepController extends Controller
         $overrideWeekNumber = isset($validated['week_number']) ? (int) $validated['week_number'] : null;
         $week = $course->createOrGetAttendanceWeekForToday($repClassId, $overrideWeekNumber);
 
-        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
-            $platform = $platform === '' ? null : $platform;
-            $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
-            if ($note === '') {
-                $note = null;
+        $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
+        $platform = $platform === '' ? null : $platform;
+        $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
+        if ($note === '') {
+            $note = null;
+        }
+
+        // Mirror LecturerAttendanceWeekController::createOnlineWeek —
+        // mint an online session row for the week so the badge / reports
+        // can derive "this was an online lecture" from the session mode
+        // instead of the looser is_online column.
+        $onlineSession = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->where('attendance_week_id', $week->id)
+            ->when(SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
+                $q->where('class_id', $repClassId);
+            })
+            ->where('mode', 'online')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $onlineSession) {
+            $anchorDate = $week->week_date ?? now();
+            $attrs = [
+                'course_id' => $course->id,
+                'attendance_week_id' => $week->id,
+                'mode' => 'online',
+                'is_active' => false,
+                'venue_id' => $course->venue_id,
+                'start_time' => $anchorDate,
+                'end_time' => $anchorDate,
+                'lecturer_status' => 'in_class',
+            ];
+            if (SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId) {
+                $attrs['class_id'] = (int) $repClassId;
             }
+            $onlineSession = AttendanceSession::create($attrs);
+        }
+
+        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
             $week->update([
                 'is_online' => true,
                 'online_platform' => $platform ?? $week->online_platform,
                 'online_note' => $note ?? $week->online_note ?? 'Online lecture',
             ]);
         }
+
+        AuditLogService::record(AuditLogService::SESSION_OPENED, [
+            'request' => $request,
+            'course_id' => (int) $course->id,
+            'class_id' => $repClassId ? (int) $repClassId : null,
+            'attendance_session_id' => (int) $onlineSession->id,
+            'subject_type' => 'attendance_session',
+            'subject_id' => (int) $onlineSession->id,
+            'payload' => [
+                'kind' => 'online_lecture',
+                'week_number' => $week->week_number,
+                'platform' => $platform,
+            ],
+        ]);
 
         return redirect()
             ->route('dashboard.class-attendance.course', ['course' => $course->id, 'focus_week' => $week->id])

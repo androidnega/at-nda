@@ -48,9 +48,34 @@ class AttendanceWeek extends Model
         return $this->cancelled_at !== null;
     }
 
+    /**
+     * Session-driven: the week is "online" when its is_online cache is set
+     * (kept up to date by the open-online-session + createOnlineWeek paths)
+     * OR when at least one of its attendance_sessions rows is mode='online'.
+     *
+     * The relation check is the source of truth; the column is a cheap
+     * cache so the weekly grid doesn't have to issue an EXISTS query per
+     * row. Roll-call no longer flips this flag — only opening a session
+     * with mode='online' does — so an in-person week stays in-person even
+     * after a rep manually marks people in it.
+     */
     public function isOnline(): bool
     {
-        return (bool) ($this->is_online ?? false);
+        if (\App\Support\SchemaFeatures::hasAttendanceWeeksOnlineFlag()
+            && ! is_null($this->is_online)
+            && (bool) $this->is_online === true) {
+            return true;
+        }
+
+        if ($this->relationLoaded('sessions')) {
+            return $this->sessions->contains(fn ($s) => $s->mode === 'online');
+        }
+
+        if (! $this->exists) {
+            return false;
+        }
+
+        return $this->sessions()->where('mode', 'online')->exists();
     }
 
     public function course(): BelongsTo

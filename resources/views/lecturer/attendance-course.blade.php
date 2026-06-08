@@ -248,11 +248,23 @@
                                         </label>
                                     </div>
 
-                                    <label class="inline-flex items-center gap-2 text-[11px] text-gray-700">
-                                        <input type="checkbox" name="mark_online" value="1" checked
-                                               class="rounded border-gray-300 text-indigo-700 focus:ring-indigo-500">
-                                        Flag this week as Online (shows the badge on every dashboard)
-                                    </label>
+                                    {{-- The "Flag this week as Online" toggle was removed: a week
+                                         is now flagged online only when a session was opened
+                                         with mode=online (via the rep's open-session form, or
+                                         the "Start online lecture" button up top). Running a
+                                         plain roll-call against an existing in-person week
+                                         no longer relabels it. --}}
+                                    @if($week->isOnline())
+                                        <p class="text-[10.5px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-1.5">
+                                            <i class="fas fa-circle-info text-[10px]"></i>
+                                            This week is already tagged as an online lecture.
+                                        </p>
+                                    @else
+                                        <p class="text-[10.5px] text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
+                                            <i class="fas fa-circle-info text-[10px]"></i>
+                                            Plain roll-call: this won't change the week's "Online" badge. Use <span class="font-semibold text-indigo-700">Start online lecture</span> above if this is meant to be an online class.
+                                        </p>
+                                    @endif
 
                                     <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-100">
                                         <button type="button" data-rollcall-bulk="present"

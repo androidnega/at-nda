@@ -94,13 +94,26 @@
                                     ? 'Location (GPS)'
                                     : ($forcedMode === 'wifi' ? 'Wi‑Fi (same network)' : 'Hybrid (GPS + QR)');
                             @endphp
-                            <select name="mode" id="session-mode" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" disabled>
-                                <option value="{{ $forcedMode }}" selected>{{ $forcedModeLabel }}</option>
+                            <select id="session-mode-display" class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer" disabled>
+                                <option value="{{ $forcedMode }}" selected data-display="inperson">{{ $forcedModeLabel }}</option>
+                                <option value="online" data-display="online">Online lecture (no GPS / QR / Wi‑Fi)</option>
                             </select>
                             <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
                         </div>
-                        <input type="hidden" name="mode" value="{{ $forcedMode }}">
-                        <p class="text-[11px] text-slate-400 mt-1">
+                        {{-- The actual mode submitted to the server. Stays
+                             as the forced in-person mode until the rep
+                             ticks the "online" checkbox below, at which
+                             point we flip it to 'online' (and the visible
+                             select above mirrors the change). --}}
+                        <input type="hidden" name="mode" id="session-mode-input" value="{{ $forcedMode }}">
+                        <label for="session-online-toggle" class="mt-2 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 px-2.5 py-2 cursor-pointer hover:bg-slate-50">
+                            <input type="checkbox" id="session-online-toggle" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30">
+                            <span class="flex-1">
+                                <span class="block text-[12.5px] font-semibold text-slate-800">This is an online lecture</span>
+                                <span class="block text-[10.5px] text-slate-500 leading-snug">Skips GPS / QR / Wi‑Fi. You mark attendees in a roll-call right after opening.</span>
+                            </span>
+                        </label>
+                        <p class="text-[11px] text-slate-400 mt-1" id="session-mode-hint">
                             @if($attendanceMode === 'checkin_checkout')
                                 Check-in / Check-out is active: this is location-only.
                             @else
@@ -152,6 +165,34 @@
                         <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
                     </div>
                     <p class="text-[11px] text-slate-400">Shown on attendance list and PDF.</p>
+                </div>
+                {{-- Online-lecture fields. Surfaced only when the rep
+                     ticks the "online" toggle above. Both inputs are
+                     optional — the server falls back to "Online lecture"
+                     if blank. We disable inputs while hidden so they
+                     don't get submitted alongside an in-person session. --}}
+                <div class="hidden border border-indigo-200 rounded-lg p-3 space-y-3 bg-indigo-50/40" id="session-online-section" aria-hidden="true">
+                    <div class="flex items-start gap-2">
+                        <span class="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 text-[12px]"><i class="fas fa-video"></i></span>
+                        <div>
+                            <p class="text-sm font-semibold text-slate-800">Online lecture details</p>
+                            <p class="text-[11px] text-slate-500">No anchor needed. Roll-call opens automatically after you submit.</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label for="online_platform" class="{{ $labelBase }}">Platform <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="text" name="online_platform" id="online_platform" maxlength="60" value="{{ old('online_platform') }}" placeholder="Zoom, Meet, Teams…"
+                                disabled
+                                class="{{ $fieldBase }}">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label for="online_note" class="{{ $labelBase }}">Note <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="text" name="online_note" id="online_note" maxlength="500" value="{{ old('online_note') }}" placeholder="e.g. Make-up class — Topic 4"
+                                disabled
+                                class="{{ $fieldBase }}">
+                        </div>
+                    </div>
                 </div>
                 <div class="border border-slate-200 rounded-lg p-3 space-y-3" id="session-location-section">
                     <p class="text-sm font-semibold text-slate-800">Location (for GPS/Hybrid)</p>
@@ -447,7 +488,17 @@
 (function() {
     var form = document.getElementById('open-session-form');
     var btn = document.getElementById('open-session-btn');
-    var modeSelect = document.getElementById('session-mode');
+    // The submitted mode lives on a hidden input; the visible select is
+    // disabled and exists purely for clarity. The online toggle (below)
+    // flips the hidden value to 'online' and mirrors the visible select.
+    var modeSelect = document.getElementById('session-mode-input');
+    var modeDisplay = document.getElementById('session-mode-display');
+    var onlineToggle = document.getElementById('session-online-toggle');
+    var onlineSection = document.getElementById('session-online-section');
+    var onlinePlatformInput = document.getElementById('online_platform');
+    var onlineNoteInput = document.getElementById('online_note');
+    var openBtnDefaultLabel = btn ? (btn.dataset.defaultLabel || btn.innerHTML) : '';
+    if (btn) btn.dataset.defaultLabel = openBtnDefaultLabel;
     var locationSection = document.getElementById('session-location-section');
     var rangeInput = document.getElementById('attendance_range_m');
     var courseSelect = document.getElementById('course_id');
@@ -1062,8 +1113,9 @@
 
     function syncModeUi() {
         var mode = modeSelect && modeSelect.value;
-        var needLoc = mode === 'location' || mode === 'hybrid';
-        var needWifi = mode === 'wifi';
+        var isOnline = mode === 'online';
+        var needLoc = !isOnline && (mode === 'location' || mode === 'hybrid');
+        var needWifi = !isOnline && mode === 'wifi';
         if (locationSection) {
             locationSection.classList.toggle('hidden', !needLoc);
             locationSection.setAttribute('aria-hidden', needLoc ? 'false' : 'true');
@@ -1072,6 +1124,12 @@
             wifiSection.classList.toggle('hidden', !needWifi);
             wifiSection.setAttribute('aria-hidden', needWifi ? 'false' : 'true');
         }
+        if (onlineSection) {
+            onlineSection.classList.toggle('hidden', !isOnline);
+            onlineSection.setAttribute('aria-hidden', isOnline ? 'false' : 'true');
+        }
+        if (onlinePlatformInput) onlinePlatformInput.disabled = !isOnline;
+        if (onlineNoteInput) onlineNoteInput.disabled = !isOnline;
         if (rangeInput) {
             if (needLoc) rangeInput.setAttribute('required', 'required');
             else rangeInput.removeAttribute('required');
@@ -1084,16 +1142,39 @@
             latHidden.value = '';
             lngHidden.value = '';
         }
+        // Reflect the choice in the visible-only select and rebrand the
+        // submit button so reps understand the next step (a roll-call,
+        // not a live session with QR/GPS).
+        if (modeDisplay) {
+            var opt = modeDisplay.querySelector('option[data-display="' + (isOnline ? 'online' : 'inperson') + '"]');
+            if (opt) modeDisplay.value = opt.value;
+        }
+        if (btn) {
+            btn.innerHTML = isOnline ? 'Start online lecture &amp; roll-call' : openBtnDefaultLabel;
+        }
     }
     if (modeSelect) {
         modeSelect.addEventListener('change', syncModeUi);
         syncModeUi();
+    }
+    if (onlineToggle && modeSelect) {
+        // The forced in-person mode is whatever the hidden input was
+        // pre-rendered with. Stash it so we can restore on un-tick.
+        var inPersonMode = modeSelect.value === 'online' ? 'hybrid' : modeSelect.value;
+        onlineToggle.addEventListener('change', function() {
+            modeSelect.value = onlineToggle.checked ? 'online' : inPersonMode;
+            syncModeUi();
+        });
     }
 
     if (form && btn) {
         form.addEventListener('submit', function(e) {
             clearLocationError();
             var mode = modeSelect && modeSelect.value;
+            // Online sessions bypass every anchor / SSID validation in
+            // this handler — the server-side `mode=online` branch makes
+            // GPS / Wi‑Fi optional, so we let the request through.
+            if (mode === 'online') return;
             var needLoc = mode === 'location' || mode === 'hybrid';
             var needWifi = mode === 'wifi';
             if (needWifi) {

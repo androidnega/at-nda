@@ -81,19 +81,71 @@ class LecturerAttendanceWeekController extends Controller
 
         $week = $course->createOrGetAttendanceWeekForToday($classId, $overrideWeekNumber);
 
-        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
-            $platform = $platform === '' ? null : $platform;
-            $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
-            if ($note === '') {
-                $note = null;
+        $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
+        $platform = $platform === '' ? null : $platform;
+        $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
+        if ($note === '') {
+            $note = null;
+        }
+
+        // Ensure an online session exists for this week. If a session of
+        // any mode is already attached (e.g. the rep opened an in-person
+        // session earlier today), we either upgrade it to 'online' when
+        // it has zero marks (rare race), or mint a parallel inactive
+        // online session so the week now carries the online signal
+        // without rewriting in-person attendance.
+        $onlineSession = AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->where('attendance_week_id', $week->id)
+            ->where('mode', 'online')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $onlineSession) {
+            $anchorDate = $week->week_date ?? now();
+            $attrs = [
+                'course_id' => $course->id,
+                'attendance_week_id' => $week->id,
+                'mode' => 'online',
+                'is_active' => false,
+                'lecturer_id' => $lecturer->id,
+                'venue_id' => $course->venue_id,
+                'start_time' => $anchorDate,
+                'end_time' => $anchorDate,
+                'lecturer_status' => 'in_class',
+            ];
+            if (SchemaFeatures::hasAttendanceSessionsClassId() && $classId) {
+                $attrs['class_id'] = (int) $classId;
             }
+            $onlineSession = AttendanceSession::create($attrs);
+        }
+
+        // Cache the platform / note on the week itself so the badge has
+        // a label without joining to the session. This is the only
+        // path (besides the rep open-session form with mode=online)
+        // that flips the week's is_online flag — roll-call no longer
+        // does it.
+        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
             $week->update([
                 'is_online' => true,
                 'online_platform' => $platform ?? $week->online_platform,
                 'online_note' => $note ?? $week->online_note ?? 'Online lecture',
             ]);
         }
+
+        AuditLogService::record(AuditLogService::SESSION_OPENED, [
+            'request' => $request,
+            'course_id' => (int) $course->id,
+            'class_id' => $classId,
+            'attendance_session_id' => (int) $onlineSession->id,
+            'subject_type' => 'attendance_session',
+            'subject_id' => (int) $onlineSession->id,
+            'payload' => [
+                'kind' => 'online_lecture',
+                'week_number' => $week->week_number,
+                'platform' => $platform,
+            ],
+        ]);
 
         return redirect()
             ->route('dashboard.teaching.attendance.course', ['course' => $course->id, 'focus_week' => $week->id])
@@ -168,7 +220,6 @@ class LecturerAttendanceWeekController extends Controller
             $validated = $request->validate([
                 'note' => 'required|string|min:3|max:500',
                 'platform' => 'nullable|string|max:60',
-                'mark_online' => 'nullable|boolean',
                 'marks' => 'required|array|min:1',
                 'marks.*' => 'in:present,late,absent,skip',
             ]);
@@ -202,8 +253,17 @@ class LecturerAttendanceWeekController extends Controller
             $anchorDate = $attendanceWeek->week_date ?? now();
             $attrs = [
                 'course_id' => $course->id,
+                // 'manual' is the catch-all mode for sessions minted by a
+                // bare roll-call (no live session ever opened). It is
+                // intentionally neither 'online' nor an anchor-requiring
+                // mode so:
+                //   - AttendanceWeek::isOnline() does not flip a badge on,
+                //   - AttendanceSession::requiresLocationAnchor()/QrToken
+                //     stay false (no anchor / no QR token expected),
+                //   - the offline sync layer doesn't try to validate it
+                //     as a Flutter-app session.
                 'attendance_week_id' => $attendanceWeek->id,
-                'mode' => 'online',
+                'mode' => 'manual',
                 'is_active' => false,
                 'lecturer_id' => $lecturer->id,
                 'venue_id' => $course->venue_id,
@@ -288,18 +348,13 @@ class LecturerAttendanceWeekController extends Controller
             }
         });
 
-        // Tag the week as "Online" so the weekly grid / reports can show a
-        // badge. Best-effort: silently skipped on older deploys that haven't
-        // run the 2026_06_08_080000 migration yet (SchemaFeatures guards it
-        // through the model's saving() hook).
-        $markOnline = (bool) ($validated['mark_online'] ?? true);
-        if ($markOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $attendanceWeek->update([
-                'is_online' => true,
-                'online_platform' => $platform,
-                'online_note' => mb_substr($validated['note'], 0, 500),
-            ]);
-        }
+        // NOTE: We deliberately do NOT flip the week's is_online flag
+        // from here. The badge is now session-driven (set when an
+        // online session is opened via openSession with mode='online'
+        // or via createOnlineWeek). Running a roll-call against an
+        // existing in-person session is legitimate — e.g. a rep
+        // batch-marking after a power outage — and shouldn't relabel
+        // the week as "online".
 
         AuditLogService::record(AuditLogService::MARK_MANUAL, [
             'request' => $request,
@@ -309,14 +364,14 @@ class LecturerAttendanceWeekController extends Controller
             'subject_type' => 'attendance_week',
             'subject_id' => (int) $attendanceWeek->id,
             'payload' => [
-                'kind' => 'online_roll_call',
+                'kind' => 'roll_call',
+                'session_mode' => $session->mode,
                 'created' => $created,
                 'updated' => $updated,
                 'skipped' => $skipped,
                 'platform' => $platform,
                 'note' => $validated['note'],
                 'week_number' => $attendanceWeek->week_number,
-                'marked_online' => $markOnline,
             ],
         ]);
 
