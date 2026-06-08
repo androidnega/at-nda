@@ -1,8 +1,16 @@
 <?php
 
+// NB: keep the default EMPTY. Shipping a default that contains
+// "http://localhost:8082" caused every fresh production deploy whose .env
+// didn't explicitly set CORS_ALLOWED_ORIGINS to 500 on every request,
+// because the production guard in AppServiceProvider::assertProductionEnvironment()
+// reads config('cors.allowed_origins') and refuses to boot when a dev origin
+// is present. Local-dev devs get the dev origins from .env.example (which
+// still pre-fills the localhost / 127.0.0.1 / 0.0.0.0 trio), so removing
+// the hardcoded fallback here is safe for development too.
 $corsAllowedOrigins = array_values(array_filter(array_map(
     static fn ($origin) => trim($origin),
-    explode(',', (string) env('CORS_ALLOWED_ORIGINS', 'http://localhost:8082,http://127.0.0.1:8082,http://0.0.0.0:8082'))
+    explode(',', (string) env('CORS_ALLOWED_ORIGINS', ''))
 )));
 
 return [
