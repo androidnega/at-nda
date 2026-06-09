@@ -316,14 +316,20 @@ class StudentDashboardController extends Controller
         }
 
         // ---- Per-course attendance summary cards ------------------------
-        // Used by the new mobile-first "Account-style" carousel on the
-        // student dashboard. Each entry contains the course, the
-        // student's lifetime attendance count for it, and a percentage
-        // versus the number of distinct weeks that have already happened
-        // (capped so brand-new courses don't all show 0%).
+        // Every card on the carousel reads against the SAME denominator
+        // — the class's configured semester length in weeks — so the
+        // dashboard never displays inconsistent fractions like "1/1 wks"
+        // next to "1/4 wks". Admins set this on the class create/edit
+        // form; we fall back to the project default if unset or when
+        // the schema feature isn't deployed yet.
         $courseSummaries = collect();
         if ($student->class_id) {
             try {
+                $studentClass = \App\Models\SchoolClass::query()->find((int) $student->class_id);
+                $semesterWeeks = \App\Support\SchemaFeatures::hasClassesSemesterWeeks() && $studentClass
+                    ? $studentClass->resolvedSemesterWeeks()
+                    : \App\Models\SchoolClass::DEFAULT_SEMESTER_WEEKS;
+
                 $enrolledCourses = Course::query()
                     ->forManagedClasses([(int) $student->class_id])
                     ->with(['lecturer:id,name', 'venueRelation:id,name'])
@@ -341,18 +347,15 @@ class StudentDashboardController extends Controller
                         ->groupBy('course_id')
                         ->pluck('n', 'course_id');
 
-                    $weeksByCourse = AttendanceWeek::query()
-                        ->whereIn('course_id', $courseIds)
-                        ->whereNull('cancelled_at')
-                        ->where('week_date', '<=', now()->endOfDay())
-                        ->select('course_id', DB::raw('COUNT(*) as n'))
-                        ->groupBy('course_id')
-                        ->pluck('n', 'course_id');
-
-                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $weeksByCourse) {
+                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $semesterWeeks) {
                         $present = (int) ($presentByCourse[$c->id] ?? 0);
-                        $weeks = max(1, (int) ($weeksByCourse[$c->id] ?? 0));
-                        $pct = min(100, (int) round(($present / $weeks) * 100));
+                        $weeks = max(1, (int) $semesterWeeks);
+                        // Cap present at the configured semester length
+                        // so the fraction never reads "5/4 wks" if a
+                        // course over-runs the configured term.
+                        $presentDisplay = min($present, $weeks);
+                        $pct = min(100, (int) round(($presentDisplay / $weeks) * 100));
+                        $remaining = max(0, $weeks - $presentDisplay);
 
                         return [
                             'id' => $c->id,
@@ -360,8 +363,9 @@ class StudentDashboardController extends Controller
                             'code' => $c->course_code,
                             'lecturer' => $c->lecturer?->name ?: null,
                             'venue' => $c->venueRelation?->name,
-                            'present' => $present,
+                            'present' => $presentDisplay,
                             'weeks' => $weeks,
+                            'remaining' => $remaining,
                             'pct' => $pct,
                         ];
                     })->values();

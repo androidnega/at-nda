@@ -101,6 +101,30 @@
             @endif
             @error('semester_id')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
         </div>
+
+        @if(\App\Support\SchemaFeatures::hasClassesSemesterWeeks())
+        <div>
+            <label for="semester_weeks" class="block text-sm font-medium text-gray-700 mb-2">Weeks in semester</label>
+            <input type="number"
+                   id="semester_weeks"
+                   name="semester_weeks"
+                   min="{{ \App\Models\SchoolClass::MIN_SEMESTER_WEEKS }}"
+                   max="{{ \App\Models\SchoolClass::MAX_SEMESTER_WEEKS }}"
+                   step="1"
+                   required
+                   value="{{ old('semester_weeks', $schoolClass?->semester_weeks ?? \App\Models\SchoolClass::DEFAULT_SEMESTER_WEEKS) }}"
+                   class="w-full sm:w-40 border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-gray-500 mt-1.5">
+                Total teaching weeks this class meets in the semester. Used as the consistent
+                denominator on every course card on the student dashboard
+                (e.g. <span class="font-medium text-gray-700">3 / {{ $schoolClass?->semester_weeks ?? \App\Models\SchoolClass::DEFAULT_SEMESTER_WEEKS }} wks</span>),
+                so attendance reads the same way across every course on the class.
+                Typical values: 12, 14, or 16.
+            </p>
+            @error('semester_weeks')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+        </div>
+        @endif
+
         <p class="text-xs text-gray-500">Attendance PDFs use the <strong>school logo</strong> from <a href="{{ route('dashboard.universities.index') }}" class="text-primary underline">Schools</a>.</p>
     </div>
 

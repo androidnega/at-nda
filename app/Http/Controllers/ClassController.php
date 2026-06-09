@@ -256,13 +256,18 @@ class ClassController extends Controller
             'level' => 'required|in:100,200,300,400',
             'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
+            'semester_weeks' => 'nullable|integer|min:'.SchoolClass::MIN_SEMESTER_WEEKS.'|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
         ]);
         $validated['qualification'] = $validated['qualification'] ?? 'degree';
+        $validated['semester_weeks'] = $validated['semester_weeks'] ?? SchoolClass::DEFAULT_SEMESTER_WEEKS;
         if ($redirect = $this->ensureHierarchy($validated)) {
             return $redirect;
         }
         if (! \App\Support\SchemaFeatures::hasClassesQualification()) {
             unset($validated['qualification']);
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesSemesterWeeks()) {
+            unset($validated['semester_weeks']);
         }
         SchoolClass::create($validated);
 
@@ -294,13 +299,18 @@ class ClassController extends Controller
             'level' => 'required|in:100,200,300,400',
             'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
+            'semester_weeks' => 'nullable|integer|min:'.SchoolClass::MIN_SEMESTER_WEEKS.'|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
         ]);
         $validated['qualification'] = $validated['qualification'] ?? 'degree';
+        $validated['semester_weeks'] = $validated['semester_weeks'] ?? SchoolClass::DEFAULT_SEMESTER_WEEKS;
         if ($redirect = $this->ensureHierarchy($validated)) {
             return $redirect;
         }
         if (! \App\Support\SchemaFeatures::hasClassesQualification()) {
             unset($validated['qualification']);
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesSemesterWeeks()) {
+            unset($validated['semester_weeks']);
         }
         $schoolClass->update($validated);
 

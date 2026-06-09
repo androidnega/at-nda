@@ -21,6 +21,8 @@ final class SchemaFeatures
 
     private static ?bool $classesQualification = null;
 
+    private static ?bool $classesSemesterWeeks = null;
+
     private static ?bool $coursesQualification = null;
 
     private static ?bool $attendancesUserAgent = null;
@@ -57,6 +59,10 @@ final class SchemaFeatures
 
     private static ?bool $attendanceSessionSummaries = null;
 
+    private static ?bool $attendanceUuid = null;
+
+    private static ?bool $attendanceLateUnrecorded = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -90,6 +96,13 @@ final class SchemaFeatures
     {
         return self::$classesQualification ??= (
             Schema::hasTable('classes') && Schema::hasColumn('classes', 'qualification')
+        );
+    }
+
+    public static function hasClassesSemesterWeeks(): bool
+    {
+        return self::$classesSemesterWeeks ??= (
+            Schema::hasTable('classes') && Schema::hasColumn('classes', 'semester_weeks')
         );
     }
 
@@ -214,5 +227,18 @@ final class SchemaFeatures
     public static function hasAttendanceSessionSummaries(): bool
     {
         return self::$attendanceSessionSummaries ??= Schema::hasTable('attendance_session_summaries');
+    }
+
+    public static function hasAttendanceUuid(): bool
+    {
+        return self::$attendanceUuid ??= (
+            Schema::hasTable('attendances')
+            && Schema::hasColumn('attendances', 'attendance_uuid')
+        );
+    }
+
+    public static function hasAttendanceLateUnrecorded(): bool
+    {
+        return self::$attendanceLateUnrecorded ??= Schema::hasTable('attendance_late_unrecorded');
     }
 }

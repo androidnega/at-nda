@@ -14,9 +14,14 @@ class SchoolClass extends Model
 
     protected $table = 'classes';
 
-    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'qualification', 'semester_id', 'logo_path'];
+    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'qualification', 'semester_id', 'semester_weeks', 'logo_path'];
 
-    protected $casts = ['level' => 'integer'];
+    protected $casts = ['level' => 'integer', 'semester_weeks' => 'integer'];
+
+    /** Sensible defaults / hard bounds for the semester length. */
+    public const DEFAULT_SEMESTER_WEEKS = 12;
+    public const MIN_SEMESTER_WEEKS = 1;
+    public const MAX_SEMESTER_WEEKS = 30;
 
     /** Levels used in forms and progression (100 → 200 → …). */
     public const LEVELS = [100, 200, 300, 400];
@@ -149,6 +154,23 @@ class SchoolClass extends Model
         $level = $this->level;
 
         return $level === null || ! in_array((int) $level, self::LEVELS, true);
+    }
+
+    /**
+     * Number of weeks in this class's semester, used as the
+     * denominator on the student dashboard course cards so every
+     * course reads against the same total (e.g. "3/12 wks" across
+     * the board instead of mixed "1/1 wks" and "1/4 wks"). Falls
+     * back to the project default if unset or out of range.
+     */
+    public function resolvedSemesterWeeks(): int
+    {
+        $value = (int) ($this->semester_weeks ?? 0);
+        if ($value < self::MIN_SEMESTER_WEEKS || $value > self::MAX_SEMESTER_WEEKS) {
+            return self::DEFAULT_SEMESTER_WEEKS;
+        }
+
+        return $value;
     }
 
     /** Next level on the ladder, or null at 400; if level invalid, suggests 100. */
