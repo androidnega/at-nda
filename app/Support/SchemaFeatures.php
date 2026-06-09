@@ -23,6 +23,8 @@ final class SchemaFeatures
 
     private static ?bool $classesSemesterWeeks = null;
 
+    private static ?bool $classesSemesterDates = null;
+
     private static ?bool $coursesQualification = null;
 
     private static ?bool $attendancesUserAgent = null;
@@ -103,6 +105,21 @@ final class SchemaFeatures
     {
         return self::$classesSemesterWeeks ??= (
             Schema::hasTable('classes') && Schema::hasColumn('classes', 'semester_weeks')
+        );
+    }
+
+    /**
+     * Whether the calendar-based "where in the semester are we?"
+     * columns are present (start date, end date, manual override).
+     * All three were introduced in the same migration so we test
+     * the cheapest one as a proxy.
+     */
+    public static function hasClassesSemesterDates(): bool
+    {
+        return self::$classesSemesterDates ??= (
+            Schema::hasTable('classes')
+            && Schema::hasColumn('classes', 'semester_start_date')
+            && Schema::hasColumn('classes', 'current_week_override')
         );
     }
 

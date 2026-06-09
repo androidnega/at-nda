@@ -125,6 +125,83 @@
         </div>
         @endif
 
+        @if(\App\Support\SchemaFeatures::hasClassesSemesterDates())
+        {{-- Calendar anchor for "which teaching week are we in".
+             When start_date is set, the student dashboard derives
+             the current week from the calendar instead of guessing
+             from rep activity. End date is a soft cap (informational).
+             Override is a manual escape hatch for when a public
+             holiday or strike shifts the schedule. --}}
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-4">
+            <div>
+                <p class="text-sm font-semibold text-blue-900">Semester calendar</p>
+                <p class="text-xs text-blue-900/70 mt-1">
+                    Set the start date and the system will tell every student which teaching week the class is currently in
+                    (e.g. <span class="font-medium">Week 5 of {{ $schoolClass?->semester_weeks ?? \App\Models\SchoolClass::DEFAULT_SEMESTER_WEEKS }}</span>).
+                    Leave blank to fall back to activity-based detection.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="semester_start_date" class="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1.5">Semester start date</label>
+                    <input type="date"
+                           id="semester_start_date"
+                           name="semester_start_date"
+                           value="{{ old('semester_start_date', optional($schoolClass?->semester_start_date)->format('Y-m-d')) }}"
+                           class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                    <p class="text-[11px] text-gray-500 mt-1">First teaching day. Counts as the start of week 1.</p>
+                    @error('semester_start_date')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="semester_end_date" class="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1.5">Semester end date <span class="text-gray-400 font-normal normal-case">(optional)</span></label>
+                    <input type="date"
+                           id="semester_end_date"
+                           name="semester_end_date"
+                           value="{{ old('semester_end_date', optional($schoolClass?->semester_end_date)->format('Y-m-d')) }}"
+                           class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                    <p class="text-[11px] text-gray-500 mt-1">Informational. If blank, end is start + weeks above.</p>
+                    @error('semester_end_date')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                </div>
+            </div>
+
+            <div>
+                <label for="current_week_override" class="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1.5">Current week override <span class="text-gray-400 font-normal normal-case">(optional)</span></label>
+                <input type="number"
+                       id="current_week_override"
+                       name="current_week_override"
+                       min="0"
+                       max="{{ \App\Models\SchoolClass::MAX_SEMESTER_WEEKS }}"
+                       step="1"
+                       placeholder="leave blank to auto-calculate"
+                       value="{{ old('current_week_override', $schoolClass?->current_week_override) }}"
+                       class="w-full sm:w-56 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                <p class="text-[11px] text-gray-500 mt-1">
+                    Use this only when the calendar doesn't reflect reality (e.g. a holiday week shifted things by 7 days).
+                    When set, this wins over the start-date calculation.
+                </p>
+                @error('current_week_override')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+            </div>
+
+            @if($schoolClass)
+                @php $computed = $schoolClass->computeCurrentSemesterWeek(); @endphp
+                @if($computed !== null)
+                    <div class="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs text-blue-900">
+                        <i class="fas fa-circle-info text-blue-600 mr-1"></i>
+                        Right now this class is on
+                        <strong>Week {{ $computed }} of {{ $schoolClass->resolvedSemesterWeeks() }}</strong>
+                        @if($schoolClass->current_week_override !== null)
+                            <span class="text-blue-700">(manual override active)</span>
+                        @else
+                            <span class="text-blue-700">(from start date)</span>
+                        @endif
+                        — that's what every student card on this class will show.
+                    </div>
+                @endif
+            @endif
+        </div>
+        @endif
+
         <p class="text-xs text-gray-500">Attendance PDFs use the <strong>school logo</strong> from <a href="{{ route('dashboard.universities.index') }}" class="text-primary underline">Schools</a>.</p>
     </div>
 

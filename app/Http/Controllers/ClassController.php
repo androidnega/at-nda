@@ -257,6 +257,9 @@ class ClassController extends Controller
             'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
             'semester_weeks' => 'nullable|integer|min:'.SchoolClass::MIN_SEMESTER_WEEKS.'|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
+            'semester_start_date' => 'nullable|date',
+            'semester_end_date' => 'nullable|date|after_or_equal:semester_start_date',
+            'current_week_override' => 'nullable|integer|min:0|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
         ]);
         $validated['qualification'] = $validated['qualification'] ?? 'degree';
         $validated['semester_weeks'] = $validated['semester_weeks'] ?? SchoolClass::DEFAULT_SEMESTER_WEEKS;
@@ -268,6 +271,13 @@ class ClassController extends Controller
         }
         if (! \App\Support\SchemaFeatures::hasClassesSemesterWeeks()) {
             unset($validated['semester_weeks']);
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesSemesterDates()) {
+            unset(
+                $validated['semester_start_date'],
+                $validated['semester_end_date'],
+                $validated['current_week_override'],
+            );
         }
         SchoolClass::create($validated);
 
@@ -300,6 +310,9 @@ class ClassController extends Controller
             'qualification' => 'nullable|in:'.implode(',', SchoolClass::QUALIFICATIONS),
             'semester_id' => 'required|exists:semesters,id',
             'semester_weeks' => 'nullable|integer|min:'.SchoolClass::MIN_SEMESTER_WEEKS.'|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
+            'semester_start_date' => 'nullable|date',
+            'semester_end_date' => 'nullable|date|after_or_equal:semester_start_date',
+            'current_week_override' => 'nullable|integer|min:0|max:'.SchoolClass::MAX_SEMESTER_WEEKS,
         ]);
         $validated['qualification'] = $validated['qualification'] ?? 'degree';
         $validated['semester_weeks'] = $validated['semester_weeks'] ?? SchoolClass::DEFAULT_SEMESTER_WEEKS;
@@ -311,6 +324,13 @@ class ClassController extends Controller
         }
         if (! \App\Support\SchemaFeatures::hasClassesSemesterWeeks()) {
             unset($validated['semester_weeks']);
+        }
+        if (! \App\Support\SchemaFeatures::hasClassesSemesterDates()) {
+            unset(
+                $validated['semester_start_date'],
+                $validated['semester_end_date'],
+                $validated['current_week_override'],
+            );
         }
         $schoolClass->update($validated);
 

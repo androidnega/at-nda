@@ -14,9 +14,15 @@ class SchoolClass extends Model
 
     protected $table = 'classes';
 
-    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'qualification', 'semester_id', 'semester_weeks', 'logo_path'];
+    protected $fillable = ['name', 'code', 'university_id', 'faculty_id', 'department_id', 'level', 'qualification', 'semester_id', 'semester_weeks', 'semester_start_date', 'semester_end_date', 'current_week_override', 'logo_path'];
 
-    protected $casts = ['level' => 'integer', 'semester_weeks' => 'integer'];
+    protected $casts = [
+        'level' => 'integer',
+        'semester_weeks' => 'integer',
+        'semester_start_date' => 'date',
+        'semester_end_date' => 'date',
+        'current_week_override' => 'integer',
+    ];
 
     /** Sensible defaults / hard bounds for the semester length. */
     public const DEFAULT_SEMESTER_WEEKS = 12;
@@ -171,6 +177,62 @@ class SchoolClass extends Model
         }
 
         return $value;
+    }
+
+    /**
+     * Calendar-based "what teaching week are we in?" resolution.
+     * Order of precedence:
+     *
+     *   1. Admin override (current_week_override) — short-circuits
+     *      every other source of truth. Useful when a public
+     *      holiday week shifts the schedule and the date math no
+     *      longer matches reality.
+     *   2. Calendar math from semester_start_date — floor((today
+     *      - start) / 7 days) + 1, clamped to [0, semester_weeks].
+     *      Week numbering follows the academic convention: the
+     *      start date itself is "week 1", not "week 0".
+     *   3. null when neither is set. Callers should fall back to
+     *      activity-derived signals (max attendance_weeks.week_number).
+     *
+     * Returning null (not 0) for "nothing configured" lets the
+     * caller distinguish "admin set week 0" from "admin set
+     * nothing yet".
+     */
+    public function computeCurrentSemesterWeek(?\DateTimeInterface $now = null): ?int
+    {
+        $weeks = $this->resolvedSemesterWeeks();
+
+        $override = $this->current_week_override;
+        if ($override !== null) {
+            $override = (int) $override;
+            if ($override < 0) {
+                $override = 0;
+            }
+            return min($override, $weeks);
+        }
+
+        $start = $this->semester_start_date;
+        if ($start === null) {
+            return null;
+        }
+
+        $today = $now instanceof \Carbon\CarbonInterface
+            ? $now->copy()->startOfDay()
+            : \Illuminate\Support\Carbon::instance($now ?? \Illuminate\Support\Carbon::now())->startOfDay();
+        $startDay = \Illuminate\Support\Carbon::instance($start)->startOfDay();
+
+        if ($today->lt($startDay)) {
+            return 0;
+        }
+
+        // diffInDays is non-negative here because we already
+        // returned 0 for "before the semester starts".
+        $week = (int) floor($startDay->diffInDays($today) / 7) + 1;
+        if ($week < 0) {
+            $week = 0;
+        }
+
+        return min($week, $weeks);
     }
 
     /** Next level on the ladder, or null at 400; if level invalid, suggests 100. */

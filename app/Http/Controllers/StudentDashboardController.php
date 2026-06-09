@@ -348,30 +348,41 @@ class StudentDashboardController extends Controller
                         ->pluck('n', 'course_id');
 
                     // "Where the class is in the semester" — class-wide,
-                    // not per-course. We take the highest week_number
-                    // any course in this class has reached (including
-                    // cancelled weeks: reaching week 5 still means
-                    // we're in week 5, even if no class met). This
-                    // makes every course card share the same "weeks
-                    // left" reading, which is what users expect from
-                    // a single calendar semester.
-                    $currentSemesterWeek = 0;
-                    try {
-                        $weekQuery = DB::table('attendance_weeks')
-                            ->whereIn('course_id', $courseIds);
-                        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
-                            $weekQuery->where(function ($q) use ($student) {
-                                $q->where('class_id', (int) $student->class_id)
-                                  ->orWhereNull('class_id');
-                            });
+                    // not per-course. Resolution order:
+                    //
+                    //   1. Calendar-based (admin override, then
+                    //      semester_start_date math on SchoolClass).
+                    //      This is the source of truth when configured.
+                    //   2. Activity-based fallback: highest week_number
+                    //      across this class's attendance_weeks rows
+                    //      (cancelled weeks count — reaching week 5
+                    //      still means we're in week 5). Used when no
+                    //      calendar dates are set yet.
+                    //
+                    // Either way the value is shared across every
+                    // course card so the user sees one truth.
+                    $currentSemesterWeek = null;
+                    if (\App\Support\SchemaFeatures::hasClassesSemesterDates() && $studentClass) {
+                        $currentSemesterWeek = $studentClass->computeCurrentSemesterWeek();
+                    }
+                    if ($currentSemesterWeek === null) {
+                        try {
+                            $weekQuery = DB::table('attendance_weeks')
+                                ->whereIn('course_id', $courseIds);
+                            if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
+                                $weekQuery->where(function ($q) use ($student) {
+                                    $q->where('class_id', (int) $student->class_id)
+                                      ->orWhereNull('class_id');
+                                });
+                            }
+                            $currentSemesterWeek = (int) ($weekQuery->max('week_number') ?? 0);
+                        } catch (\Throwable $e) {
+                            report($e);
+                            $currentSemesterWeek = 0;
                         }
-                        $currentSemesterWeek = (int) ($weekQuery->max('week_number') ?? 0);
-                    } catch (\Throwable $e) {
-                        report($e);
-                        $currentSemesterWeek = 0;
                     }
                     // Don't pretend we're past the configured term.
-                    $currentSemesterWeek = min($currentSemesterWeek, (int) $semesterWeeks);
+                    $currentSemesterWeek = min((int) $currentSemesterWeek, (int) $semesterWeeks);
 
                     $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $semesterWeeks, $currentSemesterWeek) {
                         $present = (int) ($presentByCourse[$c->id] ?? 0);
