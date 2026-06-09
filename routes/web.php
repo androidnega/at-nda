@@ -201,6 +201,21 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
 
     Route::middleware('student.auth')->get('/timetable', [DashboardTimetableController::class, 'show'])->name('timetable');
 
+    // Attendance Map JSON endpoints — shared by rep, lecturer and
+    // admin. signed-in-anybody only blocks anonymous traffic; the
+    // controller re-applies role + class / course scoping so a
+    // plain student can never read them (returns 403 from
+    // resolveAudienceContext). Kept outside the rep- and
+    // admin-specific groups so all three audiences hit the same
+    // URL prefix and the JS in the shared view never needs to
+    // branch on role to pick a path.
+    Route::middleware('signed-in-anybody')->prefix('attendance-map')->name('attendance-map.')->group(function () {
+        Route::get('/markers', [\App\Http\Controllers\AttendanceMapController::class, 'markers'])->name('markers');
+        Route::get('/sessions/{session}/summary', [\App\Http\Controllers\AttendanceMapController::class, 'summary'])->name('summary')->scopeBindings();
+        Route::get('/markers/{attendance}/details', [\App\Http\Controllers\AttendanceMapController::class, 'details'])->name('details')->scopeBindings();
+        Route::get('/filters', [\App\Http\Controllers\AttendanceMapController::class, 'filters'])->name('filters');
+    });
+
     // Course materials: any signed-in user (student, rep or lecturer) can
     // hit the index/download endpoints. The controller decides which
     // materials are visible and who is allowed to upload/delete based on
@@ -223,10 +238,12 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
             ->whereNumber('entry');
 
         Route::get('/session', [ClassRepController::class, 'dashboard'])->name('session');
-        // Dedicated full-page attendance map: every student mark over
-        // the selected window plotted on Leaflet/OSM with course
-        // anchor circles and per-mode pin tints.
-        Route::get('/attendance-map', [ClassRepController::class, 'attendanceMap'])->name('attendance-map');
+        // Class rep attendance map — historical + viewport-loading +
+        // clustered. The shared AttendanceMapController scopes data
+        // to the rep's classes via RepCourseAccess. JSON marker /
+        // summary / filters endpoints are registered separately below
+        // so admins and lecturers can share them.
+        Route::get('/attendance-map', [\App\Http\Controllers\AttendanceMapController::class, 'repView'])->name('attendance-map');
         Route::get('/my-class', [ClassRepController::class, 'classShow'])->name('my-class');
         Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');
         Route::get('/class-attendance/course/{course}', [ClassRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
@@ -324,6 +341,15 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         // Admin review panel for risk-flagged (but still-recorded) online
         // attendance submissions. Strictly read-only — see PART 12 / 13.
         Route::middleware('admin.only')->get('/suspicious-attendances', [AdminController::class, 'suspiciousAttendances'])->name('suspicious-attendances');
+
+        // Admin + lecturer attendance map. Same shared
+        // AttendanceMapController as the rep route, but rendered
+        // with the admin layout. We give it a distinct URL because
+        // the rep version already sits at /dashboard/attendance-map
+        // (registered under the classrep middleware group above);
+        // Laravel resolves a collision by keeping only the last
+        // route, which would lock reps out of their own page.
+        Route::get('/staff/attendance-map', [\App\Http\Controllers\AttendanceMapController::class, 'adminLecturerView'])->name('staff.attendance-map');
         Route::resource('courses', CourseController::class)->except(['show']);
         Route::get('/attendance-weeks', [AdminAttendanceWeekController::class, 'index'])->name('attendance-weeks.index');
         Route::post('/attendance-weeks/next-course', [AdminAttendanceWeekController::class, 'setNextForCourse'])->name('attendance-weeks.next-course');

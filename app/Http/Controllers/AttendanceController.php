@@ -11,6 +11,7 @@ use App\Models\SystemSetting;
 use App\Services\AttendanceFraudGuard;
 use App\Services\AttendanceOfflineSyncService;
 use App\Services\AuditLogService;
+use App\Support\AttendanceLocation;
 use App\Support\AttendanceMarkLock;
 use App\Support\AttendanceSessionClassScope;
 use App\Support\SecureQrToken;
@@ -449,6 +450,17 @@ class AttendanceController extends Controller
 
                 $capture = AttendanceFraudGuard::captureFromRequest($request);
 
+                // Attendance Map redesign: persist GPS + the
+                // distance-from-anchor that we computed during
+                // validation above. Distance is recorded for
+                // location + hybrid; for QR / Wi-Fi / online there
+                // is no anchor so it stays NULL.
+                [$markLat, $markLng, $markDistance] = $this->locationFieldsForMark(
+                    $session,
+                    $validated['latitude'] ?? null,
+                    $validated['longitude'] ?? null
+                );
+
                 Attendance::create([
                     'student_id' => $student->id,
                     'course_id' => $course->id,
@@ -458,6 +470,9 @@ class AttendanceController extends Controller
                     'check_in_time' => $now,
                     'status' => $status,
                     'synced' => true,
+                    'lat' => $markLat,
+                    'lng' => $markLng,
+                    'distance_from_anchor' => $markDistance,
                     'device_ip' => $capture['device_ip'],
                     'user_agent' => $capture['user_agent'],
                     'device_fingerprint' => $capture['device_fingerprint'],
@@ -556,6 +571,16 @@ class AttendanceController extends Controller
         $clientMeta = $capture['client_meta'];
         $created = false;
 
+        // Attendance Map redesign: capture the student's coordinates +
+        // the precomputed distance-from-anchor. Distance is metres
+        // already validated above; for non-GPS modes we just store
+        // NULLs and the map skips those marks.
+        [$markLat, $markLng, $markDistance] = $this->locationFieldsForMark(
+            $session,
+            $validated['latitude'] ?? null,
+            $validated['longitude'] ?? null
+        );
+
         // Cache-backed lock: with hundreds of students POSTing at the same
         // moment the duplicate-key fence + lock keep us to a single insert
         // per (session, student) pair. Use CACHE_STORE=redis on production
@@ -563,7 +588,19 @@ class AttendanceController extends Controller
         AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $deviceIp, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
+            function () use (
+                $student,
+                $course,
+                $session,
+                $deviceIp,
+                $userAgent,
+                $deviceFingerprint,
+                $clientMeta,
+                $markLat,
+                $markLng,
+                $markDistance,
+                &$created
+            ) {
                 $row = Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
@@ -575,6 +612,9 @@ class AttendanceController extends Controller
                         'attendance_time' => now(),
                         'status' => 'present',
                         'synced' => true,
+                        'lat' => $markLat,
+                        'lng' => $markLng,
+                        'distance_from_anchor' => $markDistance,
                         'device_ip' => $deviceIp,
                         'user_agent' => $userAgent,
                         'device_fingerprint' => $deviceFingerprint,
@@ -731,16 +771,53 @@ class AttendanceController extends Controller
         return null;
     }
 
+    /**
+     * Thin wrapper kept for backwards-compat with the rest of this
+     * controller. Delegates to AttendanceLocation so the validation
+     * path and the map write-path produce identical numbers (no
+     * rounding drift).
+     */
     private function distance(float $lat1, float $lng1, float $lat2, float $lng2): float
     {
-        $R = 6371000;
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLng = deg2rad($lng2 - $lng1);
-        $a = sin($dLat / 2) * sin($dLat / 2) +
-            cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-            sin($dLng / 2) * sin($dLng / 2);
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return AttendanceLocation::distanceMeters($lat1, $lng1, $lat2, $lng2);
+    }
 
-        return $R * $c;
+    /**
+     * Decide what to persist on the attendance row for the three
+     * location-aware columns. We:
+     *
+     *   - keep lat/lng only when the session is location or hybrid
+     *     (QR / Wi-Fi / online have no anchor → storing the student's
+     *     GPS would be a privacy leak with no analytical value);
+     *   - compute distance_from_anchor exactly once here, reusing the
+     *     same haversine the validation path already evaluated.
+     *
+     * Returns [lat, lng, distance_from_anchor] as values ready to drop
+     * straight into an Attendance::create payload (any column may be
+     * null; the model's saving hook strips distance_from_anchor on
+     * databases that haven't migrated yet).
+     *
+     * @return array{0: ?float, 1: ?float, 2: ?int}
+     */
+    private function locationFieldsForMark(AttendanceSession $session, mixed $lat, mixed $lng): array
+    {
+        if (! in_array($session->mode, ['location', 'hybrid'], true)) {
+            return [null, null, null];
+        }
+        if ($lat === null || $lng === null || ! is_numeric($lat) || ! is_numeric($lng)) {
+            return [null, null, null];
+        }
+
+        $latF = (float) $lat;
+        $lngF = (float) $lng;
+
+        $distance = AttendanceLocation::storableMetersFromPairs(
+            $session->location_lat,
+            $session->location_lng,
+            $latF,
+            $lngF,
+        );
+
+        return [$latF, $lngF, $distance];
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
+use App\Support\AttendanceLocation;
 use App\Support\SecureQrToken;
 use Carbon\Carbon;
 
@@ -76,6 +77,14 @@ class AttendanceOfflineSyncService
                 continue;
             }
 
+            // Will hold the precomputed map-write fields so we can
+            // persist them once the row is created below — keeps the
+            // expensive haversine off the map render path. NULL for
+            // non-GPS modes (set below in the location/hybrid branch).
+            $markLat = null;
+            $markLng = null;
+            $markDistance = null;
+
             if (! $supplementalRepMark && in_array($session->mode, ['location', 'hybrid'], true)) {
                 if (! $session->hasLocation()) {
                     $failed++;
@@ -84,8 +93,8 @@ class AttendanceOfflineSyncService
                 }
                 $lat = $record['latitude'] ?? null;
                 $lng = $record['longitude'] ?? null;
-                if ($lat !== null && $lng !== null && $lat !== '' && $lng !== '') {
-                    $distance = self::haversineMeters(
+                if ($lat !== null && $lng !== null && $lat !== '' && $lng !== '' && is_numeric($lat) && is_numeric($lng)) {
+                    $distance = AttendanceLocation::distanceMeters(
                         (float) $session->location_lat,
                         (float) $session->location_lng,
                         (float) $lat,
@@ -96,6 +105,9 @@ class AttendanceOfflineSyncService
 
                         continue;
                     }
+                    $markLat = (float) $lat;
+                    $markLng = (float) $lng;
+                    $markDistance = AttendanceLocation::storableMeters($distance);
                 }
             }
 
@@ -137,6 +149,9 @@ class AttendanceOfflineSyncService
                     'attendance_time' => $attendanceTime,
                     'status' => 'present',
                     'synced' => true,
+                    'lat' => $markLat,
+                    'lng' => $markLng,
+                    'distance_from_anchor' => $markDistance,
                 ];
                 $req = function_exists('request') ? request() : null;
                 $ip = $req?->ip();
@@ -164,18 +179,5 @@ class AttendanceOfflineSyncService
         }
 
         return ['synced' => $synced, 'failed' => $failed];
-    }
-
-    private static function haversineMeters(float $lat1, float $lng1, float $lat2, float $lng2): float
-    {
-        $R = 6371000;
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLng = deg2rad($lng2 - $lng1);
-        $a = sin($dLat / 2) * sin($dLat / 2) +
-            cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-            sin($dLng / 2) * sin($dLng / 2);
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-
-        return $R * $c;
     }
 }

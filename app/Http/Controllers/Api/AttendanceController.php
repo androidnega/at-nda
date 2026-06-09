@@ -209,6 +209,19 @@ class AttendanceController extends Controller
         $deviceId = $validated['device_id'] ?? null;
         $deviceIp = $validated['device_ip'] ?? $ip;
 
+        // Attendance Map redesign: compute distance_from_anchor exactly
+        // once, here, and reuse it across both write branches below.
+        // Returns NULL for non-GPS modes or when coords are missing —
+        // matches the helper used by the web AttendanceController.
+        $distanceFromAnchor = in_array($session->mode, ['location', 'hybrid'], true)
+            ? \App\Support\AttendanceLocation::storableMetersFromPairs(
+                $session->location_lat,
+                $session->location_lng,
+                $latitude,
+                $longitude
+            )
+            : null;
+
         $existing = Attendance::where('student_id', $student->id)
             ->where('attendance_session_id', $session->id)
             ->first();
@@ -261,6 +274,7 @@ class AttendanceController extends Controller
                 'synced' => true,
                 'lat' => $latitude,
                 'lng' => $longitude,
+                'distance_from_anchor' => $distanceFromAnchor,
                 'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
                 'device_ip' => $deviceIp,
                 'device_id' => $deviceId,
@@ -322,7 +336,7 @@ class AttendanceController extends Controller
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $request, $validated, $deviceIp, $deviceId, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
+            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $distanceFromAnchor, $request, $validated, $deviceIp, $deviceId, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
                 $row = Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
@@ -336,6 +350,7 @@ class AttendanceController extends Controller
                         'synced' => true,
                         'lat' => $latitude,
                         'lng' => $longitude,
+                        'distance_from_anchor' => $distanceFromAnchor,
                         'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
                         'device_ip' => $deviceIp,
                         'device_id' => $deviceId,

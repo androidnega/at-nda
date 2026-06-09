@@ -278,12 +278,18 @@ class AttendanceSession extends Model
 
     /**
      * Mark expired sessions inactive (end_time or expires_at in the past).
+     *
+     * Before flipping is_active we snapshot the IDs being closed so we
+     * can rebuild their per-session summaries exactly once (D2 of the
+     * attendance-map redesign — calculate aggregates on close, never on
+     * read). The summary rebuild is fire-and-forget: any failure is
+     * logged inside the service and never blocks the deactivation.
      */
     public static function deactivateExpiredSessions(): void
     {
         $now = Carbon::now();
 
-        static::query()
+        $closingQuery = static::query()
             ->where('is_active', true)
             ->where(function ($q) use ($now) {
                 $q->where(function ($q2) use ($now) {
@@ -291,8 +297,22 @@ class AttendanceSession extends Model
                 })->orWhere(function ($q2) use ($now) {
                     $q2->whereNull('end_time')->whereNotNull('expires_at')->where('expires_at', '<', $now);
                 });
-            })
-            ->update(['is_active' => false]);
+            });
+
+        $closingIds = (clone $closingQuery)->pluck('id')->all();
+
+        $closingQuery->update(['is_active' => false]);
+
+        if (! empty($closingIds) && \App\Support\SchemaFeatures::hasAttendanceSessionSummaries()) {
+            try {
+                \App\Services\AttendanceSessionSummaryService::rebuildMany($closingIds);
+            } catch (\Throwable $e) {
+                \Log::warning(
+                    'attendance_session_summary.batch_rebuild_failed',
+                    ['count' => count($closingIds), 'error' => $e->getMessage()]
+                );
+            }
+        }
     }
 
     /**
@@ -521,6 +541,33 @@ class AttendanceSession extends Model
         // so reps / students see open / close events within ~one poll cycle.
         static::saved(fn () => \App\Support\LiveAttendanceCache::bump());
         static::deleted(fn () => \App\Support\LiveAttendanceCache::bump());
+
+        // Attendance Map: rebuild the per-session summary when a
+        // session transitions from active to inactive via a normal
+        // ->update(['is_active' => false]) — i.e. a rep / lecturer
+        // manually closing the session. Mass query()->update(...) does
+        // not fire model events, so deactivateExpiredSessions() drives
+        // that path directly and the map endpoint also has a lazy
+        // fallback via AttendanceSessionSummaryService::getOrRebuild().
+        static::saved(function (self $session): void {
+            if (! \App\Support\SchemaFeatures::hasAttendanceSessionSummaries()) {
+                return;
+            }
+            if (! $session->wasChanged('is_active')) {
+                return;
+            }
+            if ((bool) $session->is_active !== false) {
+                return;
+            }
+            try {
+                \App\Services\AttendanceSessionSummaryService::rebuild($session);
+            } catch (\Throwable $e) {
+                \Log::warning(
+                    'attendance_session_summary.on_save_failed',
+                    ['session_id' => (int) $session->id, 'error' => $e->getMessage()]
+                );
+            }
+        });
 
         static::creating(function (AttendanceSession $session) {
             if (empty($session->session_token)) {

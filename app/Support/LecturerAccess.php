@@ -33,6 +33,11 @@ final class LecturerAccess
             'dashboard.teaching.attendance.course.pdf',
             'dashboard.teaching.attendance.course.export-json',
             'dashboard.teaching.attendance.course.import-json',
+            'dashboard.staff.attendance-map',
+            'dashboard.attendance-map.markers',
+            'dashboard.attendance-map.summary',
+            'dashboard.attendance-map.details',
+            'dashboard.attendance-map.filters',
             'lecturer.courses.week.cancel',
             'lecturer.courses.week.uncancel',
         ];

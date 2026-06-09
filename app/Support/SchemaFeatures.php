@@ -53,6 +53,10 @@ final class SchemaFeatures
 
     private static ?bool $attendanceDeviceLogs = null;
 
+    private static ?bool $attendancesDistanceFromAnchor = null;
+
+    private static ?bool $attendanceSessionSummaries = null;
+
     public static function hasClassLecturerPivot(): bool
     {
         return self::$classLecturerPivot ??= Schema::hasTable('class_lecturer');
@@ -197,5 +201,18 @@ final class SchemaFeatures
     public static function hasAttendanceDeviceLogs(): bool
     {
         return self::$attendanceDeviceLogs ??= Schema::hasTable('attendance_device_logs');
+    }
+
+    public static function hasAttendancesDistanceFromAnchor(): bool
+    {
+        return self::$attendancesDistanceFromAnchor ??= (
+            Schema::hasTable('attendances')
+            && Schema::hasColumn('attendances', 'distance_from_anchor')
+        );
+    }
+
+    public static function hasAttendanceSessionSummaries(): bool
+    {
+        return self::$attendanceSessionSummaries ??= Schema::hasTable('attendance_session_summaries');
     }
 }

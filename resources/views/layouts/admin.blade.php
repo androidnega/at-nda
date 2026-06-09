@@ -128,6 +128,12 @@
                     <span>Suspicious attendance</span>
                 </a>
                 @endif
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.staff.attendance-map'))
+                <a href="{{ route('dashboard.staff.attendance-map') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.staff.attendance-map') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fas fa-map-location-dot w-5 text-center"></i>
+                    <span>Attendance map</span>
+                </a>
+                @endif
                 @if(\Illuminate\Support\Facades\Route::has('dashboard.audit-logs.index'))
                 <a href="{{ route('dashboard.audit-logs.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.audit-logs.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-shield-halved w-5 text-center"></i>

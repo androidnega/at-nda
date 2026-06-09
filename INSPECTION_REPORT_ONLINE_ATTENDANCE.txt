@@ -1,0 +1,673 @@
+================================================================================
+ONLINE ATTENDANCE — PRE-IMPLEMENTATION INSPECTION REPORT
+Branch: fix/rep-dashboard-500   ·   Generated under no-code-change directive.
+================================================================================
+
+This report inventories the existing attendance implementation so the new
+"Online attendance mode + rolling codes" feature can be integrated with
+minimal surface area. NO CODE WAS MODIFIED.
+
+================================================================================
+SECTION A — CANONICAL ATTENDANCE MODES TODAY
+================================================================================
+
+The `attendance_sessions.mode` column is a varchar (no DB CHECK constraint).
+The app-layer-allowed values are enforced in TWO places:
+
+  Site                                            Allowed values
+  ----------------------------------------------  ------------------------
+  ClassRepController::openInstantSession L.852    location | qr | hybrid | wifi | online
+  FlutterSessionFormatter::format L.26 (REMAP)    qr | location | hybrid | wifi
+                                                  (anything else, including
+                                                   'online', is REMAPPED to 'qr'
+                                                   before being returned to
+                                                   Flutter — this is the
+                                                   deliberate Flutter-
+                                                   compatibility layer)
+
+Semantic helpers on AttendanceSession (lines 333-361):
+
+  requiresLocation()       -> mode in ('location','hybrid')
+  requiresQrProof()        -> mode in ('qr','hybrid')
+  isWifiMode()             -> mode === 'wifi'
+  requiresWifiSsidProof()  -> isWifiMode()
+  isCheckInCheckoutMode()  -> attendance_mode === 'checkin_checkout'
+                              (different column — orthogonal to mode)
+
+There is NO helper for `mode === 'online'` today. The current online flow
+side-steps every helper above because `requiresLocation` / `requiresQrProof`
+/ `isWifiMode` all return false when mode='online'.
+
+The admin/portal session form (`admin/portal.blade.php` L.52-56) ONLY exposes
+location/qr/hybrid — admin opening a session cannot pick wifi or online.
+
+================================================================================
+SECTION B — SESSION CREATION FLOW (THREE ENTRY POINTS)
+================================================================================
+
+B.1  Class rep — `POST /dashboard/class-rep/sessions/open`
+       Controller   : ClassRepController::openInstantSession (line 825+)
+       Form         : resources/views/classrep/dashboard.blade.php L.85-306
+       Validation   : line 852 — 'mode' in (location,qr,hybrid,wifi,online)
+                      line 863 — 'online_submode' in (qr,code,both)
+                      line 864 — 'online_platform' string max:60
+                      line 865 — 'online_note' string max:500
+       Rep-controlled mode override (line 870):
+         $isOnline = (mode === 'online')
+         $validated['mode'] = $isOnline ? 'online' : $forcedMode
+         — meaning ALL non-online modes are overridden by the institution's
+           admin-forced mode; only 'online' is rep-choosable.
+       Side effects when online:
+         line 940 — online_submode persisted
+         lines 964-973 — also flips the week's is_online flag + sets
+                          online_platform / online_note (mirrors the
+                          standalone "online week" feature)
+
+B.2  Admin portal — `POST /dashboard/admin/sessions/open`
+       Controller   : AdminController (similar shape)
+       Form         : resources/views/admin/portal.blade.php L.52-56
+       Modes        : location | qr | hybrid (NO wifi, NO online)
+       — Online mode is NOT exposed via the admin portal today.
+
+B.3  Online-week (lecturer roll-call) — `POST /dashboard/teaching/.../online-week`
+       Controller   : LecturerAttendanceWeekController::createOnlineWeek L.63
+       UI link      : resources/views/lecturer/attendance-course.blade.php L.90+
+       Purpose      : retroactively flag a week as "online" + open the
+                      rep/lecturer roll-call form for that week so EVERY
+                      enrolled student is bulk-marked manually.
+
+B.4  Online-week (rep) — `POST /dashboard/class-attendance/course/{course}/online-week`
+       Controller   : ClassRepController::createOnlineWeek L.2264
+       UI form      : resources/views/classrep/attendance-course.blade.php L.35-56
+       — Rep counterpart of B.3.
+
+>>> The feature you want REMOVED is B.3 + B.4. The feature you want REDESIGNED is B.1's 'online' path.
+
+================================================================================
+SECTION C — DATABASE SCHEMA (CURRENT STATE)
+================================================================================
+
+C.1  Table  attendance_sessions
+       Created 2025_03_19_100002.  Columns evolved across 14 migrations.
+
+       Online-related columns currently present:
+         mode             varchar              ('online' is a valid value)
+         online_submode   varchar(16) NULL      added 2026_06_08_200000
+         session_code     varchar(48)           pre-existing — long-lived,
+                                                 CODE shaped like "CSC101-4821"
+         qr_token         varchar              pre-existing — long-lived
+         expires_at       datetime             session-level expiry
+
+       All other columns (location_lat, location_lng, gps_accuracy,
+       attendance_range_m, allowed_wifi_ssid, etc.) STAY NULL on an online
+       session — no migration cleanup needed.
+
+C.2  Table  attendance_weeks
+       Online-related columns currently present (all from 2026_06_08_080000):
+         is_online        boolean DEFAULT 0    (the "this week was online" flag)
+         online_platform  varchar(60) NULL     ("Zoom", "Meet", "Teams")
+         online_note      varchar(500) NULL    ("Make-up class — Topic 4")
+
+       These three columns are SET BY:
+         (a) ClassRepController::openInstantSession (online live-session path),
+         (b) ClassRepController::createOnlineWeek   (rep online-week button),
+         (c) LecturerAttendanceWeekController::createOnlineWeek
+                                                    (lecturer online-week button),
+         (d) LecturerAttendanceWeekController::rollCall
+                                                    (lecturer bulk roll-call).
+       — Per your spec ALL FOUR set-sites must be removed (so the columns
+         become orphaned). See Section J for the deprecation plan.
+
+C.3  Table  attendances
+       No mode-specific columns. Mode is inferred from the joined
+       AttendanceSession. Reports / exports do NOT include mode at all
+       (verified: app/Exports/AttendanceSessionRecordsExport.php and
+       resources/views/pdf/attendance-records.blade.php contain no
+       reference to ->mode or attendance_mode).
+
+C.4  New table required by your spec
+       online_session_codes
+         id                bigint PK
+         session_id        FK -> attendance_sessions.id (cascadeOnDelete)
+         code              varchar(8)   (or whatever length you settle on)
+         starts_at         datetime
+         expires_at        datetime
+         created_at        timestamp
+
+       Indexes the rolling-code lookup will need:
+         INDEX (session_id, expires_at)          — current code lookup
+         INDEX (code, expires_at)                — student submission lookup
+         (do NOT make code unique globally — same 4-digit code may recur
+          in a different session minutes later)
+
+================================================================================
+SECTION D — ATTENDANCE VALIDATION PIPELINES (HOW MARKING WORKS PER MODE)
+================================================================================
+
+D.1  Web (Blade) marking — AttendanceController::mark
+       L.179+  Common entry. For each mode:
+         location  -> verifyLocation() within geofence
+         qr        -> verifyQrPayload() — SecureQrToken signed payload check
+         hybrid    -> both
+         wifi      -> matches session->allowed_wifi_ssid
+         online    -> CURRENTLY: never enters this path. AttendanceController
+                      simply does not handle 'online'. The online path goes
+                      through the SEPARATE OnlineAttendanceController.
+
+D.2  Mobile (Flutter) marking — Api/AttendanceController::markAttendance
+       L.164  blocks if mode=qr|hybrid but $settings->enable_qr === false.
+       L.168  requires `qr_code` body field when requiresQrProof().
+       L.625  bails early when ! requiresLocation().
+       — Same set of helpers; same blind spot for 'online'.
+
+D.3  Offline sync — AttendanceOfflineSyncService::sync
+       L.102  re-validates wifi SSID for queued offline marks.
+       L.117  re-validates QR signature for queued offline marks.
+       — Online sessions have no offline-sync semantics today; the existing
+         OnlineAttendanceController only accepts realtime marks.
+
+D.4  Existing online marking — OnlineAttendanceController
+       submitQr   (line 74)    — decodes student-uploaded QR screenshot,
+                                  verifies against session_id + SecureQrToken
+                                  OR raw qr_token.
+       submitCode (line 103)   — uppercase trim + hash_equals against
+                                  session->session_code (currently the
+                                  long-lived "CSC101-4821" code, NOT a
+                                  rolling code).
+       markCommon (line 125)   — idempotent insert into attendances, with
+                                  AuditLogService::MARK_CREATED audit row.
+
+D.5  Resolver — AttendanceSession::resolveForMarking (line 202)
+       Mode-blind: returns the session as long as is_active + within window
+       (or canBeMarkedByClassRep). The new online flow can reuse this.
+
+================================================================================
+SECTION E — APIs (FLUTTER + WEB CONTRACT SURFACE)
+================================================================================
+
+E.1  /api/sessions/active (Flutter primary live-session feed)
+       Controller : Api/SessionController::active L.20+
+       Builder    : ActiveSessionListBuilder::isUsableActiveSession L.16
+                    — mode-blind; online sessions ARE returned.
+       Formatter  : FlutterSessionFormatter::format L.26 — REMAPS unknown
+                    modes to 'qr'. Result: a Flutter client receiving an
+                    online session sees mode='qr' and would try to scan a
+                    QR that doesn't exist.
+       Implication for new design:
+         (a) Easiest: extend the FlutterSessionFormatter allow-list to
+             include 'online' so Flutter sees the real mode and shows
+             "open this session on the web" instead of pretending it's QR.
+         (b) Safest for the deployed Flutter APK (which DOES NOT know
+             'online'): leave the remap to 'qr' OR change to skip online
+             sessions entirely in the active-list — students would still
+             discover the session via web.
+
+E.2  /api/attendance (Flutter mark)
+       Already declines online sessions implicitly: it requires either
+       qr_code (qr/hybrid) or location (location/hybrid) or wifi SSID
+       (wifi). None of these match an online session, so the call would
+       422 today. New design: same. Online stays web-only on submission.
+
+E.3  /api/v1/sessions/active and /api/v1/auth/login
+       Same shape via the same FlutterSessionFormatter — no extra work
+       required beyond E.1's decision.
+
+E.4  /api/attendance/{session}/export/(csv|excel|pdf)
+       Mode-agnostic. No changes needed — online attendances render
+       identically.
+
+================================================================================
+SECTION F — REP / LECTURER / ADMIN UI COMPONENTS TODAY
+================================================================================
+
+F.1  Open-session form  — resources/views/classrep/dashboard.blade.php
+       L.85-306 (the "Open Session" panel).
+       Form fields:
+         course_id           required
+         mode                hidden input, set by JS to forced-mode OR
+                             'online' (when toggle ticked)
+         online_submode      qr|code|both (radio, online-only)
+         online_platform     string, optional (online-only)
+         online_note         string, optional (online-only)
+         duration_minutes    5-480
+         week_number         optional, auto if blank
+         venue_id            optional, overrides default
+         lecturer_status     present|absent
+         attendance_range_m  10-500
+         location_lat,
+         location_lng        from device GPS / course default / manual
+         allowed_wifi_ssid   wifi-only
+       JS toggle (L.1214-1256, applyOnlineToggle):
+         - on ticking "session-online-toggle":
+             modeSelect.value = 'online'
+             onlineSection visible (sub-mode + platform + note)
+             locationSection hidden
+             onlineFields no longer disabled
+         - on un-ticking:
+             modeSelect.value = inPersonForcedMode (the institution's
+                                                    locked-in mode)
+             onlineSection hidden + fields disabled
+             locationSection visible
+
+F.2  Active-session card (rep dashboard)
+       L.362-410: when mode === 'online' renders an indigo panel showing
+       the session_code + a "Download QR" button + a "Copy student link"
+       that resolves to route('web.attendance.online.show', course).
+       L.413-417: when mode in (qr,hybrid) renders the QR link.
+       L.418:     a generic "Form" link to web.attendance.form (broken
+                  for online — see Section G).
+
+F.3  Online-week panel (rep) — resources/views/classrep/attendance-course.blade.php
+       L.35-56: form "Open online week", POSTs to
+                dashboard.class-attendance.online-week.create.
+       L.176-181: per-week "Online · Zoom" badge driven by is_online +
+                  online_platform.
+       L.527-537: per-week editable platform + note inputs.
+
+F.4  Online-week panel (lecturer) — resources/views/lecturer/attendance-course.blade.php
+       L.86-93:  per-week "Online · Zoom" badge.
+       L.232-250: per-week editable platform + note inputs.
+
+F.5  Student-facing online page — resources/views/attendance/online.blade.php
+       The shared landing page for QR-screenshot upload OR manual code
+       entry. Used today by OnlineAttendanceController::show.
+
+F.6  Generic student attendance form — resources/views/attendance/form.blade.php
+       Renders for ALL non-online sessions. Per the prior conversation it
+       has NO online branch — if a student lands on it with an online
+       session, the form is in a broken state. (Out of scope of this
+       feature unless we explicitly add the redirect.)
+
+================================================================================
+SECTION G — EXISTING "ONLINE WEEK CLASS" FEATURE INVENTORY (TO BE REMOVED)
+================================================================================
+
+The "Online Week Class" feature is the LECTURER-/REP-DRIVEN bulk roll-call
+flow, NOT the live online session. Both must be removed per your spec.
+
+G.1  Routes (routes/web.php)
+       L.195  POST courses/{course}/online-week  (lecturer)
+                  -> LecturerAttendanceWeekController::createOnlineWeek
+                  name: dashboard.teaching.courses.online-week.create
+       L.254  POST /class-attendance/course/{course}/online-week  (rep)
+                  -> ClassRepController::createOnlineWeek
+                  name: dashboard.class-attendance.online-week.create
+
+G.2  Controllers
+       app/Http/Controllers/LecturerAttendanceWeekController.php
+         L.63-101   createOnlineWeek()                         [REMOVE]
+         L.84-96    is_online/online_platform/online_note set [REMOVE]
+         L.296-300  same trio set inside rollCall (markOnline) [DECIDE]
+       app/Http/Controllers/ClassRepController.php
+         L.2264-2300 createOnlineWeek()                        [REMOVE]
+         L.2208-2213 markOnline branch in synthetic-week path  [DECIDE]
+
+G.3  Views
+       resources/views/classrep/attendance-course.blade.php
+         L.35-56    "Open online week" form                    [REMOVE]
+         L.176-181  "Online · Platform" badge per week          [REMOVE]
+         L.520-540  Per-week editable platform/note inputs      [REMOVE]
+       resources/views/lecturer/attendance-course.blade.php
+         L.86-93    "Online · Platform" badge per week          [REMOVE]
+         L.230-250  Per-week editable platform/note inputs      [REMOVE]
+
+G.4  Model
+       app/Models/AttendanceWeek.php
+         fillable[]:  is_online, online_platform, online_note   [REMOVE]
+         casts[]:     is_online => boolean                       [REMOVE]
+         booted():    attribute-strip safety for missing columns [REMOVE]
+         isOnline():  helper                                     [REMOVE]
+
+G.5  Schema helpers
+       app/Support/SchemaFeatures.php
+         hasAttendanceWeeksOnlineFlag()                          [REMOVE]
+
+G.6  Database
+       2026_06_08_080000_add_online_to_attendance_weeks_table.php
+         Already shipped in production (per Shell A). Adding a new
+         migration that DROPS the three columns is irreversible —
+         decide whether to keep the columns dormant or drop them.
+         Recommended: keep them dormant in this feature; ship a follow-
+         up "deprecated columns cleanup" migration after observing
+         that nothing reads them anymore.
+
+G.7  Open question — the rep's CURRENT online live-session flow
+     (B.1 with mode='online') ALSO sets the week's is_online + platform
+     + note (ClassRepController L.964-973). Removing the "Online Week
+     Class" feature should ALSO remove this side-effect, otherwise the
+     redesigned online session still mutates orphaned columns.
+
+================================================================================
+SECTION H — EXISTING ONLINE-SESSION CODE (TO BE REDESIGNED)
+================================================================================
+
+H.1  app/Http/Controllers/OnlineAttendanceController.php
+       Entire file (250 lines): show(), submitQr(), submitCode(),
+       markCommon(), resolveActiveOnlineSession().
+       — DELETE or rewrite. New design: keep submitCode-style endpoint
+         (POST /web/attendance/{course}/online/code) but validate against
+         the rolling-code table instead of session->session_code.
+         submitQr can be removed entirely (no QR upload in new design).
+
+H.2  resources/views/attendance/online.blade.php
+       The student-facing landing page. Rewrite for code-only input;
+       remove the QR screenshot uploader entirely.
+
+H.3  Rep dashboard online sub-mode UI
+       resources/views/classrep/dashboard.blade.php L.124-167
+         online_submode picker (qr/code/both)                  [REMOVE]
+         online_platform input                                 [KEEP — becomes
+                                                                 meeting_platform]
+         online_note input                                     [REMOVE — replaced
+                                                                 by meeting_link
+                                                                 (optional URL)]
+
+H.4  Rep dashboard active-session card "online" panel
+       resources/views/classrep/dashboard.blade.php L.362-410
+         session_code copy button (long-lived code)            [REPLACE with
+                                                                 rolling-code +
+                                                                 countdown
+                                                                 widget]
+         "Download QR" button                                  [REMOVE]
+         "Copy student link" button                            [KEEP]
+         allowQr / allowCode logic                             [REMOVE]
+
+H.5  Validation site for online_submode
+       ClassRepController::openInstantSession L.863                [REMOVE]
+       ClassRepController L.870-874 mode override logic            [SIMPLIFY —
+                                                                    online still
+                                                                    bypasses
+                                                                    admin-forced
+                                                                    mode]
+
+H.6  attendance_sessions.online_submode column
+       2026_06_08_200000 added it; can be dropped in the same dormant-
+       columns cleanup migration as G.6 (recommend deferring the drop
+       until the new flow is observed working).
+
+================================================================================
+SECTION I — NEW FEATURE TARGET (INTEGRATION SHAPE)
+================================================================================
+
+I.1  attendance_sessions schema additions
+       meeting_platform   ENUM/varchar(20)  ('zoom','google_meet','teams','custom')
+                          — captures your spec's option set; reuses the
+                          already-removed online_platform spirit but
+                          formalised
+       meeting_link       varchar(500) NULL — optional, free URL
+     Optional reuse (instead of adding new columns):
+       Reuse online_platform from G.6 as meeting_platform; document the
+       rename in a comment. Less ideal because that column allows freeform
+       60-char text, but it saves a migration. RECOMMEND new columns.
+
+I.2  online_session_codes (new table)
+       Definition in C.4. Suggested rotation policy lives in
+       config('attendance.online_code_rotation_seconds', 120).
+
+I.3  New rolling-code helper
+       app/Services/OnlineCodeService.php  (suggested name)
+         - currentFor(AttendanceSession): OnlineSessionCode
+             returns the active code row, generating one if none active
+         - rotateIfExpired(AttendanceSession): void
+             called on every read; if current code's expires_at <= now()
+             create a new row
+         - validate(string $submitted, AttendanceSession): bool
+             accepts the current code OR any code whose expires_at is
+             within a small "grace window" (e.g. 10s) to absorb clock skew
+
+I.4  Validation site additions
+       OnlineAttendanceController::submitCode now delegates to
+       OnlineCodeService::validate instead of comparing to session_code.
+
+I.5  Rep dashboard reading the current code
+       Rep card needs a live polling endpoint:
+         GET  /dashboard/sessions/{session}/online-code
+         200  { code: '7284', expires_at: '...', seconds_left: 95 }
+       Polled every ~5s via SSE/long-poll/setInterval. Reuses the
+       existing LiveAttendanceCache.
+
+I.6  Student page (resources/views/attendance/online.blade.php)
+       Single input box, validates against any active rolling code for
+       the session.
+
+I.7  Open-session form fields per your spec
+       Online-only fields to show:
+         course_id          (existing)
+         mode               (existing — flips to 'online')
+         duration_minutes   (existing)
+         week_number        (existing)
+         lecturer_status    (existing)
+         meeting_platform   (NEW — replaces online_platform UI)
+         meeting_link       (NEW — replaces online_note UI)
+       Online-only fields to HIDE (already wired via the existing
+       applyOnlineToggle in classrep/dashboard.blade.php L.1214-1256;
+       the JS hides locationSection — same approach works for the
+       remaining sections):
+         GPS location, lat, lng, radius, course location,
+         venue override, hybrid settings, wifi SSID, GPS anchor
+       Online-only fields to REMOVE entirely:
+         online_submode picker, online_note input
+
+I.8  Removed coupling
+       Open-session controller no longer mutates attendance_weeks
+       is_online/online_platform/online_note (because the Online Week
+       Class feature is gone; nothing reads those columns).
+
+I.9  Reports
+       No changes required. Online attendances are already
+       indistinguishable from GPS/Wi-Fi at row level. If you want a
+       "Mode" indicator the cleanest place is:
+         app/Exports/AttendanceSessionRecordsExport.php  header row
+         resources/views/pdf/attendance-records.blade.php   header cell
+       (both files currently render zero mode info; adding the mode
+       string is a 2-line change in each).
+
+================================================================================
+SECTION J — INTEGRATION PLAN (MINIMUM SAFE DIFF)
+================================================================================
+
+ORDER (smallest blast radius first):
+
+  J.1  NEW MIGRATION  add_meeting_fields_to_attendance_sessions
+         + meeting_platform  string(20) NULL  after `online_submode`
+         + meeting_link      string(500) NULL  after `meeting_platform`
+       Idempotent (Schema::hasColumn guard).
+       Production-safe: additive only.
+
+  J.2  NEW MIGRATION  create_online_session_codes_table
+         per Section C.4. Idempotent (Schema::hasTable guard).
+         Production-safe: new table only.
+
+  J.3  NEW MODEL      App\Models\OnlineSessionCode
+         fillable: session_id, code, starts_at, expires_at
+         belongsTo session()
+
+  J.4  NEW SERVICE    App\Services\OnlineCodeService
+         currentFor / rotateIfExpired / validate
+
+  J.5  REWRITE        app/Http/Controllers/OnlineAttendanceController.php
+         - delete submitQr() entirely
+         - rewrite submitCode() to delegate to OnlineCodeService::validate
+         - update show() to render the new code-only view
+         - keep resolveActiveOnlineSession() as-is
+
+  J.6  REWRITE        resources/views/attendance/online.blade.php
+         single code input, validation feedback. QR uploader removed.
+
+  J.7  NEW CONTROLLER METHOD  rep code-polling endpoint
+         ClassRepController::onlineCode(Session $session)
+           returns { code, expires_at, seconds_left, generated_at }
+         Route: GET /dashboard/sessions/{session}/online-code
+                middleware: auth (rep), class.access if Phase 1 wired
+
+  J.8  REWRITE        resources/views/classrep/dashboard.blade.php
+         L.124-167 (online sub-section):
+           - remove online_submode radios
+           - keep meeting_platform (was online_platform) — change to
+             <select> with Zoom/Meet/Teams/Custom
+           - replace online_note with meeting_link (URL input,
+             optional, type="url" or string)
+         L.362-410 (active-session online panel):
+           - replace session_code display with rolling-code widget
+             (polls /dashboard/sessions/{session}/online-code every 5s,
+             shows COUNTDOWN until expires_at)
+           - remove "Download QR" button
+           - keep "Copy student link"
+         L.1214-1256 (applyOnlineToggle JS):
+           - keep the toggle structure; just point at the new fields
+         L.108 (hidden mode input):
+           - unchanged
+
+  J.9  REWRITE        ClassRepController::openInstantSession (L.825+)
+         - remove 'online_submode' validation (L.863)
+         - remove 'online_note' validation (L.865)
+         - rename 'online_platform' validation to 'meeting_platform'
+           with 'nullable|in:zoom,google_meet,teams,custom'
+         - add 'meeting_link' validation 'nullable|url|max:500'
+         - remove the lines that set is_online/online_platform/online_note
+           on the week (L.964-973) — Online Week Class is gone
+         - keep the $isOnline bypass-admin-forced-mode logic (L.870-871)
+
+  J.10 REMOVE         the Online Week Class feature
+         - routes/web.php L.195 (lecturer) + L.254 (rep)            [delete]
+         - LecturerAttendanceWeekController::createOnlineWeek L.63-101 [delete]
+         - LecturerAttendanceWeekController::rollCall:
+             remove markOnline branch L.296-300 ONLY; KEEP rollCall
+             (it's the lecturer's general roll-call, used for in-person
+              make-up too — out of scope for this feature)
+         - ClassRepController::createOnlineWeek L.2264-2300         [delete]
+         - ClassRepController L.2208-2213 markOnline branch         [delete]
+         - resources/views/classrep/attendance-course.blade.php
+             L.35-56 (form), L.176-181 (badge), L.520-540 (inputs)  [delete]
+         - resources/views/lecturer/attendance-course.blade.php
+             L.86-93 (badge), L.230-250 (inputs)                    [delete]
+         - app/Models/AttendanceWeek.php
+             is_online/online_platform/online_note in fillable/casts/
+             booted/isOnline()                                       [delete]
+         - app/Support/SchemaFeatures.php
+             hasAttendanceWeeksOnlineFlag()                          [delete]
+         - DO NOT drop the columns yet (keep dormant; deferred
+           cleanup migration). Rationale: production rows may still
+           have is_online=true values; reading them is harmless once
+           no PHP code references them.
+
+  J.11 FLUTTER COMPATIBILITY DECISION
+         FlutterSessionFormatter L.26 remaps 'online' -> 'qr' today.
+         For the new design, RECOMMEND CHANGING the allow-list to:
+           ['qr', 'location', 'hybrid', 'wifi', 'online']
+         so Flutter sees the real mode and can render "open on web"
+         instead of trying to scan a non-existent QR. Risk: the
+         deployed APK may crash on an unknown mode string. Mitigation:
+         we can audit the Flutter codebase first OR leave the remap
+         in place (which means Flutter SHOWS the session as qr-mode
+         and would 422 on attempt — student then turns to web).
+         I LEAVE THIS DECISION TO YOU.
+
+  J.12 REPORTS
+         No required changes per your spec ("appear exactly like
+         GPS/WiFi attendance"). If you want a mode indicator added
+         to exports/PDF, add it as a 2-line follow-up to:
+           app/Exports/AttendanceSessionRecordsExport.php
+           resources/views/pdf/attendance-records.blade.php
+
+================================================================================
+SECTION K — RISK MATRIX FOR THE PROPOSED CHANGES
+================================================================================
+
+  Risk                                            Severity   Mitigation
+  ----------------------------------------------  --------   --------------------
+  Removing Online Week Class breaks existing      MEDIUM     Inspect for
+  production data references                                  remaining readers
+                                                              before final
+                                                              commit. Columns
+                                                              stay dormant.
+  Flutter APK doesn't know 'online' mode          MEDIUM     Keep FlutterSession
+                                                              Formatter remap OR
+                                                              audit APK first.
+  Rolling-code rotation cron is not running       HIGH       The rotation is
+  on cPanel                                                   LAZY (next-read
+                                                              triggers rotate) so
+                                                              cron is not
+                                                              required. Document
+                                                              this explicitly.
+  Code collision (two simultaneous online         LOW        Codes are 4-digit
+  sessions might generate the same code)                     and SCOPED PER
+                                                              session_id during
+                                                              lookup. No global
+                                                              uniqueness needed.
+  Student page submission throttle                LOW        Reuse existing web
+                                                              throttle middleware
+                                                              on the POST route.
+  Idempotent insert (already implemented in       NONE       Reused from existing
+  OnlineAttendanceController::markCommon)                    code.
+
+================================================================================
+SECTION L — EXPLICIT NON-GOALS (THINGS THIS FEATURE WILL NOT TOUCH)
+================================================================================
+
+  - app/Models/AttendanceSession.php helpers
+      requiresLocation, requiresQrProof, isWifiMode — unchanged
+      booted() events (saving/created) — unchanged
+      session_code generation (CSC101-XXXX) — unchanged (still used
+        by other modes as a manual fallback)
+      qr_token / SecureQrToken integration — unchanged
+  - GPS, Wi-Fi, Hybrid validation pipelines — unchanged
+  - Attendance exports (CSV/Excel/PDF) — unchanged
+  - resources/views/attendance/form.blade.php — unchanged for in-person modes
+    (the prior "form does not redirect online sessions to /online" issue
+    is separate; you can decide to add the redirect as a 3-line fix or
+    keep relying on the rep-shared link)
+  - Phase 1 security commits — unchanged (this feature does not touch
+    anything in P1.T01-P1.T20)
+  - Admin portal session form (admin/portal.blade.php) — unchanged
+    (online mode is not exposed there today, and your spec doesn't say
+    to expose it)
+  - /api/sessions/active mode-blind list — unchanged (online sessions
+    keep appearing, formatter-remap decision per J.11)
+
+================================================================================
+SECTION M — OPEN QUESTIONS FOR YOU BEFORE I START CODING
+================================================================================
+
+  M.1  Rolling code length / charset
+         Your spec example uses 4 digits ("7284"). Confirm:
+           4 digits 0-9 (10000 combinations — ok for 2-min rotation)
+           OR 6 chars alphanumeric (more entropy, harder to mistype)
+
+  M.2  Rotation interval
+         Your spec defaults to 2 minutes. Make it configurable in
+         config('attendance.online_code_rotation_seconds', 120)?
+
+  M.3  Grace window
+         When a code rotates, students mid-submit on the OLD code
+         may fail. Common pattern: accept any code that expired within
+         the last N seconds (default 10s). OK?
+
+  M.4  Flutter strategy (J.11)
+         (a) Keep formatter remap (Flutter sees mode='qr', will 422 on
+             submit — student turns to web)
+         (b) Add 'online' to formatter allow-list AND audit Flutter
+             APK for safe handling first
+         (c) Skip online sessions in /api/sessions/active entirely
+         Which one?
+
+  M.5  Dormant-column cleanup
+         Defer dropping is_online/online_platform/online_note/online_submode
+         to a follow-up migration after a soak period, OR drop them in
+         the same migration set?
+
+  M.6  Rep's manual "share code" UX
+         Your spec says "Rep manually shares code in Zoom, Meet or Teams
+         chat". Do you want:
+           (a) Just COPY button (rep pastes themselves)
+           (b) ALSO render a "Open in Zoom/Meet/Teams" deep link when
+               meeting_link is set
+           Both?
+
+  M.7  Should the open-session form remember the LAST chosen
+         meeting_platform per (rep, course) for convenience?
+
+================================================================================
+END OF INSPECTION REPORT. No files modified. No commits created.
+Awaiting your answers to M.1–M.7 (or a "go with defaults") before any code.
+================================================================================

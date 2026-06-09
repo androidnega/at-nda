@@ -1,0 +1,522 @@
+================================================================
+INSPECTION REPORT — ATTENDANCE MAP
+================================================================
+Scope          : Historical Attendance Intelligence Map
+Audience       : Owner / Principal architect review
+Branch         : phase1-throttle-only
+Codebase target: shared cPanel hosting (low CPU, low RAM, low DB
+                 budget, thousands of attendance rows)
+Goal           : ground-truth review of what exists today BEFORE any
+                 implementation, so the redesign can integrate into
+                 the current architecture (not parallel to it).
+
+----------------------------------------------------------------
+1. CURRENT MAP PAGE — WHAT EXISTS
+----------------------------------------------------------------
+
+Route          : GET /dashboard/attendance-map  (name: dashboard.attendance-map)
+Access         : class rep only
+                 (registered inside the classrep route group in
+                  routes/web.php:229; no admin / lecturer / student
+                  variant exists)
+Controller     : App\Http\Controllers\ClassRepController::attendanceMap
+                 — file: app/Http/Controllers/ClassRepController.php:626
+View           : resources/views/classrep/attendance-map.blade.php
+Map library    : Leaflet 1.9.4 (CDN, unpkg) + CARTO Voyager tiles
+                 (OpenStreetMap data). No Google Maps usage.
+                 No marker-cluster plugin loaded.
+
+What the page renders today
+---------------------------
+1. A header with a count of pins for the selected window.
+2. A simple time-window selector with hard-coded buttons
+   [7d / 14d / 30d / 90d]. The selector posts ?days=... and reloads
+   the whole page each time.
+3. Mode legend chips (Location / QR / Hybrid / Wi-Fi).
+4. Course filter chips — purely client-side; toggles marker
+   visibility but cannot fetch new data.
+5. A 70vh Leaflet map. Markers + course-anchor circles are
+   server-rendered into the HTML and serialised straight into JS
+   via `@json($attendanceMapPoints)` and `@json($courseAnchors)`.
+
+Cycle today (per page request)
+------------------------------
+  classrep open page
+        │
+        ▼
+  ClassRepController::attendanceMap()
+        │
+        ├── buildAttendanceMapPoints(): eager-load student + course
+        │       + session relations, take up to 500 rows, return
+        │       a Collection of arrays
+        │
+        └── buildCourseAnchors(): fetch every rep-accessible course
+                that has lat/lng, return array of anchors
+        │
+        ▼
+  Blade renders the whole result into @json(...) inside the page
+        │
+        ▼
+  Leaflet boots, drops every marker individually onto the map
+
+Hard-coded behaviour
+--------------------
+  app/Http/Controllers/ClassRepController.php:447
+      ->limit(500)
+  app/Http/Controllers/ClassRepController.php:440
+      ->where('attendance_time', '>=', now()->subDays(14))
+        // note: this 14d cap is INDEPENDENT of the selectable
+        // window (`$days`). The window selector only affects the
+        // pin-count headline, NOT the actual point fetch.
+  resources/views/classrep/attendance-map.blade.php:170
+      Renders every point as an individual L.marker (no clustering)
+
+Implication on shared hosting
+-----------------------------
+* Every page load runs a JOIN-heavy query that pulls 500 attendance
+  rows + 500 student rows + 500 course rows + 500 session rows.
+* The entire dataset is embedded in HTML — every kilobyte of marker
+  metadata is shipped to the browser before the page paints.
+* Course filter chips are decorative beyond client filtering; even
+  with no chip change, the server already paid for everything.
+* No marker clustering — at 500 pins in one venue, Leaflet must
+  paint 500 DOM nodes; on a low-end phone this is the single biggest
+  performance hit.
+
+----------------------------------------------------------------
+2. ATTENDANCE STORAGE — WHAT EXISTS
+----------------------------------------------------------------
+
+Tables in scope
+---------------
+
+  attendances
+  -----------
+  id                              bigint PK
+  student_id                      FK students
+  course_id                       FK courses
+  attendance_session_id           FK attendance_sessions (nullable on
+                                  some legacy rows)
+  attendance_week_id              FK attendance_weeks (nullable)
+  attendance_time                 timestamp
+  status                          string ('present', 'late', 'absent', ...)
+  check_in_time                   timestamp (nullable)
+  check_out_time                  timestamp (nullable)
+  time_spent_seconds              int (nullable)
+  synced                          boolean
+  lat                             DECIMAL(10,7) (nullable)
+  lng                             DECIMAL(10,7) (nullable)
+  qr_code                         text (nullable)
+  device_ip                       string (nullable)
+  device_id                       string (nullable)
+  user_agent                      string (nullable, schema-gated)
+  marked_manually_by_id           FK (nullable, schema-gated)
+  manual_reason                   string (nullable)
+  marked_manually_at              timestamp (nullable)
+  marked_manually_by_lecturer_id  FK (nullable, schema-gated)
+  device_fingerprint              string (nullable, schema-gated)
+  client_meta                     json (nullable, schema-gated)
+  risk_score                      smallint (nullable, schema-gated)
+  risk_level                      string (nullable, schema-gated)
+  risk_reasons                    json (nullable, schema-gated)
+  created_at / updated_at         timestamps
+
+  Existing indexes
+  ----------------
+  - PK(id)
+  - FK(student_id), FK(course_id), FK(attendance_session_id),
+    FK(attendance_week_id)
+  - INDEX (student_id, attendance_session_id)
+                                       — attendances_student_session_idx
+  - INDEX (course_id)                  — attendances_course_id_idx
+  - INDEX (attendance_session_id, device_fingerprint)
+                                       — attendances_session_dfp_idx
+  - INDEX (device_fingerprint)         — attendances_dfp_idx
+  - INDEX (risk_level)                 — attendances_risk_level_idx
+  - UNIQUE (student_id, attendance_session_id)
+
+  NOT YET INDEXED (relevant to map work)
+  --------------------------------------
+  - attendance_time                                ← used in every map fetch
+  - (attendance_session_id, attendance_time)       ← session-scoped history
+  - (lat, lng)                                      ← required for viewport
+                                                     bounding-box queries
+
+  attendance_sessions
+  -------------------
+  id                              bigint PK
+  course_id                       FK courses
+  class_id                        FK classes (schema-gated)
+  attendance_week_id              FK attendance_weeks
+  mode                            string ('location'|'qr'|'hybrid'|'wifi'|'online')
+  is_active                       boolean
+  attendance_mode                 string ('instant'|'checkin_checkout')
+  checkout_enabled                boolean
+  location_lat                    DECIMAL(10,7) (nullable)  ← anchor
+  location_lng                    DECIMAL(10,7) (nullable)  ← anchor
+  gps_accuracy                    float
+  attendance_range_m              int (nullable)            ← geofence radius
+  session_token / qr_token        strings
+  start_time / end_time           timestamps
+  expires_at                      timestamp
+  lecturer_id / venue_id          FKs
+  allowed_wifi_ssid               string
+  session_code                    string
+  meeting_platform / meeting_link strings (online mode)
+  created_at / updated_at         timestamps
+
+  No fields exist today for cached aggregates (attendance_count,
+  average / min / max distance). These would have to be computed on
+  every request — which is exactly what the spec wants us to avoid.
+
+----------------------------------------------------------------
+3. DISTANCE CALCULATION — HOW IT WORKS TODAY
+----------------------------------------------------------------
+
+  - Implementation: haversine in PHP
+    app/Http/Controllers/AttendanceController.php:734
+    private function distance(float $lat1,$lng1,$lat2,$lng2): float
+    (Earth radius 6,371,000 m, returns metres.)
+
+  - Called for VALIDATION ONLY on every mark request, three times
+    in `mark()` (location, hybrid, check-in / checkout):
+        - L.361 (hybrid mode)
+        - L.387 (location mode)
+        - L.491 (checkout-range check)
+      and once in `verify()` at L.155.
+
+  - In every one of those call sites, the result is used to gate
+    a 200/422 response, then discarded. It is NEVER stored.
+
+  - At marker-render time on the map page, distance to the anchor
+    is RECOMPUTED in JavaScript inside the client — except today
+    there's no such computation at all; the map UI doesn't surface
+    distance to the user. So the data is implicitly lost.
+
+  Cost: O(N) haversine + sin/cos/atan2 calls per page render is
+  the single hottest CPU cycle if you decide to surface distance
+  later. The spec correctly demands "calculate once, store, never
+  recompute." Today we calculate once and immediately drop it.
+
+----------------------------------------------------------------
+4. MARK-PERSISTENCE BUG (DIRECTLY BLOCKS THE NEW FEATURE)
+----------------------------------------------------------------
+
+  Even though the schema has `attendances.lat` and `attendances.lng`
+  since 2026-03-19, the **web mark flow does not persist them**:
+
+  app/Http/Controllers/AttendanceController.php
+      L.452  Attendance::create([... no lat/lng ...])   (check-in branch)
+      L.567  Attendance::firstOrCreate([... no lat/lng ...]) (instant branch)
+
+  The API path DOES persist them:
+      app/Http/Controllers/Api/AttendanceController.php
+          L.253  Attendance::create([... 'lat'=>..., 'lng'=>... ...])
+          L.326  Attendance::firstOrCreate([... 'lat'=>..., 'lng'=>... ...])
+
+  And the offline sync path persists them via the payload it
+  receives:
+      app/Services/AttendanceOfflineSyncService.php  L.148
+
+  Consequence today
+  -----------------
+  Every web-marked row (which is the dominant path now that the
+  rep dashboard pushes students through the Blade form) has
+  lat = NULL / lng = NULL. The attendance map only shows rows
+  marked via the Flutter app + offline-sync — i.e. a tiny minority.
+  This is the silent reason the map looks "empty" even on a
+  large class.
+
+  This bug MUST be fixed as part of the map redesign, otherwise
+  none of the new work produces visible data.
+
+----------------------------------------------------------------
+5. WHAT THE NEW SPEC ASKS FOR vs WHAT EXISTS
+----------------------------------------------------------------
+
+   Spec requirement                          | Status today
+   ------------------------------------------|--------------------------
+   Permanent location storage                | ✗ Web path drops lat/lng
+                                             |   (Section 4 bug)
+   distance_from_anchor stored once          | ✗ Computed, then discarded
+   Map shows current + historical sessions   | ◐ Has 14d ceiling
+                                             |   regardless of selector
+   Course / Session / Student / Date /       | ◐ Only course filter, only
+   Mode filters                              |   on client side
+   Anchor + radius circle per session        | ◐ Anchor circles drawn per
+                                             |   COURSE (one per course),
+                                             |   not per session
+   Marker colours (green/yellow/red)         | ✗ Tinted by mode, not by
+                                             |   distance
+   Session summary cards (count, avg/min/max)| ✗ Not computed anywhere
+   Calculate aggregates ONCE on close        | ✗ No materialised summary
+   Viewport-based marker loading             | ✗ Whole result embedded
+                                             |   in initial HTML
+   Marker clustering                         | ✗ Individual markers only
+   Lazy / async marker fetch                 | ✗ Synchronous server render
+   Minimal API payload                       | ✗ Embeds full course names,
+                                             |   course codes, mode etc.
+                                             |   for every pin
+   Indexes for fast queries                  | ◐ Has session + course +
+                                             |   fingerprint indexes;
+                                             |   missing attendance_time,
+                                             |   (lat,lng), and
+                                             |   (session_id, marked_at)
+   GPS validation unchanged                  | ✓ The spec explicitly says
+                                             |   do not touch it; we won't
+
+----------------------------------------------------------------
+6. PERFORMANCE RISK MAP (current page on production traffic)
+----------------------------------------------------------------
+
+Worst case for a single page load today, assuming a rep who teaches
+5 courses across one class with 60 students and ~30 sessions held
+in the last fortnight (~1800 rows): the controller fetches a
+single 500-row chunk regardless of class size; the actual hot
+cost is:
+
+  - 4 JOINs (student, course, session, attendance_week) emitted
+    by Eloquent eager-load.
+  - PHP collection .map() over 500 rows constructing arrays.
+  - The whole list is encoded into the HTML response (typically
+    50-150 KB of inline JSON for a busy class).
+  - Browser parses + boots Leaflet + drops 500 DOM-backed markers.
+
+On a low-end Android over 3G this is multi-second to first
+interaction. The query cost itself is small, but at scale across
+many reps polling at once it is one of the heavier endpoints in
+the app.
+
+----------------------------------------------------------------
+7. PROPOSED REDESIGN — INTEGRATE, DO NOT DUPLICATE
+----------------------------------------------------------------
+
+Design pillars (mirrors the spec):
+  - calculate distance ONCE at write-time, store it
+  - calculate session aggregates ONCE on close, cache them
+  - render markers lazily via small JSON, NOT inline HTML
+  - serve viewport queries from cheap composite indexes
+  - cluster on the client
+  - reuse the existing attendances + attendance_sessions tables;
+    keep new schema to the smallest viable surface
+
+SCHEMA — minimum-viable additions
+---------------------------------
+
+  Migration A — `attendances.distance_from_anchor`
+     - SMALLINT UNSIGNED, NULLABLE
+       (NULL when the mark isn't a GPS-anchored mode, or coords
+        were absent on the request — pre-existing rows stay NULL
+        forever, which is correct)
+     - Reuses the existing row. We do not need a parallel
+       `attendance_location_logs` table because every column the
+       spec asks for already exists on `attendances`:
+            attendance_id          → attendances.id
+            session_id             → attendances.attendance_session_id
+            student_id             → attendances.student_id
+            latitude               → attendances.lat
+            longitude              → attendances.lng
+            distance_from_anchor   → NEW column
+            marked_at              → attendances.attendance_time
+            created_at             → attendances.created_at
+
+  Migration B — composite indexes on `attendances`
+     - (attendance_session_id, attendance_time)
+     - (attendance_time)
+     - (lat, lng)              ← drives viewport WHERE BETWEEN
+
+  Migration C — `attendance_session_summaries`
+     - id, attendance_session_id (UNIQUE FK)
+     - attendance_count, present_count
+     - average_distance (INT, metres), min_distance, max_distance
+     - inside_count, edge_count, outside_count
+        (≤ radius, within 10 % of boundary, outside)
+     - closed_at, refreshed_at
+     - INDEX(attendance_session_id), INDEX(closed_at)
+     Rationale: a separate small table keeps `attendance_sessions`
+     compact (no extra columns on the hot row), and it lets us
+     "warm" or "recompute" summaries without touching the parent
+     session row at all. Each row is ~80 bytes; 10 000 sessions =
+     <1 MB total. No risk of bloat.
+
+CODE — minimum-viable surface
+-----------------------------
+
+  Service: app/Services/AttendanceLocationService.php
+     - distance(lat1,lng1,lat2,lng2): pure function (haversine,
+       same formula already used by AttendanceController::distance)
+     - colorFor(distance, radius): "in" / "edge" / "out"
+
+  Service: app/Services/AttendanceSessionSummaryService.php
+     - rebuild(AttendanceSession $s): aggregates over the existing
+       attendances rows and UPSERTs the summary. Cheap (single
+       GROUP BY) and only runs when:
+          a) a session closes (deactivateExpiredSessions)
+          b) admin/rep forces a recompute
+          c) lazy: if a map request reads a session whose summary
+             is missing AND the session has been closed > 5 min,
+             rebuild on the fly (still single query)
+
+  Controller hook (single line each):
+     - AttendanceController::mark()  (web check-in branch)
+     - AttendanceController::mark()  (web instant branch)
+     - Api\AttendanceController::store() (both branches)
+     - AttendanceOfflineSyncService::process()
+       → add `lat`, `lng`, and pre-computed
+         `distance_from_anchor` to the create payload. Distance is
+         already calculated for validation; we just stop discarding
+         it. Net new CPU: zero.
+
+  HTTP — viewport-loading API (single endpoint):
+     GET /dashboard/attendance-map/markers
+       ?session_id=...                (optional, scopes to one session)
+       ?course_id=...                 (optional)
+       ?student_id=...                (optional)
+       ?date_from=... &date_to=...    (optional, ISO date)
+       ?mode=location|hybrid          (optional)
+       ?north=...&south=...&east=...&west=...    (viewport bounding box)
+       ?limit=500                     (hard server cap)
+     Returns: { points: [ {n,i,la,lo,d,t,c} ... ] }
+       where n=name, i=index, la=lat, lo=lng, d=distance,
+       t=marked_at iso, c=color bucket ("in"|"edge"|"out").
+     ~30 bytes per pin; 500 pins → ~15 KB.
+     Authorisation: re-uses `requireClassRep` + the existing
+     `RepCourseAccess::coursesQueryForRep` scope so a rep can
+     only see students inside their own classes.
+
+  HTTP — session summary endpoint:
+     GET /dashboard/attendance-map/sessions/{session}/summary
+       returns the cached row (or rebuilds it once).
+     Returns: { count, avg, min, max, radius, anchor:{lat,lng},
+                closest:{name,index,distance},
+                farthest:{name,index,distance} }
+
+  View:  resources/views/classrep/attendance-map.blade.php
+     - Same Leaflet boot, plus
+       Leaflet.markercluster (single CSS + JS file from unpkg,
+       ~20 KB gz, no API key, MIT licensed).
+     - The page paints in <300 ms (layout + summary skeleton +
+       map container) and fires a single fetch() for markers
+       inside the current viewport. Pan / zoom re-fetches.
+     - Filters become real <select> controls bound to the marker
+       fetch; selection changes do not reload the page, only
+       refetch markers.
+
+  Optional follow-up (not in v1): keep a `sync()` that fills
+  `distance_from_anchor` from `lat`,`lng` on existing rows when
+  the corresponding session still has an anchor — runnable as an
+  artisan command so historical rows can be backfilled on the
+  cPanel server in chunks.
+
+----------------------------------------------------------------
+8. SCHEMA CHANGE SAFETY
+----------------------------------------------------------------
+
+All three migrations are additive (no drops, no renames, no
+nullability flips on existing data). They are safe to run live on
+production. The model `Attendance::saving()` already strips
+columns that the DB doesn't have yet via `SchemaFeatures::*` checks
+— we extend that pattern for the new column so a deploy without
+`migrate --force` doesn't break writes. Same defence for the new
+summary table.
+
+----------------------------------------------------------------
+9. RISKS & MITIGATIONS
+----------------------------------------------------------------
+
+  Risk: backfill of historical lat/lng for web-marked rows.
+    → Mitigation: those rows are physically NULL, we cannot
+      recover them. Map will simply omit them. New rows will be
+      complete from the deploy onward. An optional artisan
+      `attendance:backfill-distance` can fill `distance_from_anchor`
+      for rows where lat/lng exist (mostly API path rows) without
+      touching the rest.
+
+  Risk: bounding-box query without (lat,lng) index degrades into
+    a full table scan on big tables.
+    → Mitigation: Migration B adds the index in the same deploy.
+
+  Risk: marker cluster plugin from CDN slows first paint.
+    → Mitigation: load it `defer`, after Leaflet, only when the
+      `#rep-attendance-map` node is present.
+
+  Risk: API endpoint becomes an enumeration vector for student
+    locations.
+    → Mitigation: reuse `requireClassRep` + class-scoping (already
+      in place for the existing controller methods); throttle
+      with `throttle:30,1` (30 requests / min / IP).
+
+  Risk: rep on slow 3G triggers many viewport fetches while
+    panning.
+    → Mitigation: client-side 250ms debounce on `moveend`;
+      server uses `limit` and short HTTP caching headers
+      (`Cache-Control: private, max-age=15`).
+
+----------------------------------------------------------------
+10. DEPLOY ORDER (intended for cPanel)
+----------------------------------------------------------------
+
+  Phase 1 (schema):
+     1. add `attendances.distance_from_anchor`
+     2. add composite indexes on `attendances`
+     3. create `attendance_session_summaries`
+     4. extend `SchemaFeatures` + `Attendance::saving()` guards
+     => safe to deploy without code changes; existing reads keep
+        working, writes stay correct on un-migrated DBs.
+
+  Phase 2 (write path):
+     1. `AttendanceController::mark()` web path persists lat,
+        lng, distance_from_anchor (fixes Section 4 bug)
+     2. API + offline-sync paths add `distance_from_anchor` to
+        the create payload (lat/lng already there)
+     3. `AttendanceSession::deactivateExpiredSessions()` calls
+        `AttendanceSessionSummaryService::rebuild()` after each
+        deactivation.
+     => after this deploy, all NEW rows are map-ready and all
+        CLOSING sessions have cached summaries.
+
+  Phase 3 (read path + UI):
+     1. add markers API + summary API
+     2. rewrite the Blade view to lazy-load + cluster + filter
+        by real controls
+     3. add the same map endpoint to the admin layout (optional —
+        scope decision below)
+     => UI cutover, fully reversible (delete the new view file
+        and the old behaviour returns).
+
+----------------------------------------------------------------
+11. OPEN DECISIONS (for owner approval before implementation)
+----------------------------------------------------------------
+
+  D1. Storage shape:
+      A) Reuse `attendances` + add one column `distance_from_anchor`
+         (proposed — minimum surface, no new join, fully indexed)
+      B) Create a parallel `attendance_location_logs` table as the
+         spec literally describes
+      Cost of B: ~2x storage for the same data + an extra join on
+      every map query + duplicate write path. No new capability.
+
+  D2. Summary cache location:
+      A) New `attendance_session_summaries` table (proposed —
+         doesn't bloat the hot `attendance_sessions` row, easy to
+         rebuild / drop)
+      B) Add columns directly to `attendance_sessions`
+      Cost of B: every session read pays for columns most callers
+      don't need; harder to evolve later.
+
+  D3. Page audience:
+      A) Keep map class-rep only (current behaviour). Lecturers /
+         admins not affected by this work.
+      B) Also expose to admin (`/dashboard/admin/attendance-map`)
+         + lecturer dashboards. Same controller, different scope.
+
+  D4. Historical backfill:
+      A) Ship as-is. Old rows stay un-located; only post-deploy
+         data is map-visible.
+      B) Add `php artisan attendance:backfill-distance` (chunked,
+         dry-run flag) so the existing API-marked rows get their
+         distance_from_anchor populated retroactively.
+
+----------------------------------------------------------------
+END OF REPORT
+================================================================

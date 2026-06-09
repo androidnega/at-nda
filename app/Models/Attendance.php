@@ -79,6 +79,13 @@ class Attendance extends Model
                     }
                 }
             }
+            // distance_from_anchor added by 2026_06_09_050000 (attendance
+            // map redesign). Strip the value if the column hasn't been
+            // migrated yet — the mark itself must still go through.
+            if (! \App\Support\SchemaFeatures::hasAttendancesDistanceFromAnchor()
+                && array_key_exists('distance_from_anchor', $attendance->getAttributes())) {
+                unset($attendance->attributes['distance_from_anchor']);
+            }
         });
     }
 
@@ -126,6 +133,7 @@ class Attendance extends Model
         'synced',
         'lat',
         'lng',
+        'distance_from_anchor',
         'qr_code',
         'device_ip',
         'device_id',
