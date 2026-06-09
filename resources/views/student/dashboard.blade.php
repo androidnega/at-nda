@@ -216,12 +216,16 @@
     // Card accent colours rotate per course so the carousel doesn't
     // turn into a wall of identical white cards. Borrowed from
     // Tailwind palettes that we already use elsewhere.
+    // Course-card palette. `from`/`to` drive a diagonal gradient
+    // wash on the card. Bumped from -50 → white to -100 → -50 so
+    // each course's accent colour is actually readable as a card
+    // tint instead of fading immediately to neutral.
     $cardPalette = [
-        ['from' => 'from-sky-50',     'ring' => 'ring-sky-200',     'accent' => 'text-sky-700',     'bar' => 'bg-sky-500'],
-        ['from' => 'from-emerald-50', 'ring' => 'ring-emerald-200', 'accent' => 'text-emerald-700', 'bar' => 'bg-emerald-500'],
-        ['from' => 'from-amber-50',   'ring' => 'ring-amber-200',   'accent' => 'text-amber-700',   'bar' => 'bg-amber-500'],
-        ['from' => 'from-rose-50',    'ring' => 'ring-rose-200',    'accent' => 'text-rose-700',    'bar' => 'bg-rose-500'],
-        ['from' => 'from-indigo-50',  'ring' => 'ring-indigo-200',  'accent' => 'text-indigo-700',  'bar' => 'bg-indigo-500'],
+        ['from' => 'from-sky-100',     'to' => 'to-sky-50',     'ring' => 'ring-sky-200',     'accent' => 'text-sky-700',     'bar' => 'bg-sky-500'],
+        ['from' => 'from-emerald-100', 'to' => 'to-emerald-50', 'ring' => 'ring-emerald-200', 'accent' => 'text-emerald-700', 'bar' => 'bg-emerald-500'],
+        ['from' => 'from-amber-100',   'to' => 'to-amber-50',   'ring' => 'ring-amber-200',   'accent' => 'text-amber-700',   'bar' => 'bg-amber-500'],
+        ['from' => 'from-rose-100',    'to' => 'to-rose-50',    'ring' => 'ring-rose-200',    'accent' => 'text-rose-700',    'bar' => 'bg-rose-500'],
+        ['from' => 'from-indigo-100',  'to' => 'to-indigo-50',  'ring' => 'ring-indigo-200',  'accent' => 'text-indigo-700',  'bar' => 'bg-indigo-500'],
     ];
 @endphp
 
@@ -274,7 +278,7 @@
             <div class="flex lg:grid lg:grid-cols-2 gap-3 overflow-x-auto lg:overflow-visible snap-x snap-mandatory no-scrollbar px-1 pb-2">
                 @foreach($courseSummaries as $i => $cs)
                     @php $p = $cardPalette[$i % count($cardPalette)]; @endphp
-                    <div class="snap-start shrink-0 w-[85%] sm:w-[60%] lg:w-auto rounded-2xl bg-gradient-to-br {{ $p['from'] }} to-white dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-slate-700 ring-1 {{ $p['ring'] }} dark:ring-slate-700 p-4 sm:p-5 shadow-[0_14px_28px_-12px_rgba(15,23,42,0.22),0_4px_10px_-6px_rgba(15,23,42,0.10)] sm:shadow-sm">
+                    <div class="snap-start shrink-0 w-[85%] sm:w-[60%] lg:w-auto rounded-2xl bg-gradient-to-br {{ $p['from'] }} {{ $p['to'] }} dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-slate-700 ring-1 {{ $p['ring'] }} dark:ring-slate-700 p-4 sm:p-5 shadow-[0_14px_28px_-12px_rgba(15,23,42,0.22),0_4px_10px_-6px_rgba(15,23,42,0.10)] sm:shadow-sm">
                         <div class="flex items-start justify-between gap-3 mb-3">
                             <div class="flex items-center gap-2 min-w-0">
                                 <span class="shrink-0 w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center {{ $p['accent'] }} dark:text-slate-200">
