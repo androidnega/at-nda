@@ -260,6 +260,10 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/import.json', [ClassRepController::class, 'importAttendanceJsonWeek'])->name('class-attendance.course.week.import-json');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/cancel', [ClassRepController::class, 'cancelAttendanceWeek'])->name('class-attendance.week.cancel');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/uncancel', [ClassRepController::class, 'uncancelAttendanceWeek'])->name('class-attendance.week.uncancel');
+        // Rep adds a placeholder cancelled week directly (no session
+        // was ever opened — e.g. lecturer travel, holiday). Keeps the
+        // weekly grid contiguous instead of leaving silent gaps.
+        Route::post('/class-attendance/course/{course}/weeks/add-cancelled', [ClassRepController::class, 'addCancelledWeek'])->name('class-attendance.week.add-cancelled');
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
         // Rep manually marks a student attendance with a reason.
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/manual-mark', [ClassRepController::class, 'manualMarkAttendance'])->name('class-attendance.manual-mark');

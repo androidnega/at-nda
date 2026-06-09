@@ -1610,6 +1610,16 @@ class ClassRepController extends Controller
             $classmates = collect();
         }
 
+        // Suggest the next week number + today's date as the default
+        // values for the "Add cancelled week" form, so the rep can
+        // usually submit with a single click. The view falls back to
+        // sensible defaults if these are missing.
+        $suggestedWeekNumber = ((int) ($attendanceWeeks->max('week_number') ?? 0)) + 1;
+        if ($suggestedWeekNumber < 1) {
+            $suggestedWeekNumber = 1;
+        }
+        $suggestedWeekDate = now()->toDateString();
+
         return view('classrep.attendance-course', [
             'course' => $course,
             'attendances' => $attendances,
@@ -1619,6 +1629,8 @@ class ClassRepController extends Controller
             'enrolledCount' => $enrolledCount,
             'repClassLabel' => $repClassLabel,
             'classmates' => $classmates,
+            'suggestedWeekNumber' => $suggestedWeekNumber,
+            'suggestedWeekDate' => $suggestedWeekDate,
             'dashboardRole' => 'classrep',
         ]);
     }
@@ -1717,6 +1729,76 @@ class ClassRepController extends Controller
             ->update(['is_active' => false]);
 
         return back()->with('success', 'Week '.$attendanceWeek->week_number.' marked as cancelled for this course.');
+    }
+
+    /**
+     * Class rep: create a NEW attendance week that is cancelled from
+     * the moment of creation. Used when no class met on the planned
+     * day at all (public holiday, lecturer travel, lab room closed,
+     * etc.) — there's no session to open and later cancel, so the
+     * rep records the missing slot directly. The week then shows up
+     * in the weekly grid with the "Cancelled" badge and counts
+     * toward the class's semester progress instead of leaving a gap.
+     */
+    public function addCancelledWeek(Request $request, Course $course): RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        if (! $this->repCanAccessCourse($rep, $course)) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'week_number' => 'required|integer|min:1|max:52',
+            'week_date' => 'required|date',
+            'note' => 'nullable|string|max:2000',
+        ]);
+
+        // Pin the new row to the rep's class when the schema supports
+        // it, so a shared course doesn't accidentally surface this
+        // cancellation on a sibling cohort's dashboard.
+        $classId = null;
+        if (SchemaFeatures::hasAttendanceWeeksClassId()) {
+            $repClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+            $classId = $repClassIds[0] ?? null;
+        }
+
+        // Guard against creating a duplicate week number for the same
+        // (course, class) pair. Reuses the same scoping rule as the
+        // weekly grid so the "exists" check matches what the rep sees.
+        $duplicateQuery = AttendanceWeek::query()
+            ->where('course_id', $course->id)
+            ->where('week_number', (int) $validated['week_number']);
+        if ($classId !== null && SchemaFeatures::hasAttendanceWeeksClassId()) {
+            $duplicateQuery->where(function ($q) use ($classId) {
+                $q->where('class_id', $classId)->orWhereNull('class_id');
+            });
+        }
+        if ($duplicateQuery->exists()) {
+            return back()->with('error',
+                'Week '.$validated['week_number'].' already exists for this course. '.
+                'Open that week and use "Cancel week" instead.');
+        }
+
+        $attributes = [
+            'course_id' => $course->id,
+            'week_number' => (int) $validated['week_number'],
+            'week_date' => $validated['week_date'],
+            'cancelled_at' => now(),
+            'cancelled_by' => 'rep',
+            'cancellation_note' => $validated['note'] ?? null,
+        ];
+        if ($classId !== null && SchemaFeatures::hasAttendanceWeeksClassId()) {
+            $attributes['class_id'] = $classId;
+        }
+
+        AttendanceWeek::create($attributes);
+
+        return back()->with('success',
+            'Week '.$validated['week_number'].' added as cancelled — no class was held.');
     }
 
     public function uncancelAttendanceWeek(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse

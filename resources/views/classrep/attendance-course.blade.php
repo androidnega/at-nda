@@ -72,6 +72,13 @@
         </div>
         <div class="flex items-center gap-2 shrink-0">
             <span class="text-[11px] text-gray-400">{{ $weeklyAttendees->count() }} week{{ $weeklyAttendees->count() === 1 ? '' : 's' }}</span>
+            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.add-cancelled'))
+                <button type="button" data-week-modal-open="add-cancelled-week"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 transition">
+                    <i class="fas fa-calendar-xmark text-[10px]"></i>
+                    Add cancelled week
+                </button>
+            @endif
             <button type="button" data-week-toggle-all
                     class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 hover:border-primary/40 transition">
                 <i class="fas fa-up-down-left-right text-[10px]"></i>
@@ -578,7 +585,77 @@
 </div>
 @else
 <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-4 py-10 text-center text-sm text-gray-500">
-    No teaching weeks yet for this course.
+    <p>No teaching weeks yet for this course.</p>
+    @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.add-cancelled'))
+        <p class="mt-2 text-xs text-gray-400">
+            If a planned week didn't meet (holiday, lecturer travel), you can record it directly:
+        </p>
+        <button type="button" data-week-modal-open="add-cancelled-week"
+                class="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition">
+            <i class="fas fa-calendar-xmark text-[10px]"></i>
+            Add cancelled week
+        </button>
+    @endif
+</div>
+@endif
+
+@if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.week.add-cancelled'))
+{{-- Page-level modal: record a brand-new cancelled week for this
+     course. Lives outside the per-week loop because it represents
+     a week that does not yet exist — the rep is creating a
+     placeholder for a class that never met (public holiday,
+     lecturer travel, lab closed, etc.). Reuses the same modal
+     framework as the per-week dialogs above. --}}
+<div data-week-modal="add-cancelled-week"
+     class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+     role="dialog" aria-modal="true" aria-labelledby="add-cancelled-week-title">
+    <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
+        <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
+            <div>
+                <p class="text-[10px] font-bold uppercase tracking-wider text-amber-700">Add cancelled week</p>
+                <h3 id="add-cancelled-week-title" class="text-base font-bold text-gray-900">Record a missed week</h3>
+                <p class="text-[11px] text-gray-500 mt-0.5">
+                    Use this when no class met at all — there's nothing to cancel because no session was ever opened.
+                    The week will appear in the grid with a "Cancelled" badge and won't penalise students.
+                </p>
+            </div>
+            <button type="button" data-week-modal-close
+                    class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
+                <i class="fas fa-xmark"></i>
+            </button>
+        </div>
+        <form action="{{ route('dashboard.class-attendance.week.add-cancelled', $course) }}" method="post" class="p-4 space-y-3"
+              onsubmit="return confirm('Record this week as cancelled?');">
+            @csrf
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label for="add-cancelled-week-number" class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Week number</label>
+                    <input type="number" id="add-cancelled-week-number" name="week_number" min="1" max="52" step="1" required
+                           value="{{ old('week_number', $suggestedWeekNumber ?? 1) }}"
+                           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-200 focus:border-amber-400">
+                </div>
+                <div>
+                    <label for="add-cancelled-week-date" class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Planned date</label>
+                    <input type="date" id="add-cancelled-week-date" name="week_date" required
+                           value="{{ old('week_date', $suggestedWeekDate ?? now()->toDateString()) }}"
+                           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-200 focus:border-amber-400">
+                </div>
+            </div>
+            <div>
+                <label for="add-cancelled-week-note" class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Reason (optional)</label>
+                <input type="text" id="add-cancelled-week-note" name="note" maxlength="2000"
+                       placeholder="e.g. public holiday, lecturer travel, lab room closed"
+                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-200 focus:border-amber-400">
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
+                <button type="button" data-week-modal-close
+                        class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Keep open</button>
+                <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800">
+                    <i class="fas fa-calendar-xmark text-[11px]"></i> Record cancelled week
+                </button>
+            </div>
+        </form>
+    </div>
 </div>
 @endif
 
