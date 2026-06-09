@@ -93,8 +93,15 @@
 
 {{-- The actual file input the cropper consumes. Pages don't have to
      create their own — anything with data-cropper-trigger triggers
-     a click on this one. --}}
-<input type="file" id="student-photo-cropper-source" accept="image/png,image/jpeg,image/webp" class="hidden">
+     a click on this one.
+
+     We deliberately leave `accept` permissive (image/*) rather than
+     pinning a whitelist. iOS file pickers report HEIC photos with a
+     variety of MIME types and the picker dialog hides everything
+     else; the JS below validates by attempting an actual decode and
+     surfaces a specific, friendly error when the browser can't
+     render the file (HEIC is the usual offender). --}}
+<input type="file" id="student-photo-cropper-source" accept="image/*" class="hidden">
 
 <script>
 (function () {
@@ -196,53 +203,112 @@
         fileInput.click();
     });
 
+    function fileLooksLikeHeic(file) {
+        const name = (file.name || '').toLowerCase();
+        const type = (file.type || '').toLowerCase();
+        return /\.(heic|heif|heics|heifs)$/i.test(name)
+            || type.indexOf('heic') !== -1
+            || type.indexOf('heif') !== -1;
+    }
+
+    /**
+     * Try to decode the file in a throwaway <img> tag BEFORE we
+     * commit to opening the modal. This catches files the browser
+     * can't render (iPhone HEIC is the usual culprit; CMYK JPEGs
+     * are another). On success we resolve with the blob URL; on
+     * failure we reject so the caller can show a specific message.
+     */
+    function decodeImage(file) {
+        return new Promise(function (resolve, reject) {
+            let url;
+            try { url = URL.createObjectURL(file); }
+            catch (e) { reject(new Error('createObjectURL failed')); return; }
+
+            const probe = new Image();
+            let done = false;
+            const finish = function (ok, why) {
+                if (done) return;
+                done = true;
+                probe.onload = probe.onerror = null;
+                if (ok) {
+                    resolve({ blobUrl: url, naturalWidth: probe.naturalWidth, naturalHeight: probe.naturalHeight });
+                } else {
+                    try { URL.revokeObjectURL(url); } catch (_) {}
+                    reject(new Error(why || 'decode failed'));
+                }
+            };
+            probe.onload = function () {
+                // A 0x0 image means decode failed silently (some
+                // mobile browsers do this with HEIC instead of
+                // firing onerror).
+                if (!probe.naturalWidth || !probe.naturalHeight) {
+                    finish(false, 'zero dimensions');
+                    return;
+                }
+                finish(true);
+            };
+            probe.onerror = function () { finish(false, 'image onerror'); };
+            // Some browsers need the image off-DOM but still
+            // hydrated, so we leave it free-floating and rely on
+            // onload/onerror exclusively.
+            probe.src = url;
+        });
+    }
+
     fileInput.addEventListener('change', function () {
         const file = fileInput.files && fileInput.files[0];
         if (!file) return;
 
-        if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
-            alert('Pick a JPG, PNG, or WEBP image.');
-            fileInput.value = '';
-            return;
-        }
         if (file.size > 10 * 1024 * 1024) {
             alert('Image is too large. Use one under 10 MB.');
             fileInput.value = '';
             return;
         }
 
-        // Reset any previous state.
+        // Reset any previous state before we try.
         freeBlob();
         if (cropper) { try { cropper.destroy(); } catch (_) {} cropper = null; }
 
-        // URL.createObjectURL gives us a blob URL the browser
-        // loads natively — no FileReader, no data-URL memory
-        // overhead, and no quirky `onerror` firing on otherwise
-        // valid files (which the old FileReader path was tripping
-        // on for some users).
-        try {
-            blobUrl = URL.createObjectURL(file);
-        } catch (_) {
-            alert('That image could not be opened. Try a different file.');
+        // Heuristic short-circuit: if it really is HEIC, browsers
+        // (other than Safari) won't decode it no matter what. Skip
+        // the probe and give a precise, helpful message instead.
+        if (fileLooksLikeHeic(file)) {
+            alert("That's an iPhone HEIC photo, which web browsers can't open directly.\n\nOn your iPhone: open Photos → tap the picture → Share → \"Save as File\" (choose JPEG), then upload that copy.\nOr take a screenshot of the photo and upload the screenshot.");
             fileInput.value = '';
             return;
         }
 
-        openModal();
-
-        // Initialize Cropper only AFTER the <img> reports loaded,
-        // so Cropper computes the natural dimensions correctly.
-        imgEl.onload = function () {
-            loadCropper()
-                .then(function () { initCropper(); })
-                .catch(function (err) {
-                    showError(err && err.message ? err.message : 'Could not load the image editor.');
-                });
-        };
-        imgEl.onerror = function () {
-            showError('That image could not be opened. Try a different file.');
-        };
-        imgEl.src = blobUrl;
+        // Validate by actually decoding. This is the bit that
+        // catches "browser can't render it" without flashing the
+        // modal first.
+        decodeImage(file).then(function (info) {
+            blobUrl = info.blobUrl;
+            openModal();
+            imgEl.onerror = function () {
+                // Belt-and-braces: if anything still goes wrong in
+                // the modal's <img>, surface a useful message
+                // there rather than a generic "try a different file".
+                showError('That image could not be opened by your browser. If it came from an iPhone, save it as JPEG first.');
+            };
+            imgEl.onload = function () {
+                loadCropper()
+                    .then(function () { initCropper(); })
+                    .catch(function (err) {
+                        showError(err && err.message ? err.message : 'Could not load the image editor.');
+                    });
+            };
+            imgEl.src = blobUrl;
+        }).catch(function () {
+            // Hand the user a message they can act on. The
+            // pre-probe failure is almost always either an
+            // unsupported decode (HEIC / CMYK / corrupted) or
+            // dimensions out of the browser's allowance.
+            const ext = (file.name || '').toLowerCase().match(/\.[a-z0-9]+$/);
+            const extStr = ext ? ext[0] : '';
+            const detail = extStr ? ' (file type: ' + extStr + ')' : '';
+            alert("Your browser couldn't open that picture" + detail + ".\n\nTry one of these:\n• Save the image as JPG or PNG and upload that copy.\n• On iPhone: open Photos → Share → \"Save as File\" → JPEG.\n• Or take a screenshot of the photo and upload the screenshot.");
+            fileInput.value = '';
+        });
     });
 
     modal.querySelectorAll('[data-spc-close]').forEach(function (btn) {
