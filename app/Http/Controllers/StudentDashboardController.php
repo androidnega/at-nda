@@ -396,6 +396,12 @@ class StudentDashboardController extends Controller
             report($e);
         }
 
+        // Pick the soonest upcoming class that is starting WITHIN the
+        // next hour — the mobile dashboard surfaces a live countdown
+        // for it. We compute this server-side so the view stays dumb
+        // and the JS only has to tick a timer.
+        $nextClassWithin1Hour = $this->resolveImminentClass($todaysClasses);
+
         return view('student.dashboard', compact(
             'student',
             'totalPresent',
@@ -408,8 +414,65 @@ class StudentDashboardController extends Controller
             'cancelledWeeks',
             'studentDashboardTheme',
             'courseSummaries',
-            'recentActivity'
+            'recentActivity',
+            'nextClassWithin1Hour'
         ));
+    }
+
+    /**
+     * From today's scheduled classes, return the next one that starts
+     * within the upcoming 60 minutes — used by the mobile dashboard to
+     * render a live "Starts in N min" countdown card immediately after
+     * the courses strip.
+     *
+     * Skips classes the student has already marked, and any class
+     * whose status is `live` (the live-sessions banner at the top of
+     * the dashboard already covers that case more loudly).
+     *
+     * @param  Collection<int, array<string, mixed>>  $todaysClasses
+     * @return array{course_name: string, course_code: ?string, lecturer: ?string, venue: ?string, start_iso: string, minutes_until: int}|null
+     */
+    private function resolveImminentClass(Collection $todaysClasses): ?array
+    {
+        if ($todaysClasses->isEmpty()) {
+            return null;
+        }
+
+        $now = now();
+        $cutoff = $now->copy()->addHour();
+
+        $candidate = null;
+        $candidateStart = null;
+
+        foreach ($todaysClasses as $slot) {
+            $start = $this->scheduleTimeForToday($slot['start_raw'] ?? null);
+            if ($start === null) {
+                continue;
+            }
+            if ($start->lessThan($now) || $start->greaterThan($cutoff)) {
+                continue;
+            }
+            if (in_array($slot['status'] ?? '', ['marked', 'live'], true)) {
+                continue;
+            }
+            if ($candidateStart === null || $start->lessThan($candidateStart)) {
+                $candidate = $slot;
+                $candidateStart = $start;
+            }
+        }
+
+        if ($candidate === null || $candidateStart === null) {
+            return null;
+        }
+
+        return [
+            'course_name' => (string) ($candidate['course']->course_name ?? 'Class'),
+            'course_code' => $candidate['course']->course_code ?? null,
+            'lecturer' => $candidate['lecturer'] ?? null,
+            'venue' => $candidate['venue'] ?? null,
+            'start_iso' => $candidateStart->toIso8601String(),
+            'minutes_until' => max(0, (int) ceil($now->diffInSeconds($candidateStart, false) / 60)),
+        ];
     }
 
     /**

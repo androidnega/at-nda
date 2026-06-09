@@ -225,14 +225,24 @@
     ];
 @endphp
 
-<div class="max-w-md mx-auto w-full lg:max-w-3xl space-y-5 sm:space-y-6 pb-24 lg:pb-6">
+<div class="max-w-md mx-auto w-full lg:max-w-3xl space-y-5 sm:space-y-6 pb-24 lg:pb-6 pt-safe">
 
-    {{-- ─── HEADER · avatar + greeting + bell ───────────────────────── --}}
+    {{-- ─── HEADER · avatar + greeting + bell ─────────────────────────
+         The mobile layout strips the chrome header above, so this
+         block IS the page header on phones. The avatar shows the
+         student's real profile photo (with an initials fallback) so
+         the screen feels like a native app, not a server-rendered
+         dashboard. --}}
     <div class="flex items-center justify-between gap-3 pt-1">
         <div class="flex items-center gap-3 min-w-0">
-            <div class="shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm select-none">
-                {{ $initials }}
-            </div>
+            @if($student->profileImageUrl())
+                <img src="{{ $student->profileImageUrl() }}" alt=""
+                     class="shrink-0 w-11 h-11 rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-sm select-none">
+            @else
+                <div class="shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm select-none">
+                    {{ $initials }}
+                </div>
+            @endif
             <div class="min-w-0">
                 <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Welcome back,</p>
                 <p class="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">{{ $displayName }}</p>
@@ -302,6 +312,45 @@
         <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 text-center text-sm text-slate-500 dark:text-slate-400">
             No courses linked to your class yet. Ask your rep to enrol you.
         </div>
+    @endif
+
+    {{-- ─── NEXT CLASS · live countdown (only when < 60 min away) ────
+         Sits right under the course strip per the spec. The card
+         hides itself the moment the start time hits zero (the JS
+         flips it into a "Starting now" pill briefly, then removes
+         it). The server already gated the data to within-1-hour
+         windows so this block simply renders or omits. --}}
+    @if(! empty($nextClassWithin1Hour))
+    <div id="next-class-card"
+         data-start-iso="{{ $nextClassWithin1Hour['start_iso'] }}"
+         class="rounded-2xl bg-gradient-to-br from-amber-50 to-white dark:from-amber-900/20 dark:to-slate-900 border border-amber-200 dark:border-amber-800/60 px-4 py-3.5 flex items-center gap-3">
+        <span class="shrink-0 w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+            <i class="fas fa-hourglass-start text-base"></i>
+        </span>
+        <div class="min-w-0 flex-1">
+            <p class="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-semibold">Next class</p>
+            <p class="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+                {{ $nextClassWithin1Hour['course_name'] }}
+                @if($nextClassWithin1Hour['course_code'])
+                    <span class="text-slate-400 dark:text-slate-500 font-normal">· {{ $nextClassWithin1Hour['course_code'] }}</span>
+                @endif
+            </p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                @if(! empty($nextClassWithin1Hour['lecturer']))
+                    <span class="inline-flex items-center gap-1"><i class="fas fa-chalkboard-teacher text-[10px]"></i>{{ $nextClassWithin1Hour['lecturer'] }}</span>
+                @endif
+                @if(! empty($nextClassWithin1Hour['venue']))
+                    <span class="inline-flex items-center gap-1"><i class="fas fa-map-marker-alt text-[10px]"></i>{{ $nextClassWithin1Hour['venue'] }}</span>
+                @endif
+            </p>
+        </div>
+        <div class="shrink-0 text-right">
+            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Starts in</p>
+            <p id="next-class-countdown" class="text-lg font-bold text-amber-700 dark:text-amber-300 tabular-nums leading-none mt-0.5">
+                {{ $nextClassWithin1Hour['minutes_until'] }} min
+            </p>
+        </div>
+    </div>
     @endif
 
     {{-- ─── ACTION PILLS · Mark / Timetable / Materials ───────────────
@@ -520,6 +569,53 @@
             submitCheckRun(btn);
         });
     });
+
+    // ── Next-class live countdown ─────────────────────────────────
+    // The card is rendered server-side only when there's a class
+    // starting within the next 60 minutes. We tick it down to
+    // "Starting now", briefly show that pill, then hide the card —
+    // at that point the "live sessions" banner up top will take
+    // over the user's attention.
+    (function () {
+        const card = document.getElementById('next-class-card');
+        const out  = document.getElementById('next-class-countdown');
+        if (!card || !out) return;
+
+        const startIso = card.getAttribute('data-start-iso');
+        const startMs  = startIso ? new Date(startIso).getTime() : NaN;
+        if (!Number.isFinite(startMs)) return;
+
+        function format(ms) {
+            const totalSec = Math.max(0, Math.floor(ms / 1000));
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            if (m >= 1) return m + ' min';
+            return s + ' s';
+        }
+
+        let intervalId = null;
+        function tick() {
+            const diff = startMs - Date.now();
+            if (diff <= 0) {
+                out.textContent = 'Now';
+                out.classList.add('animate-pulse');
+                if (intervalId !== null) clearInterval(intervalId);
+                // Give the user a beat to see the "Now" badge, then
+                // hand the screen back to the rest of the dashboard.
+                setTimeout(function () {
+                    card.style.transition = 'opacity 400ms ease, transform 400ms ease';
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(-6px)';
+                    setTimeout(function () { card.remove(); }, 420);
+                }, 4000);
+                return;
+            }
+            out.textContent = format(diff);
+        }
+
+        tick();
+        intervalId = setInterval(tick, 1000);
+    })();
 })();
 </script>
 @endpush

@@ -75,9 +75,13 @@
     </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 min-h-screen min-h-[100dvh] text-gray-900 dark:text-slate-200 antialiased font-sans pb-safe overflow-x-hidden overscroll-y-contain @yield('body_class')">
+    {{-- Sidebar + overlay are DESKTOP-ONLY now. The mobile experience
+         is driven by the floating FAB menu (see partials.student-fab-menu)
+         per the app-feel redesign — no header, no side drawer, no
+         bottom-nav strip cluttering the screen. --}}
     <div id="student-sidebar-overlay" class="fixed inset-0 z-40 bg-slate-900/30 dark:bg-black/60 lg:hidden hidden" aria-hidden="true"></div>
 
-    <aside id="student-sidebar" class="fixed top-0 left-0 z-50 h-full w-[min(17rem,88vw)] max-w-sm bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col -translate-x-full lg:translate-x-0">
+    <aside id="student-sidebar" class="hidden lg:flex fixed top-0 left-0 z-50 h-full w-[min(17rem,88vw)] max-w-sm bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col -translate-x-full lg:translate-x-0">
         <div class="pt-safe px-4 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
             <div class="w-10 h-10 rounded-lg bg-sky-600 flex items-center justify-center text-white">
                 <i class="fas fa-graduation-cap text-lg"></i>
@@ -111,7 +115,10 @@
     </aside>
 
     <div class="lg:pl-[17rem] min-h-screen min-h-[100dvh] flex flex-col w-full min-w-0">
-        <header class="sticky top-0 z-30 w-full pt-safe bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+        {{-- Desktop header. The whole bar is suppressed on mobile so
+             the dashboard reads as a native app screen (status-bar
+             notch handled by the per-page pt-safe wrapper). --}}
+        <header class="hidden lg:block sticky top-0 z-30 w-full pt-safe bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
             <div class="flex items-center gap-2 w-full max-w-[100vw] px-4 sm:px-6 lg:px-8 py-2.5 min-h-[3.25rem]">
                 <button type="button" id="student-sidebar-toggle" class="lg:hidden shrink-0 p-2.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Open menu">
                     <i class="fas fa-bars text-lg"></i>
@@ -183,7 +190,10 @@
     </div>
 
     @isset($student)
-        @include('partials.student-bottom-nav')
+        {{-- Mobile-only floating navigation FAB. Desktop continues to
+             use the sidebar; mobile gets a single "+" at the bottom
+             right that expands into the full nav list. --}}
+        @include('partials.student-fab-menu')
     @endisset
 
     <script>
