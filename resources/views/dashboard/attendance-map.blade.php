@@ -283,9 +283,19 @@
 
                 function currentBounds() {
                     const b = map.getBounds();
+                    // Leaflet at low zooms (or after panning across the
+                    // antimeridian) cheerfully hands back bounds OUTSIDE
+                    // the [-90,90] / [-180,180] world frame. Clamp here
+                    // so the server isn't asked to validate impossible
+                    // coordinates — the database has no rows beyond the
+                    // world frame anyway.
+                    const clampLat = (v) => Math.max(-90, Math.min(90, v));
+                    const clampLng = (v) => Math.max(-180, Math.min(180, v));
                     return {
-                        north: b.getNorth(), south: b.getSouth(),
-                        east: b.getEast(), west: b.getWest(),
+                        north: clampLat(b.getNorth()),
+                        south: clampLat(b.getSouth()),
+                        east: clampLng(b.getEast()),
+                        west: clampLng(b.getWest()),
                     };
                 }
 
@@ -311,7 +321,17 @@
                             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                             signal: ctrl.signal,
                         });
-                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        if (!resp.ok) {
+                            // Surface the server message when one is available
+                            // (the controller logs the stack to laravel.log and
+                            // sends back a small JSON body for the UI).
+                            let detail = 'HTTP ' + resp.status;
+                            try {
+                                const body = await resp.json();
+                                if (body && body.message) detail += ' — ' + body.message;
+                            } catch (_) { /* ignore */ }
+                            throw new Error(detail);
+                        }
                         const data = await resp.json();
                         renderMarkers(data.points || []);
                         if (data.capped) {
@@ -321,7 +341,7 @@
                         }
                     } catch (e) {
                         if (e.name === 'AbortError') return;
-                        setBanner('Could not load markers. Check your connection.', true);
+                        setBanner('Could not load markers (' + (e.message || 'network error') + ').', true);
                     }
                 }
 

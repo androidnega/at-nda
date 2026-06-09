@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -122,6 +123,12 @@ class AttendanceMapController extends Controller
             return response()->json(['error' => 'forbidden'], 403);
         }
 
+        // NOTE: lat/lng viewport bounds are NOT validated with
+        // between:-90,90 / between:-180,180 because Leaflet at low
+        // zooms (or with worldCopyJump-style wrapping) cheerfully
+        // returns 180.0001 / -240. We clamp to safe ranges inside
+        // the controller instead, so the request never 422s on the
+        // user just because their map wrapped a world copy.
         $validated = $request->validate([
             'session_id' => 'nullable|integer',
             'course_id' => 'nullable|integer',
@@ -129,96 +136,117 @@ class AttendanceMapController extends Controller
             'mode' => 'nullable|string|in:location,hybrid',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date',
-            'north' => 'nullable|numeric|between:-90,90',
-            'south' => 'nullable|numeric|between:-90,90',
-            'east' => 'nullable|numeric|between:-180,180',
-            'west' => 'nullable|numeric|between:-180,180',
+            'north' => 'nullable|numeric',
+            'south' => 'nullable|numeric',
+            'east' => 'nullable|numeric',
+            'west' => 'nullable|numeric',
         ]);
 
-        $query = $this->baseMarkerQuery($audienceCtx);
+        try {
+            $query = $this->baseMarkerQuery($audienceCtx);
 
-        if (! empty($validated['session_id'])) {
-            $query->where('attendances.attendance_session_id', (int) $validated['session_id']);
-        }
-        if (! empty($validated['course_id'])) {
-            $query->where('attendances.course_id', (int) $validated['course_id']);
-        }
-        if (! empty($validated['student_id'])) {
-            $query->where('attendances.student_id', (int) $validated['student_id']);
-        }
-        if (! empty($validated['date_from'])) {
-            $query->where('attendances.attendance_time', '>=', Carbon::parse($validated['date_from'])->startOfDay());
-        }
-        if (! empty($validated['date_to'])) {
-            $query->where('attendances.attendance_time', '<=', Carbon::parse($validated['date_to'])->endOfDay());
-        }
-        if (! empty($validated['mode'])) {
-            $query->whereHas('attendanceSession', fn (Builder $s) => $s->where('mode', $validated['mode']));
-        }
+            if (! empty($validated['session_id'])) {
+                $query->where('attendances.attendance_session_id', (int) $validated['session_id']);
+            }
+            if (! empty($validated['course_id'])) {
+                $query->where('attendances.course_id', (int) $validated['course_id']);
+            }
+            if (! empty($validated['student_id'])) {
+                $query->where('attendances.student_id', (int) $validated['student_id']);
+            }
+            if (! empty($validated['date_from'])) {
+                $query->where('attendances.attendance_time', '>=', Carbon::parse($validated['date_from'])->startOfDay());
+            }
+            if (! empty($validated['date_to'])) {
+                $query->where('attendances.attendance_time', '<=', Carbon::parse($validated['date_to'])->endOfDay());
+            }
+            if (! empty($validated['mode'])) {
+                $query->whereHas('attendanceSession', fn (Builder $s) => $s->where('mode', $validated['mode']));
+            }
 
-        // Viewport bounding-box filter. The (lat, lng) composite index
-        // (migration 2026_06_09_050000) makes this a range scan rather
-        // than a full table scan even at 10k+ rows.
-        $hasViewport = isset($validated['north'], $validated['south'], $validated['east'], $validated['west']);
-        if ($hasViewport) {
-            $south = (float) $validated['south'];
-            $north = (float) $validated['north'];
-            $west = (float) $validated['west'];
-            $east = (float) $validated['east'];
+            // Viewport bounding-box filter. The (lat, lng) composite
+            // index (migration 2026_06_09_050000) makes this a range
+            // scan rather than a full table scan even at 10k+ rows.
+            // Inputs are clamped because Leaflet can return bounds
+            // outside the [-90, 90] / [-180, 180] world frame.
+            $hasViewport = isset($validated['north'], $validated['south'], $validated['east'], $validated['west']);
+            if ($hasViewport) {
+                $clampLat = fn (float $v) => max(-90.0, min(90.0, $v));
+                $clampLng = fn (float $v) => max(-180.0, min(180.0, $v));
 
-            $query
-                ->whereBetween('attendances.lat', [min($south, $north), max($south, $north)])
-                ->whereBetween('attendances.lng', [min($west, $east), max($west, $east)]);
-        }
+                $south = $clampLat((float) $validated['south']);
+                $north = $clampLat((float) $validated['north']);
+                $west = $clampLng((float) $validated['west']);
+                $east = $clampLng((float) $validated['east']);
 
-        // Pull only the columns we need for the marker payload — no
-        // eager-loaded relations, no big student/course objects.
-        // Distance + lat/lng come straight from the row.
-        $rows = $query
-            ->orderByDesc('attendances.attendance_time')
-            ->limit(self::MAX_MARKERS)
-            ->get([
-                'attendances.id',
-                'attendances.attendance_session_id',
-                'attendances.lat',
-                'attendances.lng',
-                'attendances.distance_from_anchor',
-                'attendances.attendance_time',
-                'attendances.status',
+                $query
+                    ->whereBetween('attendances.lat', [min($south, $north), max($south, $north)])
+                    ->whereBetween('attendances.lng', [min($west, $east), max($west, $east)]);
+            }
+
+            // Pull only the columns we need for the marker payload —
+            // no eager-loaded relations, no big student/course
+            // objects. Distance + lat/lng come straight from the row.
+            $rows = $query
+                ->orderByDesc('attendances.attendance_time')
+                ->limit(self::MAX_MARKERS)
+                ->get([
+                    'attendances.id',
+                    'attendances.attendance_session_id',
+                    'attendances.lat',
+                    'attendances.lng',
+                    'attendances.distance_from_anchor',
+                    'attendances.attendance_time',
+                    'attendances.status',
+                ]);
+
+            // Build a session → radius lookup once so colorBucket is
+            // cheap for every marker (no per-row session fetch).
+            $sessionIds = $rows->pluck('attendance_session_id')->filter()->unique()->values();
+            $radii = AttendanceSession::query()
+                ->whereIn('id', $sessionIds)
+                ->get(['id', 'attendance_range_m'])
+                ->mapWithKeys(fn ($s) => [(int) $s->id => (int) ($s->attendance_range_m ?? 200)])
+                ->all();
+
+            $points = $rows->map(function (Attendance $a) use ($radii) {
+                $sessionId = (int) ($a->attendance_session_id ?? 0);
+                $distance = $a->distance_from_anchor !== null ? (int) $a->distance_from_anchor : null;
+                $radius = $radii[$sessionId] ?? null;
+
+                return [
+                    'id' => (int) $a->id,
+                    's' => $sessionId,
+                    'la' => (float) $a->lat,
+                    'lo' => (float) $a->lng,
+                    'd' => $distance,
+                    'c' => AttendanceLocation::colorBucket($distance, $radius),
+                    't' => optional($a->attendance_time)->toIso8601String(),
+                ];
+            })->values();
+
+            return response()->json([
+                'points' => $points,
+                'count' => $points->count(),
+                'capped' => $points->count() >= self::MAX_MARKERS,
+                'limit' => self::MAX_MARKERS,
+            ], 200, ['Cache-Control' => 'private, max-age=15']);
+        } catch (\Throwable $e) {
+            // Surface the real error to laravel.log so we can fix it
+            // without the user having to dig through stack traces in
+            // their browser console. Return a small JSON body the JS
+            // can show meaningfully.
+            Log::warning('attendance_map.markers_failed', [
+                'audience' => $audienceCtx['role'] ?? null,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile().':'.$e->getLine(),
             ]);
 
-        // Build a session→radius lookup once so colorBucket is cheap
-        // for every marker (no per-row session fetch).
-        $sessionIds = $rows->pluck('attendance_session_id')->filter()->unique()->values();
-        $radii = AttendanceSession::query()
-            ->whereIn('id', $sessionIds)
-            ->get(['id', 'attendance_range_m'])
-            ->mapWithKeys(fn ($s) => [(int) $s->id => (int) ($s->attendance_range_m ?? config('app.default_attendance_range_m', 200))])
-            ->all();
-
-        $points = $rows->map(function (Attendance $a) use ($radii) {
-            $sessionId = (int) ($a->attendance_session_id ?? 0);
-            $distance = $a->distance_from_anchor !== null ? (int) $a->distance_from_anchor : null;
-            $radius = $radii[$sessionId] ?? null;
-
-            // 30-byte payload per pin: numeric id + short keys.
-            return [
-                'id' => (int) $a->id,
-                's' => $sessionId,
-                'la' => (float) $a->lat,
-                'lo' => (float) $a->lng,
-                'd' => $distance,
-                'c' => AttendanceLocation::colorBucket($distance, $radius),
-                't' => optional($a->attendance_time)->toIso8601String(),
-            ];
-        })->values();
-
-        return response()->json([
-            'points' => $points,
-            'count' => $points->count(),
-            'capped' => $points->count() >= self::MAX_MARKERS,
-            'limit' => self::MAX_MARKERS,
-        ])->setPrivate()->setMaxAge(15);
+            return response()->json([
+                'error' => 'markers_failed',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -238,53 +266,74 @@ class AttendanceMapController extends Controller
             return response()->json(['error' => 'forbidden'], 403);
         }
 
-        $summary = AttendanceSessionSummaryService::getOrRebuild($session);
-        $course = $session->course;
-        $radius = (int) $session->effectiveAttendanceRangeMeters($course);
+        try {
+            $summary = AttendanceSessionSummaryService::getOrRebuild($session);
+            $course = $session->course;
 
-        $closest = $summary?->closestStudent;
-        $farthest = $summary?->farthestStudent;
+            // Anchor + radius only make sense for GPS sessions
+            // (location / hybrid). For online / qr / wifi we omit
+            // both so the JS knows to skip the circle / pin overlay
+            // entirely instead of dropping a "ghost anchor" at (0, 0).
+            $isGps = in_array($session->mode, ['location', 'hybrid'], true);
+            $anchorLat = ($isGps && $session->location_lat !== null) ? (float) $session->location_lat : null;
+            $anchorLng = ($isGps && $session->location_lng !== null) ? (float) $session->location_lng : null;
+            $radius = $isGps ? (int) $session->effectiveAttendanceRangeMeters($course) : 0;
 
-        return response()->json([
-            'session' => [
-                'id' => (int) $session->id,
-                'mode' => (string) $session->mode,
-                'anchor' => [
-                    'lat' => $session->location_lat !== null ? (float) $session->location_lat : null,
-                    'lng' => $session->location_lng !== null ? (float) $session->location_lng : null,
+            $closest = $summary?->closestStudent;
+            $farthest = $summary?->farthestStudent;
+
+            return response()->json([
+                'session' => [
+                    'id' => (int) $session->id,
+                    'mode' => (string) $session->mode,
+                    'anchor' => [
+                        'lat' => $anchorLat,
+                        'lng' => $anchorLng,
+                    ],
+                    'radius_m' => $radius,
+                    'course' => [
+                        'id' => $course ? (int) $course->id : null,
+                        'name' => $course?->course_name,
+                        'code' => $course?->course_code,
+                    ],
+                    'opened_at' => optional($session->start_time)->toIso8601String(),
+                    'closed_at' => optional($session->end_time ?? $session->expires_at)->toIso8601String(),
+                    'is_active' => (bool) $session->is_active,
                 ],
-                'radius_m' => $radius,
-                'course' => [
-                    'id' => $course ? (int) $course->id : null,
-                    'name' => $course?->course_name,
-                    'code' => $course?->course_code,
-                ],
-                'opened_at' => optional($session->start_time)->toIso8601String(),
-                'closed_at' => optional($session->end_time ?? $session->expires_at)->toIso8601String(),
-                'is_active' => (bool) $session->is_active,
-            ],
-            'totals' => $summary ? [
-                'attendance_count' => (int) $summary->attendance_count,
-                'present_count' => (int) $summary->present_count,
-                'inside_count' => (int) $summary->inside_count,
-                'edge_count' => (int) $summary->edge_count,
-                'outside_count' => (int) $summary->outside_count,
-                'average_distance' => $summary->average_distance !== null ? (int) $summary->average_distance : null,
-                'minimum_distance' => $summary->minimum_distance !== null ? (int) $summary->minimum_distance : null,
-                'maximum_distance' => $summary->maximum_distance !== null ? (int) $summary->maximum_distance : null,
-            ] : null,
-            'closest_student' => $closest ? [
-                'name' => trim((string) ($closest->first_name.' '.$closest->last_name)),
-                'index_number' => (string) $closest->index_number,
-                'distance' => $summary->minimum_distance !== null ? (int) $summary->minimum_distance : null,
-            ] : null,
-            'farthest_student' => $farthest ? [
-                'name' => trim((string) ($farthest->first_name.' '.$farthest->last_name)),
-                'index_number' => (string) $farthest->index_number,
-                'distance' => $summary->maximum_distance !== null ? (int) $summary->maximum_distance : null,
-            ] : null,
-            'refreshed_at' => optional($summary?->refreshed_at)->toIso8601String(),
-        ])->setPrivate()->setMaxAge(60);
+                'totals' => $summary ? [
+                    'attendance_count' => (int) $summary->attendance_count,
+                    'present_count' => (int) $summary->present_count,
+                    'inside_count' => (int) $summary->inside_count,
+                    'edge_count' => (int) $summary->edge_count,
+                    'outside_count' => (int) $summary->outside_count,
+                    'average_distance' => $summary->average_distance !== null ? (int) $summary->average_distance : null,
+                    'minimum_distance' => $summary->minimum_distance !== null ? (int) $summary->minimum_distance : null,
+                    'maximum_distance' => $summary->maximum_distance !== null ? (int) $summary->maximum_distance : null,
+                ] : null,
+                'closest_student' => ($isGps && $closest) ? [
+                    'name' => trim((string) ($closest->first_name.' '.$closest->last_name)),
+                    'index_number' => (string) $closest->index_number,
+                    'distance' => $summary?->minimum_distance !== null ? (int) $summary->minimum_distance : null,
+                ] : null,
+                'farthest_student' => ($isGps && $farthest) ? [
+                    'name' => trim((string) ($farthest->first_name.' '.$farthest->last_name)),
+                    'index_number' => (string) $farthest->index_number,
+                    'distance' => $summary?->maximum_distance !== null ? (int) $summary->maximum_distance : null,
+                ] : null,
+                'refreshed_at' => optional($summary?->refreshed_at)->toIso8601String(),
+            ], 200, ['Cache-Control' => 'private, max-age=60']);
+        } catch (\Throwable $e) {
+            Log::warning('attendance_map.summary_failed', [
+                'session_id' => (int) $session->id,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile().':'.$e->getLine(),
+            ]);
+
+            return response()->json([
+                'error' => 'summary_failed',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -330,7 +379,7 @@ class AttendanceMapController extends Controller
             'marked_at' => optional($attendance->attendance_time)->toIso8601String(),
             'distance' => $attendance->distance_from_anchor !== null ? (int) $attendance->distance_from_anchor : null,
             'status' => (string) ($attendance->status ?? 'present'),
-        ])->setPrivate()->setMaxAge(60);
+        ], 200, ['Cache-Control' => 'private, max-age=60']);
     }
 
     /**
@@ -363,20 +412,52 @@ class AttendanceMapController extends Controller
                 'label' => $c->course_code ? $c->course_name.' ('.$c->course_code.')' : $c->course_name,
             ]);
 
-        // Sessions (most recent first; only those with marks)
+        // Sessions — the map only ever plots GPS-anchored marks, so the
+        // dropdown is pruned to match:
+        //
+        //   1) mode must be 'location' or 'hybrid'    (online / qr /
+        //      wifi have no anchor and would otherwise clutter the
+        //      list with empty entries — owner spec, item 3)
+        //   2) attendance_week must not be cancelled  (test sessions
+        //      from cancelled weeks linger in attendance_sessions; we
+        //      mirror the existing Attendance::activeWeeksOnly()
+        //      contract here so the two views agree)
+        //   3) at least one attendance row with lat/lng exists       (drops
+        //      every session that opened but never received a GPS mark —
+        //      e.g. mode-toggle accidents)
+        //   4) when several sessions share the same (course, week) we
+        //      keep only the latest id, so "I taught Java week 2" shows
+        //      up exactly once even if the rep opened the session four
+        //      times.
         $sessionsQuery = AttendanceSession::query()
             ->select([
                 'attendance_sessions.id',
                 'attendance_sessions.course_id',
+                'attendance_sessions.attendance_week_id',
                 'attendance_sessions.mode',
                 'attendance_sessions.start_time',
                 'attendance_sessions.end_time',
                 'attendance_sessions.attendance_range_m',
             ])
+            ->whereIn('attendance_sessions.mode', ['location', 'hybrid'])
             ->whereExists(function ($q) {
                 $q->select(\DB::raw(1))
                     ->from('attendances')
-                    ->whereColumn('attendances.attendance_session_id', 'attendance_sessions.id');
+                    ->whereColumn('attendances.attendance_session_id', 'attendance_sessions.id')
+                    ->whereNotNull('attendances.lat')
+                    ->whereNotNull('attendances.lng');
+            })
+            // Skip sessions whose week was cancelled. Sessions with no
+            // attendance_week_id (older imports, manually-opened
+            // sessions) pass through.
+            ->where(function ($q) {
+                $q->whereNull('attendance_sessions.attendance_week_id')
+                    ->orWhereExists(function ($sub) {
+                        $sub->select(\DB::raw(1))
+                            ->from('attendance_weeks')
+                            ->whereColumn('attendance_weeks.id', 'attendance_sessions.attendance_week_id')
+                            ->whereNull('attendance_weeks.cancelled_at');
+                    });
             })
             ->orderByDesc('attendance_sessions.start_time');
 
@@ -387,9 +468,25 @@ class AttendanceMapController extends Controller
             AttendanceSessionClassScope::applyForClasses($sessionsQuery, $audienceCtx['class_ids']);
         }
 
+        // Step 4: per-(course, week) dedupe. We over-fetch a little so the
+        // final list after dedupe still has plenty of options, then keep
+        // only the highest-id session per (course_id, attendance_week_id)
+        // pair. Sessions without a week id are treated as their own group.
+        $seenPairs = [];
         $sessions = $sessionsQuery
-            ->limit(self::FILTER_LIMIT)
+            ->limit(self::FILTER_LIMIT * 3)
             ->get()
+            ->filter(function (AttendanceSession $s) use (&$seenPairs) {
+                $key = (int) $s->course_id.':'.($s->attendance_week_id !== null ? (int) $s->attendance_week_id : 'na-'.$s->id);
+                if (isset($seenPairs[$key])) {
+                    return false;
+                }
+                $seenPairs[$key] = true;
+
+                return true;
+            })
+            ->take(self::FILTER_LIMIT)
+            ->values()
             ->map(function (AttendanceSession $s) {
                 $when = optional($s->start_time)->format('M j, g:i A') ?: '—';
 
@@ -426,7 +523,7 @@ class AttendanceMapController extends Controller
             'courses' => $courses,
             'sessions' => $sessions,
             'students' => $students,
-        ])->setPrivate()->setMaxAge(60);
+        ], 200, ['Cache-Control' => 'private, max-age=60']);
     }
 
     // ────────────────────────────────────────────────────────────
