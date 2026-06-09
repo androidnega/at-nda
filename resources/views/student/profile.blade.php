@@ -17,6 +17,15 @@
 @php
     $isStudentLayout = $pl !== 'classrep';
     $initials = $student->avatarInitials();
+    // Identity (names, faculty, department) is editable only during the
+    // first onboarding pass through this page. Once the profile is
+    // complete, the fields render as read-only chips — the server-side
+    // gate in StudentDashboardController::profileUpdate enforces the
+    // same rule for spoofed POSTs.
+    $identityLocked = $student->hasCompletedProfile();
+    $facultyLabel = optional($student->department?->faculty)->name;
+    $departmentLabel = optional($student->department)->name;
+    $middleDisplay = trim((string) ($student->middle_name ?? ''));
 @endphp
 
 <div class="w-full {{ $pl === 'classrep' ? 'max-w-6xl mx-auto' : 'max-w-md mx-auto lg:max-w-2xl' }} space-y-5 sm:space-y-6">
@@ -56,24 +65,67 @@
 
         <form method="POST" action="{{ route('student.profile.update') }}" enctype="multipart/form-data" class="mt-6 space-y-4">
             @csrf
-            <div>
-                <label for="first_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">First Name</label>
-                <input type="text" id="first_name" name="first_name" value="{{ old('first_name', $student->first_name) }}" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('first_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="middle_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Middle name <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
-                <input type="text" id="middle_name" name="middle_name" value="{{ old('middle_name', $student->middle_name) }}" autocomplete="additional-name"
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('middle_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="last_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Last Name</label>
-                <input type="text" id="last_name" name="last_name" value="{{ old('last_name', $student->last_name) }}" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                @error('last_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
+
+            @if($identityLocked)
+                {{-- Identity is locked once onboarding is complete.
+                     Names + faculty + department come from the original
+                     student record and can only be corrected by an
+                     administrator on the back-office portal. --}}
+                <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-4 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                            <i class="fas fa-lock mr-1 text-[10px]"></i> Identity (locked)
+                        </p>
+                        <p class="text-[10.5px] text-slate-400 dark:text-slate-500">Contact an admin to correct</p>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">First name</p>
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $student->first_name ?: '—' }}</p>
+                        </div>
+                        @if($middleDisplay !== '')
+                        <div>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">Middle name</p>
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $middleDisplay }}</p>
+                        </div>
+                        @endif
+                        <div>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">Last name</p>
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $student->last_name ?: '—' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">Faculty</p>
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $facultyLabel ?: '—' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">Department</p>
+                            <p class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $departmentLabel ?: '—' }}</p>
+                        </div>
+                    </div>
+                </div>
+            @else
+                {{-- First-time onboarding — these fields are required on
+                     the very first save and then disappear from this
+                     page forever. --}}
+                <div>
+                    <label for="first_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">First Name</label>
+                    <input type="text" id="first_name" name="first_name" value="{{ old('first_name', $student->first_name) }}" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('first_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="middle_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Middle name <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
+                    <input type="text" id="middle_name" name="middle_name" value="{{ old('middle_name', $student->middle_name) }}" autocomplete="additional-name"
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('middle_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="last_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Last Name</label>
+                    <input type="text" id="last_name" name="last_name" value="{{ old('last_name', $student->last_name) }}" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                    @error('last_name')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+            @endif
             <div>
                 <label for="phone_number" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Phone <span class="text-slate-400 dark:text-slate-500 font-normal">(optional)</span></label>
                 <input type="text" id="phone_number" name="phone_number" value="{{ old('phone_number', $student->phone_number) }}" inputmode="tel" autocomplete="tel"
@@ -99,25 +151,30 @@
                 'label' => $student->profile_image ? 'Update profile photo' : 'Profile photo',
             ])
             @error('profile_photo')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            <div>
-                <label for="faculty_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Faculty</label>
-                <select id="faculty_id" name="faculty_id" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                    <option value="">Select faculty...</option>
-                    @foreach($faculties as $f)
-                    <option value="{{ $f->id }}" {{ (old('faculty_id') ?? $prefillFacultyId ?? '') == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
-                    @endforeach
-                </select>
-                @error('faculty_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
-            <div>
-                <label for="department_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Department</label>
-                <select id="department_id" name="department_id" required
-                    class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                    <option value="">Select faculty first...</option>
-                </select>
-                @error('department_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
-            </div>
+            @unless($identityLocked)
+                {{-- Faculty + department only appear during first
+                     onboarding. They're shown above in read-only form
+                     once the profile is complete. --}}
+                <div>
+                    <label for="faculty_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Faculty</label>
+                    <select id="faculty_id" name="faculty_id" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                        <option value="">Select faculty...</option>
+                        @foreach($faculties as $f)
+                        <option value="{{ $f->id }}" {{ (old('faculty_id') ?? $prefillFacultyId ?? '') == $f->id ? 'selected' : '' }}>{{ $f->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('faculty_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label for="department_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Department</label>
+                    <select id="department_id" name="department_id" required
+                        class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
+                        <option value="">Select faculty first...</option>
+                    </select>
+                    @error('department_id')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
+                </div>
+            @endunless
             <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-400 text-white py-3 rounded-xl font-semibold transition-colors shadow-sm">
                 Save changes
             </button>
@@ -131,6 +188,10 @@
 (function() {
     const facultySelect = document.getElementById('faculty_id');
     const deptSelect = document.getElementById('department_id');
+    // When the identity block is locked (post-onboarding) these
+    // selects are not in the DOM — bail out instead of throwing.
+    if (!facultySelect || !deptSelect) return;
+
     const faculties = @json($faculties);
     const oldDept = '{{ old("department_id") ?? $prefillDepartmentId ?? "" }}';
 

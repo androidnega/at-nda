@@ -157,8 +157,6 @@ class ApiService {
     } catch (_) {}
   }
 
-  /// From GET /api/settings — institution allows SMS/call log upload (Android only).
-
   /// From GET /api/settings — controls logout lock for students/class reps.
   static bool studentLogoutLockEnabled = true;
   static const String attendanceModeInstant = 'instant';
