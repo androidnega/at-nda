@@ -11,14 +11,6 @@
         <span class="font-semibold text-gray-800 truncate">Profile</span>
     </nav>
 @endsection
-@else
-@section('breadcrumb')
-    <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-        <a href="{{ route('dashboard.dashboard') }}" class="hover:text-sky-700 dark:hover:text-sky-400 transition-colors">Dashboard</a>
-        <span class="text-slate-300 dark:text-slate-600">/</span>
-        <span class="font-semibold text-slate-800 dark:text-slate-100 truncate">Profile</span>
-    </nav>
-@endsection
 @endif
 
 @section('content')

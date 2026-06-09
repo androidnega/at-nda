@@ -120,40 +120,6 @@
                                 Instant mode is locked by admin settings.
                             @endif
                         </p>
-
-                        {{-- Online-only metadata. Hidden until the rep ticks
-                             the online toggle above; inputs are disabled
-                             while hidden so they don't post alongside an
-                             in-person session. PART 3 of the spec. --}}
-                        <div class="hidden mt-3 border border-indigo-200 rounded-lg p-3 space-y-3 bg-indigo-50/40" id="session-online-section" aria-hidden="true">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div class="space-y-1.5">
-                                    <label for="meeting_platform" class="{{ $labelBase }}">Meeting platform</label>
-                                    <div class="relative">
-                                        <select name="meeting_platform" id="meeting_platform"
-                                                disabled
-                                                class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer">
-                                            <option value="zoom" {{ old('meeting_platform') === 'zoom' ? 'selected' : '' }}>Zoom</option>
-                                            <option value="google_meet" {{ old('meeting_platform') === 'google_meet' ? 'selected' : '' }}>Google Meet</option>
-                                            <option value="teams" {{ old('meeting_platform') === 'teams' ? 'selected' : '' }}>Microsoft Teams</option>
-                                            <option value="custom" {{ old('meeting_platform') === 'custom' ? 'selected' : '' }}>Other</option>
-                                        </select>
-                                        <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
-                                    </div>
-                                </div>
-                                <div class="space-y-1.5">
-                                    <label for="meeting_link" class="{{ $labelBase }}">Meeting link <span class="text-slate-400 font-normal">(optional)</span></label>
-                                    <input type="url" name="meeting_link" id="meeting_link" maxlength="500"
-                                           value="{{ old('meeting_link') }}"
-                                           placeholder="https://zoom.us/j/…"
-                                           disabled
-                                           class="{{ $fieldBase }}">
-                                </div>
-                            </div>
-                            <p class="text-[10.5px] text-slate-500 leading-snug">
-                                Students just enter the rolling code — no QR. You'll see the current code on the active-session card after opening; share it in the meeting chat.
-                            </p>
-                        </div>
                     </div>
                     <div class="space-y-1.5">
                         <label for="duration_minutes" class="{{ $labelBase }}">Duration</label>
@@ -164,6 +130,45 @@
                         <p class="text-[11px] text-slate-400 mt-1">Minutes (5–480)</p>
                     </div>
                 </div>
+
+                {{-- Online-only meeting panel. Lives as a FULL-WIDTH sibling
+                     of the Mode/Duration grid so the inner two-column
+                     layout never gets squashed into half-width. Hidden +
+                     inputs disabled until the rep flips the online
+                     toggle above (JS keeps the toggle in sync). --}}
+                <div class="hidden border border-indigo-200 rounded-lg p-3 sm:p-4 space-y-3 bg-indigo-50/40" id="session-online-section" aria-hidden="true">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700 flex items-center gap-1.5">
+                        <i class="fas fa-video text-[10px]"></i> Online meeting details
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                        <div class="space-y-1.5 min-w-0">
+                            <label for="meeting_platform" class="{{ $labelBase }}">Meeting platform</label>
+                            <div class="relative">
+                                <select name="meeting_platform" id="meeting_platform"
+                                        disabled
+                                        class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer">
+                                    <option value="zoom" {{ old('meeting_platform') === 'zoom' ? 'selected' : '' }}>Zoom</option>
+                                    <option value="google_meet" {{ old('meeting_platform') === 'google_meet' ? 'selected' : '' }}>Google Meet</option>
+                                    <option value="teams" {{ old('meeting_platform') === 'teams' ? 'selected' : '' }}>Microsoft Teams</option>
+                                    <option value="custom" {{ old('meeting_platform') === 'custom' ? 'selected' : '' }}>Other</option>
+                                </select>
+                                <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
+                            </div>
+                        </div>
+                        <div class="space-y-1.5 min-w-0">
+                            <label for="meeting_link" class="{{ $labelBase }}">Meeting link <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="url" name="meeting_link" id="meeting_link" maxlength="500"
+                                   value="{{ old('meeting_link') }}"
+                                   placeholder="https://zoom.us/j/…"
+                                   disabled
+                                   class="{{ $fieldBase }} w-full">
+                        </div>
+                    </div>
+                    <p class="text-[10.5px] text-slate-500 leading-snug break-words">
+                        Students just enter the rolling code — no QR. You'll see the current code on the active-session card once the session opens.
+                    </p>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="space-y-1.5">
                         <label for="week_number" class="{{ $labelBase }}">Week number <span class="text-slate-400 font-normal">(optional)</span></label>
@@ -411,10 +416,6 @@
                                             <i class="fas fa-link text-[10px]"></i> Copy student link
                                         </button>
                                     </div>
-
-                                    <p class="text-[10.5px] text-slate-600 leading-snug">
-                                        Paste the code into the meeting chat. It auto-rotates every couple of minutes — drop the new one in once you see the countdown reset.
-                                    </p>
                                 </div>
                             @endif
 

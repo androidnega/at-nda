@@ -10,12 +10,6 @@
 @section('header')
     <span class="text-sm font-semibold text-gray-800 truncate">Welcome — tell us about you</span>
 @endsection
-@else
-@section('breadcrumb')
-    <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-slate-500">
-        <span class="font-semibold text-slate-800 truncate">Welcome</span>
-    </nav>
-@endsection
 @endif
 
 @section('content')

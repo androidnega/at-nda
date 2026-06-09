@@ -4,24 +4,6 @@
 
 @section('body_class', 'select-none overscroll-y-auto dashboard-fixed')
 
-@section('breadcrumb')
-    @if($liveAttendanceSessions->isNotEmpty())
-        <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
-            <span class="inline-flex items-center gap-2 text-amber-700 font-semibold">
-                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
-                Live sessions
-            </span>
-        </nav>
-    @else
-        <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
-            <span class="inline-flex items-center gap-1.5 text-slate-500">
-                <i class="fas fa-house text-slate-400 text-[10px]"></i>
-                <span class="font-semibold text-slate-800">Dashboard</span>
-            </span>
-        </nav>
-    @endif
-@endsection
-
 @push('styles')
 <style>
     .dashboard-fixed {
@@ -322,96 +304,26 @@
         </div>
     @endif
 
-    {{-- ─── ACTION PILLS · Mark / Timetable / + ──────────────────────── --}}
-    <div class="flex items-center gap-3 px-1">
+    {{-- ─── ACTION PILLS · Mark / Timetable / Materials ───────────────
+         Three equal-weight pills. The old standalone "+" button has
+         been collapsed into a labelled "Materials" pill so its
+         purpose is obvious without an icon-only guess. --}}
+    <div class="grid grid-cols-3 gap-2 sm:gap-3 px-1">
         <a href="{{ route('student.attendance.web') }}"
-           class="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm">
-            <i class="fas fa-arrow-down-to-bracket text-slate-500 dark:text-slate-400"></i> Mark
+           class="inline-flex items-center justify-center gap-2 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm">
+            <i class="fas fa-arrow-down-to-bracket text-slate-500 dark:text-slate-400"></i>
+            <span class="truncate">Mark</span>
         </a>
         <a href="{{ route('dashboard.timetable') }}"
-           class="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm">
-            <i class="fas fa-calendar-alt text-slate-500 dark:text-slate-400"></i> Timetable
+           class="inline-flex items-center justify-center gap-2 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm">
+            <i class="fas fa-calendar-alt text-slate-500 dark:text-slate-400"></i>
+            <span class="truncate">Timetable</span>
         </a>
-        <a href="{{ route('dashboard.materials.index') }}" aria-label="Course materials"
-           class="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 shadow-sm">
-            <i class="fas fa-plus text-base"></i>
+        <a href="{{ route('dashboard.materials.index') }}"
+           class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 px-3 py-3 text-sm font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-sm">
+            <i class="fas fa-folder-open text-emerald-600 dark:text-emerald-300"></i>
+            <span class="truncate">Materials</span>
         </a>
-    </div>
-
-    {{-- ─── QUICK STATS · denser strip ──────────────────────────────── --}}
-    <div class="grid grid-cols-4 gap-2 sm:gap-3 px-1">
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-center">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Today</p>
-            <p class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{{ $todayCount }}</p>
-        </div>
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-center">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Week</p>
-            <p class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{{ $weekCount }}</p>
-        </div>
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-center">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Present</p>
-            <p class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{{ $totalPresent }}</p>
-        </div>
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-center">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Courses</p>
-            <p class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
-                {{ $coursesAttended }}@if(($totalCoursesEnrolled ?? 0) > 0)<span class="text-xs text-slate-400 dark:text-slate-500 font-medium">/{{ $totalCoursesEnrolled }}</span>@endif
-            </p>
-        </div>
-    </div>
-
-    {{-- ─── ACTIVITY · recent attendance marks (like "Transaction") ──── --}}
-    <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div class="px-4 py-3 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">Activity</h2>
-            <a href="{{ route('student.attendance.history') }}" class="text-xs font-semibold text-sky-700 dark:text-sky-400 hover:underline">View all</a>
-        </div>
-        @if(($recentActivity ?? collect())->isNotEmpty())
-            @php
-                $tz = config('app.timezone');
-                $grouped = $recentActivity->groupBy(function ($r) use ($tz) {
-                    $t = $r['time']?->timezone($tz);
-                    if (!$t) return 'EARLIER';
-                    if ($t->isToday()) return 'TODAY';
-                    if ($t->isYesterday()) return 'YESTERDAY';
-                    return strtoupper($t->format('D, M j'));
-                });
-            @endphp
-            @foreach($grouped as $label => $rows)
-                <p class="px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold text-slate-400 dark:text-slate-500 bg-slate-50/60 dark:bg-slate-800/40">{{ $label }}</p>
-                <ul class="divide-y divide-slate-100 dark:divide-slate-800">
-                    @foreach($rows as $r)
-                        @php
-                            $st = $r['status'];
-                            [$icnBg, $icnFg, $icn, $amount, $amountClass] = match ($st) {
-                                'present'    => ['bg-emerald-100 dark:bg-emerald-900/40', 'text-emerald-700 dark:text-emerald-300', 'fa-arrow-down-left',  'Present',  'text-emerald-600 dark:text-emerald-400'],
-                                'late'       => ['bg-amber-100 dark:bg-amber-900/40',     'text-amber-700 dark:text-amber-300',     'fa-clock',            'Late',     'text-amber-600 dark:text-amber-400'],
-                                'absent'     => ['bg-rose-100 dark:bg-rose-900/40',       'text-rose-700 dark:text-rose-300',       'fa-xmark',            'Absent',   'text-rose-600 dark:text-rose-400'],
-                                'pending'    => ['bg-slate-100 dark:bg-slate-800',        'text-slate-600 dark:text-slate-300',     'fa-hourglass-half',   'Pending',  'text-slate-500 dark:text-slate-400'],
-                                default      => ['bg-slate-100 dark:bg-slate-800',        'text-slate-600 dark:text-slate-300',     'fa-circle',           ucfirst($st), 'text-slate-500 dark:text-slate-400'],
-                            };
-                        @endphp
-                        <li class="px-4 py-3 flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-3 min-w-0">
-                                <span class="shrink-0 w-10 h-10 rounded-full {{ $icnBg }} {{ $icnFg }} flex items-center justify-center">
-                                    <i class="fas {{ $icn }} text-sm"></i>
-                                </span>
-                                <div class="min-w-0">
-                                    <p class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ $r['course_name'] }}</p>
-                                    <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                        @if($r['course_code'])<span class="font-mono">{{ $r['course_code'] }}</span> · @endif
-                                        {{ $r['time']?->timezone($tz)?->format('g:i A') }}
-                                    </p>
-                                </div>
-                            </div>
-                            <span class="shrink-0 text-sm font-bold tabular-nums {{ $amountClass }}">{{ $amount }}</span>
-                        </li>
-                    @endforeach
-                </ul>
-            @endforeach
-        @else
-            <p class="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No attendance marks yet.</p>
-        @endif
     </div>
 
     {{-- ─── TODAY'S SCHEDULE (only when there are slots) ───────────── --}}
@@ -474,29 +386,6 @@
      the new banking-app column above (with status-aware badges and
      dark-mode variants). --}}
 
-@endif
-
-@if(isset($cancelledWeeks) && $cancelledWeeks->isNotEmpty())
-<div class="max-w-lg mx-auto w-full mt-5 md:max-w-none">
-    <div class="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/90 dark:bg-amber-950/30 p-4 sm:p-5">
-        <p class="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">Cancelled week(s)</p>
-        <p class="text-xs text-amber-800/80 dark:text-amber-200/80 mt-1">Your class rep or lecturer marked these teaching weeks as cancelled — no attendance was expected.</p>
-        <ul class="mt-3 space-y-2 text-sm text-amber-950 dark:text-amber-100 list-none p-0 m-0">
-            @foreach($cancelledWeeks as $cw)
-            <li class="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-amber-200/60 dark:border-amber-900/40 pb-2 last:border-0 last:pb-0">
-                <span class="font-semibold">{{ $cw->course?->course_name ?? 'Course' }}</span>
-                @if($cw->course?->course_code)
-                    <span class="font-mono text-xs text-amber-800/90 dark:text-amber-200/80">{{ $cw->course->course_code }}</span>
-                @endif
-                <span class="text-amber-900 dark:text-amber-100">· Week {{ $cw->week_number }}</span>
-                @if($cw->week_date)
-                    <span class="text-xs text-amber-800 dark:text-amber-200">· {{ $cw->week_date->format('M j, Y') }}</span>
-                @endif
-            </li>
-            @endforeach
-        </ul>
-    </div>
-</div>
 @endif
 @endsection
 
