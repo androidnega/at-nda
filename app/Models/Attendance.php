@@ -69,6 +69,16 @@ class Attendance extends Model
                 && array_key_exists('marked_manually_by_lecturer_id', $attendance->getAttributes())) {
                 unset($attendance->attributes['marked_manually_by_lecturer_id']);
             }
+            // Risk columns added by 2026_06_09_041300; strip on stale deploys
+            // so writes from OnlineAttendanceController + AttendanceRiskService
+            // don't fail on databases that haven't migrated yet.
+            if (! \App\Support\SchemaFeatures::hasAttendancesRiskColumns()) {
+                foreach (['risk_score', 'risk_level', 'risk_reasons'] as $col) {
+                    if (array_key_exists($col, $attendance->getAttributes())) {
+                        unset($attendance->attributes[$col]);
+                    }
+                }
+            }
         });
     }
 
@@ -126,6 +136,9 @@ class Attendance extends Model
         'marked_manually_by_lecturer_id',
         'device_fingerprint',
         'client_meta',
+        'risk_score',
+        'risk_level',
+        'risk_reasons',
     ];
 
     public function attendanceWeek(): BelongsTo
@@ -142,6 +155,7 @@ class Attendance extends Model
         'lng' => 'decimal:7',
         'marked_manually_at' => 'datetime',
         'client_meta' => 'array',
+        'risk_reasons' => 'array',
     ];
 
     /**

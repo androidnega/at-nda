@@ -6,8 +6,11 @@ use App\Models\Attendance;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
+use App\Services\AttendanceRiskService;
 use App\Services\AuditLogService;
-use App\Support\SecureQrToken;
+use App\Services\DeviceFingerprintService;
+use App\Services\OnlineCodeService;
+use App\Support\SchemaFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,20 +21,31 @@ use Illuminate\View\View;
 /**
  * Student-facing controller for marking attendance in an ONLINE session.
  *
- * Distinct from AttendanceController (which handles in-person GPS / QR /
- * Wi-Fi flows) because online sessions skip every spatial check and add
- * two new entry methods: the rep's QR uploaded as a screenshot, or the
- * session's manual code typed in.
+ * In contrast with AttendanceController (which handles in-person GPS /
+ * QR / Wi-Fi flows), online sessions:
+ *   - have no spatial check,
+ *   - have no QR / screenshot / OCR pipeline,
+ *   - accept a single 4-digit rolling code (rotates every
+ *     config('attendance.online_code_rotation_seconds') seconds).
  *
- * Existing plumbing reused so we don't duplicate state:
- *  - attendance_sessions.qr_token        — for QR uploads (decoded client-side)
- *  - attendance_sessions.session_code    — the typeable manual code
- *  - attendance_sessions.expires_at      — auto-close deadline
- *  - attendance_sessions.online_submode  — qr | code | both (which lanes are open)
- *  - mode = 'online'                     — flag that triggers "no anchor" behaviour
+ * After a successful mark we ALSO capture per-submission device
+ * telemetry and run AttendanceRiskService. Both are best-effort and
+ * never block the attendance — see PART 7 / PART 12 of the spec.
+ *
+ * Existing plumbing reused (zero parallel system):
+ *  - attendance_sessions row with mode = 'online'
+ *  - attendances row written exactly the same way as in-person modes
+ *  - AuditLogService::record(MARK_CREATED)
  */
 class OnlineAttendanceController extends Controller
 {
+    public function __construct(
+        private readonly OnlineCodeService $codes,
+        private readonly DeviceFingerprintService $deviceLogs,
+        private readonly AttendanceRiskService $risk,
+    ) {
+    }
+
     private function getStudent(Request $request): ?Student
     {
         $id = $request->session()->get('student_id');
@@ -40,7 +54,7 @@ class OnlineAttendanceController extends Controller
     }
 
     /**
-     * GET /web/attendance/{course}/online — show the upload-QR-or-enter-code page.
+     * GET /web/attendance/{course}/online — show the code-entry page.
      */
     public function show(Request $request, Course $course): View|RedirectResponse
     {
@@ -56,73 +70,30 @@ class OnlineAttendanceController extends Controller
                 ->with('error', 'No active online session for '.$course->course_name.'.');
         }
 
+        // Has the student already marked? Short-circuit the form into a
+        // "you're already in" state rather than rendering an input that
+        // would just bounce.
+        $alreadyMarked = Attendance::query()
+            ->where('student_id', $student->id)
+            ->where('attendance_session_id', $session->id)
+            ->where('status', 'present')
+            ->exists();
+
         return view('attendance.online', [
-            'course' => $course,
-            'session' => $session,
-            'student' => $student,
-            // Front-end uses these to pick which inputs to render.
-            'allowQr' => in_array($session->online_submode, ['qr', 'both', null], true),
-            'allowCode' => in_array($session->online_submode, ['code', 'both', null], true),
-            'expiresAt' => $session->expires_at,
+            'course'        => $course,
+            'session'       => $session,
+            'student'       => $student,
+            'expiresAt'     => $session->expires_at,
+            'codeLength'    => $this->codes->codeLength(),
+            'alreadyMarked' => $alreadyMarked,
         ]);
     }
 
     /**
-     * POST /web/attendance/{course}/online/qr — student-uploaded QR, decoded
-     * client-side (jsQR) into a token string. Server only validates.
-     */
-    public function submitQr(Request $request, Course $course): JsonResponse
-    {
-        $validated = $request->validate([
-            'qr_payload' => 'required|string|max:512',
-        ]);
-
-        return $this->markCommon($request, $course, function (AttendanceSession $session) use ($validated) {
-            $payload = trim((string) $validated['qr_payload']);
-            // Accept either the secure SecureQrToken-encoded string or the
-            // raw qr_token (for sessions where QR_SECRET isn't configured).
-            $secret = SecureQrToken::secret();
-            if ($secret) {
-                $decoded = SecureQrToken::decode($payload);
-                if (! $decoded || (int) ($decoded['session_id'] ?? 0) !== (int) $session->id) {
-                    return ['ok' => false, 'message' => 'This QR is not for the active session.'];
-                }
-            } else {
-                if ($session->qr_token === null || ! hash_equals((string) $session->qr_token, $payload)) {
-                    return ['ok' => false, 'message' => 'This QR is not for the active session.'];
-                }
-            }
-
-            return ['ok' => true, 'channel' => 'online_qr'];
-        });
-    }
-
-    /**
-     * POST /web/attendance/{course}/online/code — student typed the manual code.
+     * POST /web/attendance/{course}/online/code — student typed the
+     * current rolling code.
      */
     public function submitCode(Request $request, Course $course): JsonResponse
-    {
-        $validated = $request->validate([
-            'session_code' => 'required|string|max:48',
-        ]);
-
-        return $this->markCommon($request, $course, function (AttendanceSession $session) use ($validated) {
-            $entered = strtoupper(trim((string) $validated['session_code']));
-            $real = strtoupper((string) ($session->session_code ?? ''));
-            if ($real === '' || ! hash_equals($real, $entered)) {
-                return ['ok' => false, 'message' => 'That code is not valid for this session.'];
-            }
-
-            return ['ok' => true, 'channel' => 'online_code'];
-        });
-    }
-
-    /**
-     * Shared end-stage: resolve student + session, run the channel-specific
-     * validator, then either persist a new Attendance row or no-op if the
-     * student already marked in. Auto-closes the session if it has expired.
-     */
-    private function markCommon(Request $request, Course $course, \Closure $channelValidator): JsonResponse
     {
         $student = $this->getStudent($request);
         if (! $student) {
@@ -132,81 +103,117 @@ class OnlineAttendanceController extends Controller
         $session = $this->resolveActiveOnlineSession($course, $student);
         if (! $session) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'Online session is not active or has ended.',
                 'expired' => true,
             ], 410);
         }
 
-        // Channel-specific check (QR token vs manual code).
-        $check = $channelValidator($session);
-        if (empty($check['ok'])) {
+        $validated = $request->validate([
+            'code'   => 'required|string|max:16',
+            // Optional client telemetry block. Always accepted, never required —
+            // a stripped browser without JS just doesn't supply it, attendance
+            // still gets marked. See PART 7.
+            'client' => 'sometimes|array',
+        ]);
+
+        // PART 7: validation MUST NEVER hide attendance from a legitimate
+        // student. The only hard checks are: session active + code is valid.
+        // Risk scoring / device logging happen AFTER the attendance row.
+        if (! $this->codes->validate((string) $validated['code'], $session)) {
             return response()->json([
-                'ok' => false,
-                'message' => $check['message'] ?? 'Verification failed.',
+                'ok'      => false,
+                'message' => 'That code is not valid for the current session.',
             ], 422);
         }
-        $channel = (string) $check['channel'];
 
-        // Idempotent insert: if the student already has a present row for
-        // this session, just return success without touching the DB.
+        // Idempotent insert: if the student already marked, return success
+        // without re-inserting.
         $existing = Attendance::query()
             ->where('student_id', $student->id)
             ->where('attendance_session_id', $session->id)
             ->first();
 
-        if ($existing) {
-            // Nudge from absent to present if the rep had pre-recorded them.
+        if ($existing !== null) {
             if ($existing->status !== 'present') {
                 $existing->update(['status' => 'present', 'attendance_time' => now()]);
             }
 
             return response()->json([
-                'ok' => true,
-                'message' => 'You are already marked present for this online session.',
+                'ok'       => true,
+                'message'  => 'You are already marked present for this online session.',
                 'redirect' => route('web.attendance.success', ['course' => $course->id]),
             ]);
         }
 
-        DB::transaction(function () use ($student, $session, $course, $request, $channel) {
-            Attendance::create([
+        // Persist the attendance — single source of truth that the
+        // student was present. NOTHING below this point can block it.
+        try {
+            $attendance = DB::transaction(function () use ($student, $session, $course, $request) {
+                $row = Attendance::create([
+                    'student_id'            => $student->id,
+                    'course_id'             => $course->id,
+                    'attendance_session_id' => $session->id,
+                    'attendance_week_id'    => $session->attendance_week_id,
+                    'status'                => 'present',
+                    'attendance_time'       => now(),
+                    'device_ip'             => (string) $request->ip(),
+                    'user_agent'            => mb_substr((string) $request->userAgent(), 0, 480),
+                    'synced'                => true,
+                ]);
+
+                AuditLogService::record(AuditLogService::MARK_CREATED, [
+                    'request'               => $request,
+                    'course_id'             => (int) $course->id,
+                    'class_id'              => $student->class_id ? (int) $student->class_id : null,
+                    'attendance_session_id' => (int) $session->id,
+                    'subject_type'          => 'attendance',
+                    'subject_id'            => null,
+                    'payload'               => [
+                        'channel'      => 'online_code',
+                        'student_id'   => (int) $student->id,
+                        'index_number' => (string) $student->index_number,
+                    ],
+                ]);
+
+                return $row;
+            });
+        } catch (\Throwable $e) {
+            Log::error('online-attendance: persist failed', [
                 'student_id' => $student->id,
-                'course_id' => $course->id,
-                'attendance_session_id' => $session->id,
-                'attendance_week_id' => $session->attendance_week_id,
-                'status' => 'present',
-                'attendance_time' => now(),
-                'device_ip' => (string) $request->ip(),
-                'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
-                'synced' => true,
+                'session_id' => $session->id,
+                'error'      => $e->getMessage(),
             ]);
 
-            AuditLogService::record(AuditLogService::MARK_CREATED, [
-                'request' => $request,
-                'course_id' => (int) $course->id,
-                'class_id' => $student->class_id ? (int) $student->class_id : null,
-                'attendance_session_id' => (int) $session->id,
-                'subject_type' => 'attendance',
-                'subject_id' => null,
-                'payload' => [
-                    'channel' => $channel,
-                    'student_id' => (int) $student->id,
-                    'index_number' => (string) $student->index_number,
-                ],
-            ]);
-        });
+            return response()->json([
+                'ok'      => false,
+                'message' => 'We could not save your attendance. Please try again.',
+            ], 500);
+        }
+
+        // PART 8 / 9 — capture device telemetry (best-effort).
+        $deviceLog = $this->deviceLogs->record(
+            $request,
+            $student,
+            $session,
+            isset($validated['client']) && is_array($validated['client']) ? $validated['client'] : []
+        );
+
+        // PART 10 / 11 / 12 — risk scoring (NEVER blocks).
+        $this->risk->score($attendance, $student, $session, $deviceLog);
 
         return response()->json([
-            'ok' => true,
-            'message' => 'Marked present for this online lecture.',
+            'ok'       => true,
+            'message'  => 'Marked present for this online lecture.',
             'redirect' => route('web.attendance.success', ['course' => $course->id]),
         ]);
     }
 
     /**
-     * Find the live online session for this course/student. Returns null if
-     * none, or if the session has expired (also flips is_active=false in
-     * that case so subsequent requests skip straight to the "ended" branch).
+     * Find the live online session for this course/student. Returns null
+     * if none, or if the session has expired (in which case is_active is
+     * flipped to false once so subsequent requests skip straight to the
+     * "ended" branch).
      */
     private function resolveActiveOnlineSession(Course $course, Student $student): ?AttendanceSession
     {
@@ -215,9 +222,7 @@ class OnlineAttendanceController extends Controller
             ->where('mode', 'online')
             ->where('is_active', true)
             ->when((bool) $student->class_id, function ($q) use ($student) {
-                // Online sessions are class-scoped when the column exists; if
-                // it's absent the query just falls through course-scope.
-                if (\App\Support\SchemaFeatures::hasAttendanceSessionsClassId()) {
+                if (SchemaFeatures::hasAttendanceSessionsClassId()) {
                     $q->where(function ($qq) use ($student) {
                         $qq->whereNull('class_id')
                             ->orWhere('class_id', $student->class_id);
@@ -231,15 +236,15 @@ class OnlineAttendanceController extends Controller
             return null;
         }
 
-        // Auto-close if the deadline has passed. We only flip the flag once
-        // (saveQuietly skips events) so we don't fire SessionLiveEvent for
-        // an end that already happened.
         if ($session->expires_at && $session->expires_at->isPast()) {
             try {
                 $session->is_active = false;
                 $session->saveQuietly();
             } catch (\Throwable $e) {
-                Log::warning('online-attendance: auto-close failed', ['session_id' => $session->id, 'error' => $e->getMessage()]);
+                Log::warning('online-attendance: auto-close failed', [
+                    'session_id' => $session->id,
+                    'error'      => $e->getMessage(),
+                ]);
             }
 
             return null;

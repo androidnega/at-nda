@@ -131,7 +131,6 @@ Route::middleware(['student.attendance', 'student.session.integrity', 'no-store'
     // has an active online session; they pick QR-screenshot upload OR
     // type the manual code, both validated server-side.
     Route::get('{course}/online', [\App\Http\Controllers\OnlineAttendanceController::class, 'show'])->name('online.show');
-    Route::post('{course}/online/qr', [\App\Http\Controllers\OnlineAttendanceController::class, 'submitQr'])->name('online.qr');
     Route::post('{course}/online/code', [\App\Http\Controllers\OnlineAttendanceController::class, 'submitCode'])->name('online.code');
 
     Route::get('{course}/success', [AttendanceController::class, 'success'])->name('success');
@@ -188,11 +187,6 @@ Route::post('/lecturer/change-password', [LecturerAuthController::class, 'change
 Route::middleware('lecturer')->prefix('lecturer')->name('lecturer.')->group(function () {
     Route::post('courses/{course}/weeks/{attendanceWeek}/cancel', [LecturerAttendanceWeekController::class, 'cancel'])->name('courses.week.cancel');
     Route::post('courses/{course}/weeks/{attendanceWeek}/uncancel', [LecturerAttendanceWeekController::class, 'uncancel'])->name('courses.week.uncancel');
-    // Bulk roll-call entry for an online lecture week (no GPS / no QR).
-    Route::post('courses/{course}/weeks/{attendanceWeek}/roll-call', [LecturerAttendanceWeekController::class, 'rollCall'])->name('courses.week.roll-call');
-    // Create (or reuse) today's week and flag it as an online lecture, so
-    // the lecturer can roll-call without first opening a live session.
-    Route::post('courses/{course}/online-week', [LecturerAttendanceWeekController::class, 'createOnlineWeek'])->name('courses.online-week.create');
 });
 
 Route::get('/onboarding/check', [StudentOnboardingController::class, 'check'])->name('onboarding.check');
@@ -247,11 +241,6 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/rename', [ClassRepController::class, 'renameAttendanceWeek'])->name('class-attendance.week.rename');
         // Rep manually marks a student attendance with a reason.
         Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/manual-mark', [ClassRepController::class, 'manualMarkAttendance'])->name('class-attendance.manual-mark');
-        // Rep bulk roll-call for an online lecture week (no GPS / no QR).
-        Route::post('/class-attendance/course/{course}/weeks/{attendanceWeek}/roll-call', [ClassRepController::class, 'rollCallAttendance'])->name('class-attendance.roll-call');
-        // Rep creates (or reuses) today's week as an online lecture so a
-        // roll-call can happen without ever opening a live session.
-        Route::post('/class-attendance/course/{course}/online-week', [ClassRepController::class, 'createOnlineWeek'])->name('class-attendance.online-week.create');
         // Rep deletes a single attendance row (only when super admin has enabled it).
         Route::delete('/class-attendance/{attendance}', [ClassRepController::class, 'deleteAttendance'])->name('class-attendance.delete');
         // Rep deletes every attendance row in a single teaching week, for one course.
@@ -279,6 +268,11 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::get('/live-sessions/{session}/qr-stats', [ClassRepController::class, 'qrStats'])->name('live-sessions.qr-stats')->scopeBindings();
         Route::get('/live-sessions/{session}/qr-payload', [ClassRepController::class, 'qrPayload'])->name('live-sessions.qr-payload')->scopeBindings();
         Route::get('/live-sessions/{session}/qr-download', [ClassRepController::class, 'qrDownload'])->name('live-sessions.qr-download')->scopeBindings();
+
+        // Rep-only polling endpoint for the rolling attendance code shown
+        // on the active online-session card. Returns { code, expires_at,
+        // seconds_left }. See OnlineCodeService + classrep/dashboard.blade.php.
+        Route::get('/online-sessions/{session}/code', [ClassRepController::class, 'onlineCode'])->name('online-sessions.code')->scopeBindings();
     });
 
     Route::permanentRedirect('reps', '/dashboard');
@@ -327,6 +321,9 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         // Inherits the same admin guard since it sits inside the admin
         // route group.
         Route::middleware('admin.only')->get('/attendance/export.csv', [AdminController::class, 'exportAttendance'])->name('attendance.export');
+        // Admin review panel for risk-flagged (but still-recorded) online
+        // attendance submissions. Strictly read-only — see PART 12 / 13.
+        Route::middleware('admin.only')->get('/suspicious-attendances', [AdminController::class, 'suspiciousAttendances'])->name('suspicious-attendances');
         Route::resource('courses', CourseController::class)->except(['show']);
         Route::get('/attendance-weeks', [AdminAttendanceWeekController::class, 'index'])->name('attendance-weeks.index');
         Route::post('/attendance-weeks/next-course', [AdminAttendanceWeekController::class, 'setNextForCourse'])->name('attendance-weeks.next-course');

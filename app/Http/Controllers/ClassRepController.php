@@ -16,6 +16,7 @@ use App\Models\Venue;
 use App\Services\AuditLogService;
 use App\Services\ClassSessionScopeService;
 use App\Services\FcmNotificationService;
+use App\Services\OnlineCodeService;
 use App\Support\AttendanceSessionClassScope;
 use App\Support\CacheVersions;
 use App\Support\ClassTimetableAccess;
@@ -858,20 +859,18 @@ class ClassRepController extends Controller
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
             'week_number' => 'nullable|integer|min:1|max:500',
             'venue_id' => 'nullable|integer|exists:venues,id',
-            // Online-only sub-mode: 'qr' = student uploads a QR screenshot,
-            // 'code' = student types the session_code, 'both' = either works.
-            'online_submode' => 'nullable|in:qr,code,both',
-            'online_platform' => 'nullable|string|max:60',
-            'online_note' => 'nullable|string|max:500',
+            // Online-mode metadata. meeting_platform is a four-option enum
+            // (zoom | google_meet | teams | custom); meeting_link is an
+            // optional URL the rep shares in the call chat. Both are ignored
+            // unless mode === 'online'.
+            'meeting_platform' => 'nullable|in:zoom,google_meet,teams,custom',
+            'meeting_link' => 'nullable|url|max:500',
         ]);
         // The rep-submitted mode wins only when it's 'online'; every other
         // value is overridden by the admin-forced mode so reps can't bypass
         // the institution's chosen in-person mechanism.
         $isOnline = (($validated['mode'] ?? null) === 'online');
         $validated['mode'] = $isOnline ? 'online' : $forcedMode;
-        // Default sub-mode is 'both' so a rep who didn't pick one still
-        // gets the maximally permissive online flow.
-        $onlineSubmode = $isOnline ? ($validated['online_submode'] ?? 'both') : null;
 
         $course = Course::findOrFail($validated['course_id']);
         if (! $this->repCanAccessCourse($student, $course)) {
@@ -931,13 +930,29 @@ class ClassRepController extends Controller
             : null;
         $sessionVenueId = $overrideVenueId ?? ($snapshot['venue_id'] ?? $course->venue_id);
 
+        // Online sessions are anchor-less: capture the meeting platform +
+        // optional link the rep entered so the rep card can show "Online —
+        // Zoom" and link straight into the call. Both columns are no-ops
+        // on in-person rows (the model trims them via SchemaFeatures when
+        // the columns are absent on older deploys).
+        $meetingPlatform = null;
+        $meetingLink = null;
+        if ($isOnline) {
+            $meetingPlatform = $validated['meeting_platform'] ?? null;
+            $meetingLink = isset($validated['meeting_link']) ? trim((string) $validated['meeting_link']) : null;
+            if ($meetingLink === '') {
+                $meetingLink = null;
+            }
+        }
+
         [$sessionModel, $wasReopened] = AttendanceSession::openOrReopenForClass(
             (int) $course->id,
             $repClassId ? (int) $repClassId : null,
             (int) $week->id,
             [
                 'mode' => $validated['mode'],
-                'online_submode' => $onlineSubmode,
+                'meeting_platform' => $meetingPlatform,
+                'meeting_link' => $meetingLink,
                 'attendance_mode' => $attendanceMode,
                 'allowed_wifi_ssid' => $validated['mode'] === 'wifi' ? $wifiSsid : null,
                 'checkout_enabled' => false,
@@ -956,20 +971,6 @@ class ClassRepController extends Controller
                 'attendance_range_m' => $needsAnchor ? $range : null,
             ]
         );
-
-        // For an online session, mirror createOnlineWeek's behaviour: flag
-        // the week as online + record the platform/note so the week badge
-        // and reports can derive "this was an online lecture" without
-        // looking at every session row.
-        if ($isOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $platform = isset($validated['online_platform']) ? trim((string) $validated['online_platform']) : '';
-            $note = isset($validated['online_note']) ? trim((string) $validated['online_note']) : '';
-            $week->update([
-                'is_online' => true,
-                'online_platform' => $platform !== '' ? $platform : ($week->online_platform ?: null),
-                'online_note' => $note !== '' ? $note : ($week->online_note ?: 'Online lecture'),
-            ]);
-        }
 
         ClassSessionScopeService::autoMarkClassRepsForSession($sessionModel, $course, $repClassId);
 
@@ -1010,6 +1011,49 @@ class ClassRepController extends Controller
         }
 
         return back()->with('success', $msg);
+    }
+
+    /**
+     * GET /dashboard/online-sessions/{session}/code — rep polling endpoint
+     * for the rolling code shown on the active-session card.
+     *
+     * Returns { code, expires_at, seconds_left } for the currently-live
+     * rolling code (minted lazily by OnlineCodeService::currentFor).
+     * Returns { code: null, ... } when the session is no longer online or
+     * active. Rate-limited implicitly by the dashboard JS poll cadence
+     * (~5s); we don't add an explicit throttler because the response is
+     * already cheap (single indexed select + occasional insert).
+     */
+    public function onlineCode(Request $request, AttendanceSession $session, OnlineCodeService $codes): JsonResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            // requireClassRep returns a redirect for guests; surface that
+            // as a 401 JSON so the dashboard JS gracefully back-offs.
+            return response()->json(['ok' => false, 'message' => 'Sign in required.'], 401);
+        }
+
+        $course = $session->course;
+        if ($course === null || ! $this->repCanAccessCourse($rep, $course)) {
+            return response()->json(['ok' => false, 'message' => 'Forbidden.'], 403);
+        }
+
+        if (! $session->is_active || $session->mode !== 'online') {
+            return response()->json(['ok' => true, 'code' => null, 'expires_at' => null, 'seconds_left' => 0]);
+        }
+
+        $current = $codes->currentFor($session);
+        if ($current === null) {
+            return response()->json(['ok' => true, 'code' => null, 'expires_at' => null, 'seconds_left' => 0]);
+        }
+
+        return response()->json([
+            'ok'             => true,
+            'code'           => (string) $current->code,
+            'expires_at'     => optional($current->expires_at)->toIso8601String(),
+            'seconds_left'   => max(0, $current->secondsLeft()),
+            'rotation_seconds' => $codes->rotationSeconds(),
+        ]);
     }
 
     /**
@@ -2037,271 +2081,6 @@ class ClassRepController extends Controller
         ]);
 
         return back()->with('success', 'Marked '.$student->index_number.' as '.$validated['status'].' (manual entry).');
-    }
-
-    /**
-     * Bulk roll-call for an online lecture week. Rep version of
-     * {@see \App\Http\Controllers\LecturerAttendanceWeekController::rollCall}.
-     *
-     * Differences from the lecturer flow:
-     *   - Stamps `marked_manually_by_id` with the rep's student id (the
-     *     existing rep-manual-mark column) instead of the lecturer one.
-     *   - Restricts the mark set to students whose class_id falls inside
-     *     the rep's managed classes; anything outside is silently skipped
-     *     so a tampered form payload can't backdoor a mark for another
-     *     class.
-     *   - Anchors the synthesised "online" attendance_session_id to the
-     *     rep's class when the schema has attendance_sessions.class_id,
-     *     so per-class aggregations stay correct.
-     */
-    public function rollCallAttendance(Request $request, Course $course, AttendanceWeek $attendanceWeek): RedirectResponse
-    {
-        $debugId = bin2hex(random_bytes(4));
-        Log::info('[ROLL-CALL-REP] request.received', [
-            'debug_id' => $debugId,
-            'course_id' => (int) $course->id,
-            'week_id' => (int) $attendanceWeek->id,
-            'mark_count' => is_array($request->input('marks')) ? count($request->input('marks')) : 0,
-        ]);
-
-        $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) {
-            return $rep;
-        }
-        if (! $this->repCanAccessCourse($rep, $course)) {
-            abort(403, 'You can only manage attendance for your class courses.');
-        }
-        if ((int) $attendanceWeek->course_id !== (int) $course->id) {
-            abort(404);
-        }
-        if ($attendanceWeek->isCancelled()) {
-            return back()->with('error', 'Clear the cancellation on this week before running a roll-call.');
-        }
-
-        try {
-            $validated = $request->validate([
-                'note' => 'required|string|min:3|max:500',
-                'platform' => 'nullable|string|max:60',
-                'mark_online' => 'nullable|boolean',
-                'marks' => 'required|array|min:1',
-                'marks.*' => 'in:present,late,absent,skip',
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('[ROLL-CALL-REP] validation.failed', [
-                'debug_id' => $debugId,
-                'errors' => $e->errors(),
-            ]);
-
-            throw $e;
-        }
-
-        $repClassId = $this->resolveRepClassId($rep, $course);
-        $repClassIds = $this->getRepClassIds($rep)->map(fn ($id) => (int) $id)->all();
-        if ($repClassIds === []) {
-            return back()->with('error', 'Could not resolve your class for this course.');
-        }
-
-        // Only students from the rep's managed class(es) are eligible —
-        // mirrors the per-student manual mark check.
-        $enrolledIds = Student::query()
-            ->whereIn('class_id', $repClassIds)
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-        $enrolledSet = array_flip($enrolledIds);
-
-        $session = AttendanceSession::query()
-            ->where('course_id', $course->id)
-            ->where('attendance_week_id', $attendanceWeek->id)
-            ->when(SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId, function ($q) use ($repClassId) {
-                $q->where('class_id', $repClassId);
-            })
-            ->orderByDesc('id')
-            ->first();
-
-        if (! $session) {
-            $anchorDate = $attendanceWeek->week_date ?? now();
-            $attrs = [
-                'course_id' => $course->id,
-                'attendance_week_id' => $attendanceWeek->id,
-                'mode' => 'online',
-                'is_active' => false,
-                'venue_id' => $course->venue_id,
-                'start_time' => $anchorDate,
-                'end_time' => $anchorDate,
-                'lecturer_status' => 'in_class',
-            ];
-            if (SchemaFeatures::hasAttendanceSessionsClassId() && $repClassId) {
-                $attrs['class_id'] = (int) $repClassId;
-            }
-            $session = AttendanceSession::create($attrs);
-        }
-
-        $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
-        $platform = $platform === '' ? null : $platform;
-        $reason = $platform !== null
-            ? ('Online ('.$platform.') — '.$validated['note'])
-            : ('Online — '.$validated['note']);
-
-        $created = 0;
-        $updated = 0;
-        $skipped = 0;
-
-        DB::transaction(function () use (
-            $validated,
-            $enrolledSet,
-            $session,
-            $course,
-            $attendanceWeek,
-            $rep,
-            $reason,
-            $request,
-            &$created,
-            &$updated,
-            &$skipped,
-        ) {
-            foreach ($validated['marks'] as $studentId => $status) {
-                $sid = (int) $studentId;
-                if (! isset($enrolledSet[$sid])) {
-                    $skipped++;
-
-                    continue;
-                }
-                if ($status === 'skip') {
-                    $skipped++;
-
-                    continue;
-                }
-
-                $row = Attendance::query()
-                    ->where('student_id', $sid)
-                    ->where('attendance_session_id', $session->id)
-                    ->first();
-
-                $payload = [
-                    'status' => $status,
-                    'marked_manually_by_id' => (int) $rep->id,
-                    'manual_reason' => mb_substr($reason, 0, 500),
-                    'marked_manually_at' => now(),
-                    'device_ip' => (string) $request->ip(),
-                    'user_agent' => mb_substr((string) $request->userAgent(), 0, 480),
-                ];
-
-                if ($row) {
-                    $row->update($payload);
-                    $updated++;
-                } else {
-                    Attendance::create(array_merge($payload, [
-                        'student_id' => $sid,
-                        'course_id' => $course->id,
-                        'attendance_session_id' => $session->id,
-                        'attendance_week_id' => $attendanceWeek->id,
-                        'attendance_time' => now(),
-                        'synced' => true,
-                    ]));
-                    $created++;
-                }
-            }
-        });
-
-        $markOnline = (bool) ($validated['mark_online'] ?? true);
-        if ($markOnline && SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $attendanceWeek->update([
-                'is_online' => true,
-                'online_platform' => $platform,
-                'online_note' => mb_substr($validated['note'], 0, 500),
-            ]);
-        }
-
-        AuditLogService::record(AuditLogService::MARK_MANUAL, [
-            'request' => $request,
-            'course_id' => (int) $course->id,
-            'class_id' => $repClassId ? (int) $repClassId : null,
-            'attendance_session_id' => (int) $session->id,
-            'subject_type' => 'attendance_week',
-            'subject_id' => (int) $attendanceWeek->id,
-            'payload' => [
-                'kind' => 'online_roll_call',
-                'created' => $created,
-                'updated' => $updated,
-                'skipped' => $skipped,
-                'platform' => $platform,
-                'note' => $validated['note'],
-                'week_number' => $attendanceWeek->week_number,
-                'marked_online' => $markOnline,
-            ],
-        ]);
-
-        Log::info('[ROLL-CALL-REP] success', [
-            'debug_id' => $debugId,
-            'session_id' => (int) $session->id,
-            'created' => $created,
-            'updated' => $updated,
-            'skipped' => $skipped,
-        ]);
-
-        return back()->with(
-            'success',
-            sprintf(
-                'Online roll-call saved for Week %d · %d added · %d updated · %d skipped.',
-                $attendanceWeek->week_number,
-                $created,
-                $updated,
-                $skipped
-            )
-        );
-    }
-
-    /**
-     * Rep counterpart of {@see \App\Http\Controllers\LecturerAttendanceWeekController::createOnlineWeek}.
-     *
-     * Creates (or reuses) today's attendance week for the course +
-     * the rep's class, flags it `is_online`, and redirects back with
-     * `?focus_week=<id>` so the page auto-expands and opens the
-     * roll-call modal. Lets the rep start an online lecture even when
-     * no live session was ever opened.
-     */
-    public function createOnlineWeek(Request $request, Course $course): RedirectResponse
-    {
-        $rep = $this->requireClassRep($request);
-        if ($rep instanceof RedirectResponse) {
-            return $rep;
-        }
-        if (! $this->repCanAccessCourse($rep, $course)) {
-            abort(403, 'You can only manage attendance for your class courses.');
-        }
-
-        $validated = $request->validate([
-            'platform' => 'nullable|string|max:60',
-            'note' => 'nullable|string|max:500',
-            'week_number' => 'nullable|integer|min:1|max:500',
-        ]);
-
-        $repClassId = $this->resolveRepClassId($rep, $course);
-        if (! $repClassId) {
-            return back()->with('error', 'Could not resolve your class for this course.');
-        }
-
-        $overrideWeekNumber = isset($validated['week_number']) ? (int) $validated['week_number'] : null;
-        $week = $course->createOrGetAttendanceWeekForToday($repClassId, $overrideWeekNumber);
-
-        if (SchemaFeatures::hasAttendanceWeeksOnlineFlag()) {
-            $platform = isset($validated['platform']) ? trim((string) $validated['platform']) : '';
-            $platform = $platform === '' ? null : $platform;
-            $note = isset($validated['note']) ? mb_substr(trim((string) $validated['note']), 0, 500) : null;
-            if ($note === '') {
-                $note = null;
-            }
-            $week->update([
-                'is_online' => true,
-                'online_platform' => $platform ?? $week->online_platform,
-                'online_note' => $note ?? $week->online_note ?? 'Online lecture',
-            ]);
-        }
-
-        return redirect()
-            ->route('dashboard.class-attendance.course', ['course' => $course->id, 'focus_week' => $week->id])
-            ->with('success', 'Week '.$week->week_number.' opened as an online lecture. Tick attendees in the roll-call.');
     }
 
     /**

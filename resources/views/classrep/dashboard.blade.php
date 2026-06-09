@@ -121,49 +121,38 @@
                             @endif
                         </p>
 
-                        {{-- Online-only sub-mode picker. Hidden until the
-                             rep ticks the online toggle above; inputs are
-                             disabled while hidden so they don't post
-                             alongside an in-person session. --}}
+                        {{-- Online-only metadata. Hidden until the rep ticks
+                             the online toggle above; inputs are disabled
+                             while hidden so they don't post alongside an
+                             in-person session. PART 3 of the spec. --}}
                         <div class="hidden mt-3 border border-indigo-200 rounded-lg p-3 space-y-3 bg-indigo-50/40" id="session-online-section" aria-hidden="true">
-                            <div class="space-y-1.5">
-                                <span class="{{ $labelBase }}">How students mark in</span>
-                                <div class="grid grid-cols-3 gap-2 text-center text-[11px] font-semibold">
-                                    <label class="cursor-pointer">
-                                        <input type="radio" name="online_submode" value="both" class="peer sr-only" disabled checked>
-                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
-                                            <i class="fas fa-shuffle text-[11px] block mb-0.5"></i> Either
-                                        </span>
-                                    </label>
-                                    <label class="cursor-pointer">
-                                        <input type="radio" name="online_submode" value="qr" class="peer sr-only" disabled>
-                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
-                                            <i class="fas fa-qrcode text-[11px] block mb-0.5"></i> QR only
-                                        </span>
-                                    </label>
-                                    <label class="cursor-pointer">
-                                        <input type="radio" name="online_submode" value="code" class="peer sr-only" disabled>
-                                        <span class="block rounded-md border border-slate-200 bg-white px-2 py-2 peer-checked:border-indigo-500 peer-checked:bg-indigo-100 peer-checked:text-indigo-800">
-                                            <i class="fas fa-keyboard text-[11px] block mb-0.5"></i> Code only
-                                        </span>
-                                    </label>
-                                </div>
-                                <p class="text-[10.5px] text-slate-500 mt-1">"Either" gives students both options. Use "Code only" when phone cameras can't read the QR; "QR only" discourages code‑sharing in chat.</p>
-                            </div>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div class="space-y-1.5">
-                                    <label for="online_platform" class="{{ $labelBase }}">Platform <span class="text-slate-400 font-normal">(optional)</span></label>
-                                    <input type="text" name="online_platform" id="online_platform" maxlength="60" value="{{ old('online_platform') }}" placeholder="Zoom, Meet, Teams…"
-                                        disabled
-                                        class="{{ $fieldBase }}">
+                                    <label for="meeting_platform" class="{{ $labelBase }}">Meeting platform</label>
+                                    <div class="relative">
+                                        <select name="meeting_platform" id="meeting_platform"
+                                                disabled
+                                                class="{{ $fieldBase }} appearance-none pr-8 cursor-pointer">
+                                            <option value="zoom" {{ old('meeting_platform') === 'zoom' ? 'selected' : '' }}>Zoom</option>
+                                            <option value="google_meet" {{ old('meeting_platform') === 'google_meet' ? 'selected' : '' }}>Google Meet</option>
+                                            <option value="teams" {{ old('meeting_platform') === 'teams' ? 'selected' : '' }}>Microsoft Teams</option>
+                                            <option value="custom" {{ old('meeting_platform') === 'custom' ? 'selected' : '' }}>Other</option>
+                                        </select>
+                                        <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i class="fas fa-chevron-down text-[10px]"></i></span>
+                                    </div>
                                 </div>
                                 <div class="space-y-1.5">
-                                    <label for="online_note" class="{{ $labelBase }}">Note <span class="text-slate-400 font-normal">(optional)</span></label>
-                                    <input type="text" name="online_note" id="online_note" maxlength="500" value="{{ old('online_note') }}" placeholder="e.g. Make‑up class — Topic 4"
-                                        disabled
-                                        class="{{ $fieldBase }}">
+                                    <label for="meeting_link" class="{{ $labelBase }}">Meeting link <span class="text-slate-400 font-normal">(optional)</span></label>
+                                    <input type="url" name="meeting_link" id="meeting_link" maxlength="500"
+                                           value="{{ old('meeting_link') }}"
+                                           placeholder="https://zoom.us/j/…"
+                                           disabled
+                                           class="{{ $fieldBase }}">
                                 </div>
                             </div>
+                            <p class="text-[10.5px] text-slate-500 leading-snug">
+                                Students just enter the rolling code — no QR. You'll see the current code on the active-session card after opening; share it in the meeting chat.
+                            </p>
                         </div>
                     </div>
                     <div class="space-y-1.5">
@@ -359,52 +348,72 @@
                                 @endif
                             </div>
 
-                            {{-- Online-session helper panel: shows the session
-                                 code (always typeable) and a download link
-                                 for the QR PNG, plus the student URL the rep
-                                 can paste into Zoom chat. Only renders when
-                                 mode='online'; in-person sessions get the
-                                 inline QR / Form buttons further down. --}}
+                            {{-- Online-session helper panel.
+
+                                 Shows the rotating attendance code + a
+                                 countdown until it rolls, plus the student
+                                 URL the rep pastes into the meeting chat.
+                                 No QR — students just type the code. PART
+                                 5 of the spec.
+
+                                 The code itself is fetched + refreshed by
+                                 JS via the dashboard.online-code endpoint
+                                 (polled every ~5s), so the rep always sees
+                                 whichever code is currently valid. --}}
                             @if($activeSession->mode === 'online')
                                 @php
-                                    $allowQr = in_array($activeSession->online_submode ?? 'both', ['qr', 'both', null], true);
-                                    $allowCode = in_array($activeSession->online_submode ?? 'both', ['code', 'both', null], true);
                                     $studentUrl = route('web.attendance.online.show', ['course' => $course->id]);
+                                    $platformLabel = match($activeSession->meeting_platform ?? null) {
+                                        'zoom'        => 'Zoom',
+                                        'google_meet' => 'Google Meet',
+                                        'teams'       => 'Microsoft Teams',
+                                        'custom'      => 'Custom meeting',
+                                        default       => null,
+                                    };
+                                    $codePollUrl = route('dashboard.online-sessions.code', ['session' => $activeSession->id]);
                                 @endphp
-                                <div class="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 mb-3 space-y-2">
-                                    <p class="text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Online lecture — share with students</p>
-                                    @if($allowCode && $activeSession->session_code)
-                                        <div class="flex items-stretch gap-2">
-                                            <input type="text" readonly value="{{ $activeSession->session_code }}"
-                                                   class="flex-1 min-w-0 text-center font-mono font-bold text-sm tabular-nums tracking-wider rounded-md border border-indigo-200 bg-white px-2 py-2 text-slate-900"
-                                                   data-online-code>
-                                            <button type="button" class="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
-                                                    data-online-copy="{{ $activeSession->session_code }}">
-                                                <i class="fas fa-copy text-[10px]"></i> Copy
-                                            </button>
-                                        </div>
-                                    @endif
-                                    <div class="flex flex-wrap gap-2">
-                                        @if($allowQr && \Illuminate\Support\Facades\Route::has('dashboard.live-sessions.qr'))
-                                            <a href="{{ route('dashboard.live-sessions.qr', $activeSession) }}" target="_blank" rel="noopener"
+                                <div class="rounded-md border border-indigo-200 bg-indigo-50/50 p-3 mb-3 space-y-2"
+                                     data-online-rolling
+                                     data-poll-url="{{ $codePollUrl }}">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <p class="text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Online attendance — current code</p>
+                                        @if($platformLabel)
+                                            <span class="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-800">
+                                                <i class="fas fa-video text-[9px]"></i> {{ $platformLabel }}
+                                            </span>
+                                        @endif
+                                    </div>
+
+                                    <div class="flex items-stretch gap-2">
+                                        <div class="flex-1 min-w-0 text-center font-mono font-bold text-2xl tabular-nums tracking-[0.45em] rounded-md border border-indigo-200 bg-white px-2 py-2 text-slate-900"
+                                             data-online-code>----</div>
+                                        <button type="button"
+                                                class="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                                                data-online-copy disabled>
+                                            <i class="fas fa-copy text-[10px]"></i> Copy
+                                        </button>
+                                    </div>
+
+                                    <p class="text-[11px] text-indigo-800 text-center" data-online-countdown-line>
+                                        Expires in <span class="font-mono font-bold tabular-nums" data-online-countdown>--:--</span>
+                                    </p>
+
+                                    <div class="flex flex-wrap gap-2 pt-1">
+                                        @if($activeSession->meeting_link)
+                                            <a href="{{ $activeSession->meeting_link }}" target="_blank" rel="noopener"
                                                class="flex-1 inline-flex justify-center items-center gap-1.5 rounded-md bg-indigo-700 px-3 py-2 text-[11px] font-semibold text-white hover:bg-indigo-800">
-                                                <i class="fas fa-qrcode text-[10px]"></i> Download QR
+                                                <i class="fas fa-arrow-up-right-from-square text-[10px]"></i> Open meeting
                                             </a>
                                         @endif
-                                        <button type="button" class="flex-1 inline-flex justify-center items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3 py-2 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
+                                        <button type="button"
+                                                class="flex-1 inline-flex justify-center items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3 py-2 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
                                                 data-online-share-url="{{ $studentUrl }}">
                                             <i class="fas fa-link text-[10px]"></i> Copy student link
                                         </button>
                                     </div>
+
                                     <p class="text-[10.5px] text-slate-600 leading-snug">
-                                        Students open <span class="font-mono">{{ $studentUrl }}</span>
-                                        @if($allowQr && $allowCode)
-                                            and either upload the QR screenshot OR type the code above.
-                                        @elseif($allowQr)
-                                            and upload a screenshot of the QR.
-                                        @else
-                                            and type the code above.
-                                        @endif
+                                        Paste the code into the meeting chat. It auto-rotates every couple of minutes — drop the new one in once you see the countdown reset.
                                     </p>
                                 </div>
                             @endif
@@ -1333,11 +1342,89 @@
             setTimeout(function () { btn.innerHTML = orig; }, 1400);
         }
     }
-    document.querySelectorAll('[data-online-copy]').forEach(function (btn) {
-        btn.addEventListener('click', function () { copyText(btn.getAttribute('data-online-copy') || '', btn); });
-    });
     document.querySelectorAll('[data-online-share-url]').forEach(function (btn) {
         btn.addEventListener('click', function () { copyText(btn.getAttribute('data-online-share-url') || '', btn); });
+    });
+
+    /* Rolling-code poller for the active online session card.
+
+       Pulls { code, expires_at, seconds_left } from the rep-only
+       polling endpoint every 5 seconds (slightly faster when the
+       current code is within 15s of expiring), updates the visible
+       code, runs a per-second client-side countdown between fetches,
+       and wires the Copy button to whatever code is currently
+       displayed. PART 5 of the spec. */
+    document.querySelectorAll('[data-online-rolling]').forEach(function (panel) {
+        var pollUrl = panel.getAttribute('data-poll-url') || '';
+        if (!pollUrl) return;
+
+        var codeEl     = panel.querySelector('[data-online-code]');
+        var countEl    = panel.querySelector('[data-online-countdown]');
+        var countLine  = panel.querySelector('[data-online-countdown-line]');
+        var copyBtn    = panel.querySelector('[data-online-copy]');
+        var currentCode = null;
+        var deadlineMs  = 0;
+        var nextFetch   = 0;
+
+        function paintCountdown(seconds) {
+            if (!countEl) return;
+            if (seconds <= 0) {
+                countEl.textContent = '00:00';
+                return;
+            }
+            var m = String(Math.floor(seconds / 60)).padStart(2, '0');
+            var s = String(seconds % 60).padStart(2, '0');
+            countEl.textContent = m + ':' + s;
+        }
+
+        function setCode(code, expiresIso, seconds) {
+            currentCode = (code || '').toString();
+            deadlineMs  = expiresIso ? new Date(expiresIso).getTime() : (Date.now() + (seconds || 0) * 1000);
+            if (codeEl)  codeEl.textContent = currentCode || '----';
+            if (copyBtn) copyBtn.disabled = currentCode === '';
+        }
+
+        async function refresh() {
+            try {
+                var r = await fetch(pollUrl, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                });
+                if (!r.ok) {
+                    nextFetch = Date.now() + 10000;
+                    return;
+                }
+                var data = await r.json();
+                if (data && data.code) {
+                    setCode(data.code, data.expires_at, data.seconds_left);
+                } else if (countLine) {
+                    countLine.textContent = 'No code yet — wait a moment…';
+                }
+                // Within 15s of expiring? Poll faster so the fresh code
+                // shows up the moment it rotates.
+                var leftMs = deadlineMs - Date.now();
+                nextFetch = Date.now() + (leftMs > 15000 ? 5000 : 1500);
+            } catch (_) {
+                nextFetch = Date.now() + 10000;
+            }
+        }
+
+        function tick() {
+            if (Date.now() >= nextFetch) refresh();
+            var leftSec = Math.max(0, Math.round((deadlineMs - Date.now()) / 1000));
+            paintCountdown(leftSec);
+            setTimeout(tick, 1000);
+        }
+
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function () {
+                if (!currentCode) return;
+                copyText(currentCode, copyBtn);
+            });
+        }
+
+        refresh().then(tick);
     });
 })();
 </script>

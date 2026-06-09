@@ -23,7 +23,7 @@ use Illuminate\View\View;
 
 class AttendanceController extends Controller
 {
-    public function form(Course $course, Request $request): View
+    public function form(Course $course, Request $request): View|RedirectResponse
     {
         // Resolve the signed-in student FIRST — a recent refactor moved
         // the $activeSession line above the assignment, which produced a
@@ -37,6 +37,15 @@ class AttendanceController extends Controller
         $activeSession = $loggedInStudent?->class_id
             ? $course->activeSessionForClass((int) $loggedInStudent->class_id)
             : null;
+
+        // Online sessions have a dedicated UI (rolling code, no GPS / no
+        // QR / no Wi-Fi anchor). Redirect signed-in students straight
+        // there instead of rendering the generic form that would just
+        // throw "no location available". PART 6 of the spec.
+        if ($loggedInStudent !== null && $activeSession !== null && $activeSession->mode === 'online') {
+            return redirect()->route('web.attendance.online.show', ['course' => $course->id]);
+        }
+
         $settings = SystemSetting::get();
 
         $isClassRep = $loggedInStudent

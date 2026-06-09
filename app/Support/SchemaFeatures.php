@@ -43,9 +43,15 @@ final class SchemaFeatures
 
     private static ?bool $attendancesDeviceFingerprint = null;
 
-    private static ?bool $attendanceWeeksOnlineFlag = null;
-
     private static ?bool $attendancesLecturerManualMark = null;
+
+    private static ?bool $attendanceSessionsMeetingFields = null;
+
+    private static ?bool $attendancesRiskColumns = null;
+
+    private static ?bool $onlineSessionCodes = null;
+
+    private static ?bool $attendanceDeviceLogs = null;
 
     public static function hasClassLecturerPivot(): bool
     {
@@ -159,19 +165,37 @@ final class SchemaFeatures
         );
     }
 
-    public static function hasAttendanceWeeksOnlineFlag(): bool
-    {
-        return self::$attendanceWeeksOnlineFlag ??= (
-            Schema::hasTable('attendance_weeks')
-            && Schema::hasColumn('attendance_weeks', 'is_online')
-        );
-    }
-
     public static function hasAttendancesLecturerManualMark(): bool
     {
         return self::$attendancesLecturerManualMark ??= (
             Schema::hasTable('attendances')
             && Schema::hasColumn('attendances', 'marked_manually_by_lecturer_id')
         );
+    }
+
+    public static function hasAttendanceSessionsMeetingFields(): bool
+    {
+        return self::$attendanceSessionsMeetingFields ??= (
+            Schema::hasTable('attendance_sessions')
+            && Schema::hasColumn('attendance_sessions', 'meeting_platform')
+        );
+    }
+
+    public static function hasAttendancesRiskColumns(): bool
+    {
+        return self::$attendancesRiskColumns ??= (
+            Schema::hasTable('attendances')
+            && Schema::hasColumn('attendances', 'risk_score')
+        );
+    }
+
+    public static function hasOnlineSessionCodes(): bool
+    {
+        return self::$onlineSessionCodes ??= Schema::hasTable('online_session_codes');
+    }
+
+    public static function hasAttendanceDeviceLogs(): bool
+    {
+        return self::$attendanceDeviceLogs ??= Schema::hasTable('attendance_device_logs');
     }
 }

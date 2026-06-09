@@ -231,6 +231,70 @@ class AdminController extends Controller
     }
 
     /**
+     * Admin review panel for attendance rows that AttendanceRiskService
+     * flagged as suspicious.
+     *
+     * Strictly read-only — these rows ARE marked as present (per spec
+     * PART 12, even HIGH risk doesn't block). The panel just surfaces
+     * them so a human can investigate. Filterable by ?level=low|medium|high
+     * and ?session=<id>; defaults to "medium and above" so the page
+     * doesn't drown in LOW noise.
+     */
+    public function suspiciousAttendances(Request $request): View
+    {
+        $hasRiskColumns = \App\Support\SchemaFeatures::hasAttendancesRiskColumns();
+
+        $level   = (string) $request->query('level', 'medium_plus');
+        $session = (int) $request->query('session', 0);
+
+        $query = Attendance::query()
+            ->with(['student.schoolClass', 'course', 'attendanceSession']);
+
+        if ($hasRiskColumns) {
+            $query->whereNotNull('risk_level');
+            if ($level === 'low') {
+                $query->where('risk_level', 'low');
+            } elseif ($level === 'medium') {
+                $query->where('risk_level', 'medium');
+            } elseif ($level === 'high') {
+                $query->where('risk_level', 'high');
+            } else {
+                // Default: medium + high (skip noise).
+                $query->whereIn('risk_level', ['medium', 'high']);
+            }
+            $query->orderByDesc('risk_score')
+                ->orderByDesc('attendance_time');
+        } else {
+            // Schema hasn't picked up the migration yet — render an empty
+            // list so the page never 500s on a stale deploy.
+            $query->whereRaw('1 = 0');
+        }
+
+        if ($session > 0) {
+            $query->where('attendance_session_id', $session);
+        }
+
+        $rows = $query->paginate(30)->appends($request->query());
+
+        $counts = $hasRiskColumns
+            ? Attendance::query()
+                ->selectRaw("risk_level, COUNT(*) as c")
+                ->whereNotNull('risk_level')
+                ->groupBy('risk_level')
+                ->pluck('c', 'risk_level')
+                ->toArray()
+            : [];
+
+        return view('admin.suspicious-attendances', [
+            'rows'           => $rows,
+            'counts'         => $counts,
+            'level'          => $level,
+            'session'        => $session,
+            'hasRiskColumns' => $hasRiskColumns,
+        ]);
+    }
+
+    /**
      * Stream a CSV of attendance marks for the chosen period. Used by
      * the "Download" action on the admin dashboard so we don't have to
      * build a separate reporting page just for an export.

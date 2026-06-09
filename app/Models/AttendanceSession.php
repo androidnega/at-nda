@@ -35,7 +35,8 @@ class AttendanceSession extends Model
         'allowed_wifi_ssid',
         'lecturer_status',
         'session_code',
-        'online_submode',
+        'meeting_platform',
+        'meeting_link',
     ];
 
 
@@ -496,6 +497,23 @@ class AttendanceSession extends Model
             if (! \App\Support\SchemaFeatures::hasAttendanceSessionsClassId()
                 && array_key_exists('class_id', $session->getAttributes())) {
                 unset($session->attributes['class_id']);
+            }
+            // Same trick for the online-meeting columns introduced by
+            // 2026_06_09_041000_add_meeting_fields_to_attendance_sessions.
+            // Skip the strip when at least one column exists.
+            if (! \App\Support\SchemaFeatures::hasAttendanceSessionsMeetingFields()) {
+                foreach (['meeting_platform', 'meeting_link'] as $col) {
+                    if (array_key_exists($col, $session->getAttributes())) {
+                        unset($session->attributes[$col]);
+                    }
+                }
+            }
+            // Defensive: the deprecated online_submode column is dormant on
+            // the database but the removal of the feature means nothing
+            // should be writing to it anymore. Silently drop any value to
+            // keep accidental callers from re-introducing the field.
+            if (array_key_exists('online_submode', $session->getAttributes())) {
+                unset($session->attributes['online_submode']);
             }
         });
 

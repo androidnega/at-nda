@@ -32,57 +32,6 @@
             @endif
         </div>
         <div class="flex flex-wrap items-center gap-2">
-            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.online-week.create'))
-                <button type="button" data-week-modal-open="online-lecture-create"
-                        class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-800">
-                    <i class="fas fa-globe"></i>
-                    Start online lecture
-                </button>
-                <div data-week-modal="online-lecture-create"
-                     class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
-                     role="dialog" aria-modal="true" aria-labelledby="online-lecture-create-title">
-                    <div class="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200">
-                        <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
-                            <div>
-                                <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Online lecture</p>
-                                <h3 id="online-lecture-create-title" class="text-base font-bold text-gray-900">Start an online lecture</h3>
-                                <p class="text-[11px] text-gray-500 mt-0.5">Pick the week this lecture belongs to. Nothing is marked for students yet — you'll do roll-call after.</p>
-                            </div>
-                            <button type="button" data-week-modal-close
-                                    class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
-                                <i class="fas fa-xmark"></i>
-                            </button>
-                        </div>
-                        <form action="{{ route('dashboard.class-attendance.online-week.create', $course) }}" method="post" class="p-4 space-y-3">
-                            @csrf
-                            <div>
-                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Week number <span class="text-rose-600">*</span></label>
-                                <input type="number" name="week_number" min="1" max="500" required
-                                       value="{{ ($attendanceWeeks ?? collect())->max('week_number') ? ($attendanceWeeks->max('week_number') + 1) : 1 }}"
-                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
-                                <p class="text-[10.5px] text-gray-500 mt-1">Existing weeks for this course: {{ ($attendanceWeeks ?? collect())->pluck('week_number')->sort()->values()->join(', ') ?: 'none yet' }}.</p>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Platform</label>
-                                <input type="text" name="platform" maxlength="60" placeholder="e.g. Zoom, Google Meet, MS Teams"
-                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Note (optional)</label>
-                                <input type="text" name="note" maxlength="500" placeholder="e.g. Lecture on rotational dynamics"
-                                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400">
-                            </div>
-                            <div class="flex justify-end gap-2 pt-1">
-                                <button type="button" data-week-modal-close
-                                        class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-                                <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
-                                    <i class="fas fa-globe text-[11px]"></i> Open week
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            @endif
             @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.course.pdf'))
                 <a href="{{ route('dashboard.class-attendance.course.pdf', $course) }}" target="_blank" rel="noopener"
                    class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/80 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100">
@@ -173,13 +122,6 @@
                                 <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums {{ $badge }}">
                                     {{ $week->isCancelled() ? 'Cancelled' : $pct.'%' }}
                                 </span>
-                                @if($week->isOnline())
-                                    <span class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-800"
-                                          title="{{ $week->online_note }}">
-                                        <i class="fas fa-globe text-[9px]"></i>
-                                        Online{{ $week->online_platform ? ' · '.$week->online_platform : '' }}
-                                    </span>
-                                @endif
                             </div>
                             <p class="text-[11px] text-gray-500 mt-1 truncate">
                                 {{ $week->week_date ? $week->week_date->format('M j, Y') : 'Date not set' }}
@@ -261,15 +203,6 @@
                                         class="inline-flex items-center gap-1.5 rounded-md bg-indigo-700 text-white px-2.5 py-1.5 text-[11px] font-semibold hover:bg-indigo-800">
                                     <i class="fas fa-user-pen text-[10px]"></i>
                                     Manually mark a student
-                                </button>
-                            @endif
-
-                            @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.roll-call') && !empty($classmates ?? null))
-                                <button type="button"
-                                        data-week-modal-open="rollcall-{{ $week->id }}"
-                                        class="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 px-2.5 py-1.5 text-[11px] font-semibold hover:bg-indigo-100">
-                                    <i class="fas fa-globe text-[10px]"></i>
-                                    Online roll-call
                                 </button>
                             @endif
 
@@ -491,135 +424,6 @@
                                             class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-60 disabled:cursor-not-allowed">
                                         <i class="fas fa-check text-[11px]" data-manual-submit-icon></i>
                                         <span data-manual-submit-label>Save manual mark</span>
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                @endif
-
-                @if(\Illuminate\Support\Facades\Route::has('dashboard.class-attendance.roll-call') && !empty($classmates ?? null))
-                    @php $presentSet = $row['present_ids'] ?? collect(); @endphp
-                    <div data-week-modal="rollcall-{{ $week->id }}"
-                         class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
-                         role="dialog" aria-modal="true" aria-labelledby="rollcall-{{ $week->id }}-title">
-                        <div class="relative w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-gray-200 max-h-[92vh] sm:max-h-[85vh] flex flex-col">
-                            <div class="flex items-start justify-between gap-3 p-4 border-b border-gray-100">
-                                <div class="min-w-0">
-                                    <p class="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Online roll-call</p>
-                                    <h3 id="rollcall-{{ $week->id }}-title" class="text-base font-bold text-gray-900">Week {{ $week->week_number }}</h3>
-                                    <p class="text-[11px] text-gray-500 mt-0.5">Tick everyone who joined the live meeting. Each row is stamped with your name + the reason for audit.</p>
-                                </div>
-                                <button type="button" data-week-modal-close
-                                        class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100">
-                                    <i class="fas fa-xmark"></i>
-                                </button>
-                            </div>
-
-                            <form action="{{ route('dashboard.class-attendance.roll-call', [$course, $week]) }}"
-                                  method="post"
-                                  class="p-4 space-y-3 overflow-y-auto"
-                                  data-rollcall-form
-                                  data-week-id="{{ $week->id }}">
-                                @csrf
-
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <label class="block">
-                                        <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-600">Platform <span class="text-gray-400 normal-case">(optional)</span></span>
-                                        <input type="text" name="platform" maxlength="60"
-                                               value="{{ $week->online_platform }}"
-                                               placeholder="Zoom, Meet, Teams…"
-                                               class="mt-1 w-full text-[12px] border border-gray-200 rounded-md px-2 py-1.5">
-                                    </label>
-                                    <label class="block">
-                                        <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-600">Reason / note <span class="text-rose-600 normal-case">(required)</span></span>
-                                        <input type="text" name="note" maxlength="500" required minlength="3"
-                                               value="{{ $week->online_note ?: 'Online class — roll-call by rep' }}"
-                                               placeholder="e.g. Zoom lecture on Jun 10"
-                                               class="mt-1 w-full text-[12px] border border-gray-200 rounded-md px-2 py-1.5">
-                                    </label>
-                                </div>
-
-                                <label class="inline-flex items-center gap-2 text-[11px] text-gray-700">
-                                    <input type="checkbox" name="mark_online" value="1" checked
-                                           class="rounded border-gray-300 text-indigo-700 focus:ring-indigo-500">
-                                    Flag this week as Online (shows the badge to everyone)
-                                </label>
-
-                                <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-100">
-                                    <button type="button" data-rollcall-bulk="present"
-                                            class="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50">
-                                        <i class="fas fa-circle-check text-[9px]"></i> All present
-                                    </button>
-                                    <button type="button" data-rollcall-bulk="absent"
-                                            class="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-semibold text-rose-800 hover:bg-rose-50">
-                                        <i class="fas fa-circle-xmark text-[9px]"></i> All absent
-                                    </button>
-                                    <button type="button" data-rollcall-bulk="reset"
-                                            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] font-semibold text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-rotate-left text-[9px]"></i> Reset
-                                    </button>
-                                    <span class="ml-auto text-[10px] text-gray-500 tabular-nums" data-rollcall-summary>—</span>
-                                </div>
-
-                                <div class="relative">
-                                    <i class="fas fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
-                                    <input type="search" data-rollcall-search placeholder="Filter students…" autocomplete="off"
-                                           class="w-full pl-7 pr-3 py-1.5 text-[12px] border border-gray-200 rounded-md focus:ring-1 focus:ring-indigo-300 focus:border-indigo-400">
-                                </div>
-
-                                <div class="rounded-lg border border-gray-200 bg-white max-h-72 overflow-y-auto divide-y divide-gray-100">
-                                    @foreach($classmates as $cm)
-                                        @php
-                                            $sid = (int) $cm->id;
-                                            $isPresent = $presentSet->has($sid);
-                                            $current = $isPresent ? 'present' : 'skip';
-                                            $displayName = trim(($cm->last_name ?? '').' '.($cm->first_name ?? ''));
-                                            $searchKey = strtolower(($cm->index_number ?? '').' '.$displayName);
-                                        @endphp
-                                        <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50"
-                                             data-rollcall-row
-                                             data-search="{{ $searchKey }}"
-                                             data-default="{{ $current }}">
-                                            <span class="min-w-0 truncate">
-                                                <span class="font-mono font-semibold text-gray-900">{{ $cm->index_number }}</span>
-                                                <span class="ml-1 text-gray-700">{{ $displayName }}</span>
-                                            </span>
-                                            <span class="inline-flex shrink-0 rounded-md border border-gray-200 overflow-hidden text-[10px] font-semibold">
-                                                <label class="px-2 py-0.5 cursor-pointer {{ $current === 'skip' ? 'bg-gray-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100' }}" title="Not marked yet">
-                                                    <input type="radio" name="marks[{{ $sid }}]" value="skip" class="sr-only" data-rollcall-radio
-                                                           {{ $current === 'skip' ? 'checked' : '' }}>
-                                                    —
-                                                </label>
-                                                <label class="px-2 py-0.5 cursor-pointer border-l border-gray-200 {{ $current === 'present' ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-800 hover:bg-emerald-50' }}">
-                                                    <input type="radio" name="marks[{{ $sid }}]" value="present" class="sr-only" data-rollcall-radio
-                                                           {{ $current === 'present' ? 'checked' : '' }}>
-                                                    P
-                                                </label>
-                                                <label class="px-2 py-0.5 cursor-pointer border-l border-gray-200 {{ $current === 'late' ? 'bg-amber-500 text-white' : 'bg-white text-amber-800 hover:bg-amber-50' }}">
-                                                    <input type="radio" name="marks[{{ $sid }}]" value="late" class="sr-only" data-rollcall-radio
-                                                           {{ $current === 'late' ? 'checked' : '' }}>
-                                                    L
-                                                </label>
-                                                <label class="px-2 py-0.5 cursor-pointer border-l border-gray-200 {{ $current === 'absent' ? 'bg-rose-600 text-white' : 'bg-white text-rose-800 hover:bg-rose-50' }}">
-                                                    <input type="radio" name="marks[{{ $sid }}]" value="absent" class="sr-only" data-rollcall-radio
-                                                           {{ $current === 'absent' ? 'checked' : '' }}>
-                                                    A
-                                                </label>
-                                            </span>
-                                        </div>
-                                    @endforeach
-                                </div>
-
-                                <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 -mx-4 -mb-4 px-4 py-3 bg-gray-50/60 rounded-b-none sm:rounded-b-2xl pb-[max(env(safe-area-inset-bottom,0px),12px)]">
-                                    <button type="button" data-week-modal-close
-                                            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                                        Cancel
-                                    </button>
-                                    <button type="submit"
-                                            class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
-                                        <i class="fas fa-floppy-disk text-[11px]"></i>
-                                        Save roll-call
                                     </button>
                                 </div>
                             </form>
@@ -1318,128 +1122,20 @@ window.promptAttendanceDeleteReason = function (formEl) {
     return true;
 };
 
-// After "Start online lecture" the controller bounces back here
-// with ?focus_week=<id>. Expand that week card AND auto-open its
-// roll-call modal so the rep lands straight on the mark sheet.
+// Generic ?focus_week=<id> handler — expand & scroll to the named
+// week card. Used by future routes that want to deep-link a rep
+// straight into a specific week (no roll-call dependency).
 (function focusWeekFromUrl() {
     var params = new URLSearchParams(window.location.search);
     var focusId = params.get('focus_week');
     if (!focusId) return;
     var card = document.querySelector('[data-week-card][data-week-id="' + focusId + '"]');
-    if (card) {
-        card.open = true;
-        setTimeout(function () {
-            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 50);
-    }
-    // Trigger the roll-call modal opener (matches the existing
-    // data-week-modal-open click handler used by the action row).
-    var opener = document.querySelector('[data-week-modal-open="rollcall-' + focusId + '"]');
-    if (opener) {
-        setTimeout(function () { opener.click(); }, 150);
-    }
+    if (!card) return;
+    card.open = true;
+    setTimeout(function () {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
 })();
-
-// ────────────────────────────────────────────────────────────
-// Online roll-call (rep): per-week bulk attendance form. Same
-// behaviour as the lecturer version — keeps the pill styling in
-// sync with the (hidden, sr-only) radio inputs, drives the
-// All-present / All-absent / Reset bulk buttons, and filters
-// the visible rows via the search box.
-// ────────────────────────────────────────────────────────────
-document.querySelectorAll('[data-rollcall-form]').forEach(function (form) {
-    const rows = Array.from(form.querySelectorAll('[data-rollcall-row]'));
-    const search = form.querySelector('[data-rollcall-search]');
-    const summary = form.querySelector('[data-rollcall-summary]');
-
-    const pillStyles = {
-        present: { on: 'bg-emerald-600 text-white', off: 'bg-white text-emerald-800 hover:bg-emerald-50' },
-        late:    { on: 'bg-amber-500 text-white',   off: 'bg-white text-amber-800 hover:bg-amber-50' },
-        absent:  { on: 'bg-rose-600 text-white',    off: 'bg-white text-rose-800 hover:bg-rose-50' },
-        skip:    { on: 'bg-gray-500 text-white',    off: 'bg-white text-gray-600 hover:bg-gray-100' },
-    };
-
-    function repaintRow(row) {
-        row.querySelectorAll('[data-rollcall-radio]').forEach(function (radio) {
-            const pill = radio.closest('label');
-            if (!pill) return;
-            const styles = pillStyles[radio.value];
-            if (!styles) return;
-            styles.on.split(' ').concat(styles.off.split(' ')).forEach(function (cls) {
-                if (cls) pill.classList.remove(cls);
-            });
-            (radio.checked ? styles.on : styles.off).split(' ').forEach(function (cls) {
-                if (cls) pill.classList.add(cls);
-            });
-        });
-    }
-
-    function refreshSummary() {
-        const counts = { present: 0, late: 0, absent: 0, skip: 0 };
-        rows.forEach(function (row) {
-            const checked = row.querySelector('[data-rollcall-radio]:checked');
-            if (!checked) return;
-            counts[checked.value] = (counts[checked.value] || 0) + 1;
-        });
-        if (summary) {
-            summary.textContent = 'Present ' + counts.present + ' · Late ' + counts.late + ' · Absent ' + counts.absent + ' · Unmarked ' + counts.skip;
-        }
-    }
-
-    function setAll(value) {
-        rows.forEach(function (row) {
-            if (row.style.display === 'none') return;
-            const radio = row.querySelector('[data-rollcall-radio][value="' + value + '"]');
-            if (!radio) return;
-            radio.checked = true;
-            repaintRow(row);
-        });
-        refreshSummary();
-    }
-
-    function reset() {
-        rows.forEach(function (row) {
-            const def = row.dataset.default || 'absent';
-            const radio = row.querySelector('[data-rollcall-radio][value="' + def + '"]');
-            if (radio) {
-                radio.checked = true;
-                repaintRow(row);
-            }
-        });
-        refreshSummary();
-    }
-
-    rows.forEach(function (row) {
-        repaintRow(row);
-        row.querySelectorAll('[data-rollcall-radio]').forEach(function (radio) {
-            radio.addEventListener('change', function () {
-                repaintRow(row);
-                refreshSummary();
-            });
-        });
-    });
-
-    form.querySelectorAll('[data-rollcall-bulk]').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            const which = btn.dataset.rollcallBulk;
-            if (which === 'reset') return reset();
-            if (which === 'present' || which === 'absent' || which === 'late' || which === 'skip') return setAll(which);
-        });
-    });
-
-    if (search) {
-        search.addEventListener('input', function () {
-            const q = (search.value || '').toLowerCase().trim();
-            rows.forEach(function (row) {
-                const match = q === '' || (row.dataset.search || '').indexOf(q) !== -1;
-                row.style.display = match ? '' : 'none';
-            });
-        });
-    }
-
-    refreshSummary();
-});
 </script>
 @endpush
 @endsection
