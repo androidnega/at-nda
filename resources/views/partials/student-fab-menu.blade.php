@@ -47,12 +47,14 @@
         box-shadow: 0 10px 26px rgba(15, 23, 42, 0.32);
     }
 
-    /* ── Backdrop · depth + blur when the menu is open ──────────
-       Stronger blur + a soft vignette so the live page content
-       behind the menu recedes and the row of chips really pops. */
+    /* ── Backdrop · subtle depth when the menu is open ──────────
+       Just a soft tint + a whisper of blur — enough to imply the
+       chips are floating without obscuring the content under
+       them. The vignette pulls toward the FAB corner so the
+       focal point is unmistakable. */
     #student-fab-backdrop {
         background:
-            radial-gradient(120% 90% at 100% 100%, rgba(2, 6, 23, 0.32), rgba(2, 6, 23, 0.55));
+            radial-gradient(120% 90% at 100% 100%, rgba(2, 6, 23, 0.12), rgba(2, 6, 23, 0.22));
         -webkit-backdrop-filter: blur(0px);
                 backdrop-filter: blur(0px);
         transition: opacity 220ms ease, backdrop-filter 260ms ease, -webkit-backdrop-filter 260ms ease;
@@ -60,8 +62,8 @@
     #student-fab-backdrop.is-open {
         opacity: 1;
         pointer-events: auto;
-        -webkit-backdrop-filter: blur(6px) saturate(120%);
-                backdrop-filter: blur(6px) saturate(120%);
+        -webkit-backdrop-filter: blur(1.5px);
+                backdrop-filter: blur(1.5px);
     }
 
     /* ── Items ──────────────────────────────────────────────────
@@ -86,11 +88,15 @@
     <div id="student-fab-backdrop"
          class="fixed inset-0 z-30 opacity-0 pointer-events-none"></div>
 
-    {{-- Horizontal item row. Sits just to the left of the FAB.
-         flex-row-reverse + items starting at the right edge means
-         the first item ends up closest to the "+". --}}
+    {{-- Horizontal item row. Sits just to the left of the FAB,
+         vertically anchored so each item's icon shares the same
+         centreline as the FAB's "+".
+         · FAB icon centre = bottom-5 (1.25rem) + 14/2 (1.75rem) = 3rem
+         · Items are 12 (3rem) tall, so bottom-6 (1.5rem) puts the
+           icon centre at 3rem too. flex-row-reverse keeps the
+           closest chip nearest the FAB. --}}
     <ul id="student-fab-items"
-        class="fixed right-[5.25rem] bottom-[1.65rem] z-40 flex flex-row-reverse items-end gap-3 pointer-events-none">
+        class="fixed right-[5.25rem] bottom-6 z-40 flex flex-row-reverse items-center gap-3 pointer-events-none">
         @php
             $fabLinks = [
                 ['route' => 'dashboard.dashboard',        'label' => 'Home',      'icon' => 'fa-house',        'tint' => 'sky'],
@@ -99,21 +105,25 @@
                 ['route' => 'student.profile',            'label' => 'Profile',   'icon' => 'fa-circle-user',  'tint' => 'slate'],
             ];
             $tintClasses = [
-                'sky'     => 'bg-sky-600 text-white ring-sky-200',
-                'emerald' => 'bg-emerald-600 text-white ring-emerald-200',
-                'slate'   => 'bg-slate-800 text-white ring-slate-200',
+                'sky'     => 'bg-sky-600 text-white',
+                'emerald' => 'bg-emerald-600 text-white',
+                'slate'   => 'bg-slate-800 text-white',
             ];
         @endphp
         @foreach($fabLinks as $i => $link)
             @if(\Illuminate\Support\Facades\Route::has($link['route']))
-                <li class="fab-item flex flex-col items-center gap-1 translate-x-3 opacity-0 transition-all duration-200"
+                {{-- relative wrapper so the label can be absolutely
+                     positioned below the icon — that way the icon
+                     itself stays exactly on the FAB centreline
+                     regardless of label width. --}}
+                <li class="fab-item relative translate-x-3 opacity-0 transition-all duration-200"
                     style="transition-delay: {{ $i * 50 }}ms;">
                     <a href="{{ route($link['route']) }}"
                        aria-label="{{ $link['label'] }}"
                        class="w-12 h-12 rounded-full {{ $tintClasses[$link['tint']] ?? $tintClasses['sky'] }} flex items-center justify-center shadow-lg shadow-slate-900/25 ring-2 ring-white">
                         <i class="fas {{ $link['icon'] }} text-sm"></i>
                     </a>
-                    <span class="text-[10px] font-semibold text-white tracking-wide drop-shadow-md">
+                    <span class="absolute left-1/2 -translate-x-1/2 top-full mt-1 whitespace-nowrap text-[10px] font-semibold text-white tracking-wide drop-shadow-md">
                         {{ $link['label'] }}
                     </span>
                 </li>
