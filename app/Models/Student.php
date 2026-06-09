@@ -278,6 +278,29 @@ class Student extends Model implements AuthenticatableContract
         return $name !== '' ? $name : (string) ($this->index_number ?? '');
     }
 
+    /**
+     * True only when this account has a profile image stored AND it
+     * is NOT still in the "queued resize job in flight" sentinel
+     * state. Views call this instead of profileImageUrl() to decide
+     * whether to render the <img> at all — otherwise on a host
+     * where the queue worker isn't running the dashboard would
+     * forever render a 1x1 transparent placeholder stretched across
+     * the avatar slot, which various browsers paint with a faint
+     * red/grey broken-image background.
+     */
+    public function hasSettledProfileImage(): bool
+    {
+        $value = trim((string) ($this->profile_image ?? ''));
+        if ($value === '') {
+            return false;
+        }
+        if (str_starts_with($value, self::PENDING_IMAGE_PREFIX)) {
+            return false;
+        }
+
+        return true;
+    }
+
     public function profileImageUrl(): ?string
     {
         if (! $this->profile_image) {
@@ -355,6 +378,29 @@ class Student extends Model implements AuthenticatableContract
         }
 
         return $this->queueProfileImageResize($raw);
+    }
+
+    /**
+     * Same intent as saveProfileImageFromBase64 but bypasses the
+     * queue and resizes synchronously inside the request. The
+     * dashboard avatar uploader uses this so users see the new
+     * image immediately, without depending on a background worker
+     * that may not be configured on shared cPanel hosting.
+     */
+    public function saveProfileImageFromBase64Sync(string $imageData): bool
+    {
+        if (! preg_match('/^data:image\/(\w+);base64,/', $imageData, $matches)) {
+            return false;
+        }
+        $raw = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $imageData), true);
+        if ($raw === false || $raw === '') {
+            return false;
+        }
+        if (! $this->profileImageDimensionsAcceptable($raw)) {
+            return false;
+        }
+
+        return $this->storeOptimizedProfileImage($raw);
     }
 
     /**

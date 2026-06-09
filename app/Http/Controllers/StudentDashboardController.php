@@ -19,6 +19,7 @@ use App\Support\CacheVersions;
 use App\Support\PasswordPolicy;
 use App\Support\SchemaFeatures;
 use App\Support\StudentSignOutLock;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -477,7 +478,7 @@ class StudentDashboardController extends Controller
      * the dashboard already covers that case more loudly).
      *
      * @param  Collection<int, array<string, mixed>>  $todaysClasses
-     * @return array{course_name: string, course_code: ?string, lecturer: ?string, venue: ?string, start_iso: string, minutes_until: int}|null
+     * @return array{course_name: string, course_code: ?string, lecturer: ?string, venue: ?string, start_iso: string, end_iso: ?string, is_active: bool, minutes_until: int}|null
      */
     private function resolveImminentClass(Collection $todaysClasses): ?array
     {
@@ -490,21 +491,57 @@ class StudentDashboardController extends Controller
 
         $candidate = null;
         $candidateStart = null;
+        $candidateEnd = null;
+        $candidateIsActive = false;
 
         foreach ($todaysClasses as $slot) {
             $start = $this->scheduleTimeForToday($slot['start_raw'] ?? null);
             if ($start === null) {
                 continue;
             }
-            if ($start->lessThan($now) || $start->greaterThan($cutoff)) {
-                continue;
-            }
+            // Skip slots the student has already been counted for, and
+            // slots where a session is already live (the top-of-page
+            // live banner covers those more loudly).
             if (in_array($slot['status'] ?? '', ['marked', 'live'], true)) {
                 continue;
             }
-            if ($candidateStart === null || $start->lessThan($candidateStart)) {
+
+            // Compute end with a sensible fallback: if the timetable
+            // doesn't carry an end_raw, assume a 60-minute slot. This
+            // keeps the "active class · ends in" countdown functional
+            // even for the legacy course.day_of_week path.
+            $end = $this->scheduleTimeForToday($slot['end_raw'] ?? null);
+            if ($end === null || $end->lessThanOrEqualTo($start)) {
+                $end = $start->copy()->addHour();
+            }
+
+            // Two ways the slot is relevant for the card:
+            //   1. It's about to start (within the next 60 minutes).
+            //   2. It's currently in progress (start <= now < end) —
+            //      so the same card can flip to "class is happening
+            //      right now · ends in MM:SS" without disappearing.
+            $isUpcoming = $start->greaterThanOrEqualTo($now) && $start->lessThanOrEqualTo($cutoff);
+            $isActive = $start->lessThanOrEqualTo($now) && $end->greaterThan($now);
+            if (! $isUpcoming && ! $isActive) {
+                continue;
+            }
+
+            // Prefer an in-progress class over an upcoming one (it's
+            // the more urgent thing to surface). Within the same
+            // category, pick the earliest start time.
+            $beatsCurrent = false;
+            if ($candidate === null) {
+                $beatsCurrent = true;
+            } elseif ($isActive && ! $candidateIsActive) {
+                $beatsCurrent = true;
+            } elseif ($isActive === $candidateIsActive && $start->lessThan($candidateStart)) {
+                $beatsCurrent = true;
+            }
+            if ($beatsCurrent) {
                 $candidate = $slot;
                 $candidateStart = $start;
+                $candidateEnd = $end;
+                $candidateIsActive = $isActive;
             }
         }
 
@@ -518,6 +555,8 @@ class StudentDashboardController extends Controller
             'lecturer' => $candidate['lecturer'] ?? null,
             'venue' => $candidate['venue'] ?? null,
             'start_iso' => $candidateStart->toIso8601String(),
+            'end_iso' => $candidateEnd?->toIso8601String(),
+            'is_active' => $candidateIsActive,
             'minutes_until' => max(0, (int) ceil($now->diffInSeconds($candidateStart, false) / 60)),
         ];
     }
@@ -1142,6 +1181,51 @@ class StudentDashboardController extends Controller
 
         return redirect()->route('dashboard.dashboard')
             ->with('success', 'Email saved. If you forget your password we can email you a reset code.');
+    }
+
+    /**
+     * Dashboard avatar uploader. Receives a base64 PNG/JPEG produced
+     * by the in-browser cropper, persists it synchronously (we don't
+     * want users on shared hosting to depend on a queue worker), and
+     * returns the new public URL so the dashboard can swap the avatar
+     * without reloading.
+     */
+    public function profileImageUpdate(Request $request): JsonResponse
+    {
+        $studentId = $request->session()->get('student_id');
+        if (! $studentId) {
+            return response()->json(['ok' => false, 'error' => 'Session expired. Please sign in again.'], 401);
+        }
+
+        $student = Student::find($studentId);
+        if (! $student) {
+            $request->session()->forget('student_id');
+
+            return response()->json(['ok' => false, 'error' => 'Account not found. Please sign in again.'], 401);
+        }
+
+        $validated = $request->validate([
+            // ~7 MB cap on the data URL itself; the model still runs
+            // its own dimension + raw-byte guard after decoding.
+            'image_data' => ['required', 'string', 'min:64', 'max:7340032'],
+        ]);
+
+        if (! preg_match('#^data:image/(jpeg|jpg|png|webp);base64,#i', (string) $validated['image_data'])) {
+            return response()->json(['ok' => false, 'error' => 'Image must be a JPEG, PNG or WEBP data URL.'], 422);
+        }
+
+        if (! $student->saveProfileImageFromBase64Sync($validated['image_data'])) {
+            return response()->json(['ok' => false, 'error' => "Could not process that image. Try a clearer JPG, PNG or WEBP."], 422);
+        }
+
+        // Touch updated_at so profileImageUrl()'s ?v= cache buster
+        // flips and the browser refetches the new bytes.
+        $student->save();
+
+        return response()->json([
+            'ok' => true,
+            'url' => $student->profileImageUrl(),
+        ]);
     }
 
     public function profileUpdate(Request $request)

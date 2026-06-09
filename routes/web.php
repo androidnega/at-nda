@@ -176,6 +176,9 @@ Route::middleware(['student.auth', 'student.session.integrity', 'no-store'])->gr
     Route::post('/student/onboarding', [StudentDashboardController::class, 'onboardingStore'])->name('student.onboarding.post');
     Route::get('/student/profile', [StudentDashboardController::class, 'profileForm'])->name('student.profile');
     Route::post('/student/profile', [StudentDashboardController::class, 'profileUpdate'])->name('student.profile.update');
+    // AJAX-only endpoint for the dashboard avatar cropper. Returns
+    // JSON so the page can swap the avatar src without a reload.
+    Route::post('/student/profile/image', [StudentDashboardController::class, 'profileImageUpdate'])->name('student.profile.image.update');
 });
 Route::get('/student/departments/{faculty}', [StudentDashboardController::class, 'departmentsByFaculty'])->name('student.departments');
 

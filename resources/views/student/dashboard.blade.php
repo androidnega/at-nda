@@ -5,6 +5,10 @@
 @section('body_class', 'select-none overscroll-y-auto dashboard-fixed')
 
 @push('styles')
+{{-- Cropper.js stylesheet for the in-modal photo cropper. Pulled
+     from a CDN with an integrity hash so the bundle ships
+     untouched. Tiny (~3KB gzipped). --}}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
 <style>
     .dashboard-fixed {
         scrollbar-width: none;
@@ -239,14 +243,29 @@
          dashboard. --}}
     <div class="flex items-center justify-between gap-3 pt-1">
         <div class="flex items-center gap-3 min-w-0">
-            @if($student->profileImageUrl())
-                <img src="{{ $student->profileImageUrl() }}" alt=""
-                     class="shrink-0 w-11 h-11 rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-sm select-none">
-            @else
-                <div class="shrink-0 w-11 h-11 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm select-none">
+            {{-- Tap to change profile photo. The button wraps both
+                 the avatar and an initials fallback so we can swap
+                 between them client-side when the image fails to
+                 load or the model is still in the queued-resize
+                 "pending" state. --}}
+            <button type="button"
+                    data-avatar-trigger
+                    aria-label="Change profile photo"
+                    class="group relative shrink-0 w-11 h-11 rounded-full ring-2 ring-white dark:ring-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+                <img data-avatar-img
+                     src="{{ $student->hasSettledProfileImage() ? $student->profileImageUrl() : '' }}"
+                     alt=""
+                     onerror="this.style.display='none'; var f=this.parentNode.querySelector('[data-avatar-fallback]'); if (f) f.style.display='flex';"
+                     class="absolute inset-0 w-full h-full rounded-full object-cover select-none {{ $student->hasSettledProfileImage() ? '' : 'hidden' }}">
+                <span data-avatar-fallback
+                      class="absolute inset-0 w-full h-full rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white items-center justify-center text-sm font-bold select-none {{ $student->hasSettledProfileImage() ? 'hidden' : 'flex' }}">
                     {{ $initials }}
-                </div>
-            @endif
+                </span>
+                <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-sky-600 text-white text-[9px] flex items-center justify-center ring-2 ring-white dark:ring-slate-900 transition-transform group-hover:scale-110">
+                    <i class="fas fa-camera"></i>
+                </span>
+            </button>
+            <input type="file" data-avatar-file accept="image/png,image/jpeg,image/webp" class="hidden">
             <div class="min-w-0">
                 <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Welcome back,</p>
                 <p class="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">{{ $displayName }}</p>
@@ -335,21 +354,35 @@
         </div>
     @endif
 
-    {{-- ─── NEXT CLASS · live countdown (only when < 60 min away) ────
-         Sits right under the course strip per the spec. The card
-         hides itself the moment the start time hits zero (the JS
-         flips it into a "Starting now" pill briefly, then removes
-         it). The server already gated the data to within-1-hour
-         windows so this block simply renders or omits. --}}
+    {{-- ─── NEXT / ACTIVE CLASS card — single card, two states ─────
+         The server gates this to a class that's either:
+           - starting within the next 60 minutes, or
+           - currently in progress (start ≤ now < end)
+         The JS below ticks down to start (MM:SS), and the moment
+         start hits zero it flips the same card into the "Active
+         class · Ends in MM:SS" state without disappearing. When
+         end_iso passes, the card fades out. --}}
     @if(! empty($nextClassWithin1Hour))
+    @php $startActive = ! empty($nextClassWithin1Hour['is_active']); @endphp
     <div id="next-class-card"
          data-start-iso="{{ $nextClassWithin1Hour['start_iso'] }}"
-         class="rounded-2xl bg-gradient-to-br from-amber-50 to-white dark:from-amber-900/20 dark:to-slate-900 border border-amber-200 dark:border-amber-800/60 px-4 py-3.5 flex items-center gap-3">
-        <span class="shrink-0 w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
-            <i class="fas fa-hourglass-start text-base"></i>
+         data-end-iso="{{ $nextClassWithin1Hour['end_iso'] ?? '' }}"
+         data-state="{{ $startActive ? 'active' : 'upcoming' }}"
+         class="rounded-2xl border px-4 py-3.5 flex items-center gap-3 transition-colors
+                {{ $startActive
+                    ? 'bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border-emerald-200 dark:border-emerald-800/60'
+                    : 'bg-gradient-to-br from-amber-50 to-white dark:from-amber-900/20 dark:to-slate-900 border-amber-200 dark:border-amber-800/60' }}">
+        <span data-card-badge
+              class="shrink-0 w-11 h-11 rounded-xl text-white flex items-center justify-center shadow-sm
+                     {{ $startActive ? 'bg-emerald-500' : 'bg-amber-500' }}">
+            <i data-card-icon class="fas {{ $startActive ? 'fa-circle-dot' : 'fa-hourglass-start' }} text-base"></i>
         </span>
         <div class="min-w-0 flex-1">
-            <p class="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-semibold">Next class</p>
+            <p data-card-eyebrow
+               class="text-[10px] uppercase tracking-wider font-semibold
+                      {{ $startActive ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300' }}">
+                {{ $startActive ? 'Class in session' : 'Next class' }}
+            </p>
             <p class="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                 {{ $nextClassWithin1Hour['course_name'] }}
                 @if($nextClassWithin1Hour['course_code'])
@@ -366,13 +399,64 @@
             </p>
         </div>
         <div class="shrink-0 text-right">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">Starts in</p>
-            <p id="next-class-countdown" class="text-lg font-bold text-amber-700 dark:text-amber-300 tabular-nums leading-none mt-0.5">
-                {{ $nextClassWithin1Hour['minutes_until'] }} min
+            <p data-card-label class="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
+                {{ $startActive ? 'Ends in' : 'Starts in' }}
+            </p>
+            <p id="next-class-countdown"
+               data-active-classes="text-emerald-700 dark:text-emerald-300"
+               data-upcoming-classes="text-amber-700 dark:text-amber-300"
+               class="text-lg font-bold {{ $startActive ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300' }} tabular-nums leading-none mt-0.5">
+                —
             </p>
         </div>
     </div>
     @endif
+
+    {{-- ─── Profile photo cropper modal ───────────────────────────
+         Loaded lazily — the avatar-trigger script wires the file
+         input and the modal once they're both in the DOM. We pull
+         Cropper.js from a CDN so we don't add an npm build step. --}}
+    <div id="avatar-cropper-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="avatar-cropper-title">
+        <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div class="flex items-start justify-between gap-3 p-4 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-sky-700 dark:text-sky-300">Profile photo</p>
+                    <h3 id="avatar-cropper-title" class="text-base font-bold text-slate-900 dark:text-slate-100">Crop your photo</h3>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Drag to position. Pinch or scroll to zoom.</p>
+                </div>
+                <button type="button" data-cropper-close class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+            <div class="bg-slate-50 dark:bg-slate-950 p-3">
+                <div class="relative w-full aspect-square overflow-hidden rounded-xl bg-black">
+                    <img id="avatar-cropper-image" alt="" class="max-w-full block">
+                </div>
+                <div class="mt-3 flex items-center gap-2">
+                    <button type="button" data-cropper-zoom="-0.1" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <i class="fas fa-minus text-xs"></i>
+                    </button>
+                    <button type="button" data-cropper-zoom="0.1" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <i class="fas fa-plus text-xs"></i>
+                    </button>
+                    <button type="button" data-cropper-rotate="90" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <i class="fas fa-rotate-right text-xs"></i>
+                    </button>
+                    <button type="button" data-cropper-reset class="inline-flex items-center justify-center px-3 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        Reset
+                    </button>
+                </div>
+                <p id="avatar-cropper-error" class="hidden mt-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-xs"></p>
+            </div>
+            <div class="p-4 flex items-center justify-end gap-2 bg-slate-50/60 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" data-cropper-close class="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+                <button type="button" data-cropper-save class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60 disabled:cursor-wait">
+                    <i class="fas fa-check text-[11px]"></i>
+                    <span data-cropper-save-label>Save photo</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
     {{-- ─── ACTION PILLS · Mark / Timetable / Materials ───────────────
          Three equal-weight pills. The old standalone "+" button has
@@ -591,51 +675,301 @@
         });
     });
 
-    // ── Next-class live countdown ─────────────────────────────────
-    // The card is rendered server-side only when there's a class
-    // starting within the next 60 minutes. We tick it down to
-    // "Starting now", briefly show that pill, then hide the card —
-    // at that point the "live sessions" banner up top will take
-    // over the user's attention.
+    // ── Next-class / active-class live countdown ──────────────────
+    // The same card holds two states:
+    //   upcoming  → "Next class · Starts in MM:SS"
+    //   active    → "Class in session · Ends in MM:SS" or H:MM:SS
+    // The JS ticks every 1s. When startMs is reached we flip the
+    // card into "active" mode (recolour amber → emerald, swap
+    // label/icon) instead of removing it, so the same surface
+    // stays useful for the whole window the class is running.
     (function () {
         const card = document.getElementById('next-class-card');
         const out  = document.getElementById('next-class-countdown');
         if (!card || !out) return;
 
         const startIso = card.getAttribute('data-start-iso');
+        const endIso   = card.getAttribute('data-end-iso');
         const startMs  = startIso ? new Date(startIso).getTime() : NaN;
+        const endMs    = endIso   ? new Date(endIso).getTime()   : NaN;
         if (!Number.isFinite(startMs)) return;
+
+        const badge   = card.querySelector('[data-card-badge]');
+        const icon    = card.querySelector('[data-card-icon]');
+        const eyebrow = card.querySelector('[data-card-eyebrow]');
+        const label   = card.querySelector('[data-card-label]');
+        const upcomingNumberClasses = (out.getAttribute('data-upcoming-classes') || '').split(/\s+/).filter(Boolean);
+        const activeNumberClasses   = (out.getAttribute('data-active-classes')   || '').split(/\s+/).filter(Boolean);
 
         function format(ms) {
             const totalSec = Math.max(0, Math.floor(ms / 1000));
-            const m = Math.floor(totalSec / 60);
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
             const s = totalSec % 60;
-            if (m >= 1) return m + ' min';
-            return s + ' s';
+            const mm = String(m).padStart(2, '0');
+            const ss = String(s).padStart(2, '0');
+            return h > 0 ? (h + ':' + mm + ':' + ss) : (mm + ':' + ss);
+        }
+
+        function setCardPalette(state) {
+            // Switch surface chrome: amber for "upcoming", emerald
+            // for "active". Only swap the two short class lists so
+            // every other utility on the element stays intact.
+            const amberSurface  = ['from-amber-50', 'dark:from-amber-900/20', 'border-amber-200', 'dark:border-amber-800/60'];
+            const emeraldSurface = ['from-emerald-50', 'dark:from-emerald-900/20', 'border-emerald-200', 'dark:border-emerald-800/60'];
+            const amberBadge    = ['bg-amber-500'];
+            const emeraldBadge  = ['bg-emerald-500'];
+            const amberEyebrow  = ['text-amber-700', 'dark:text-amber-300'];
+            const emeraldEyebrow = ['text-emerald-700', 'dark:text-emerald-300'];
+
+            if (state === 'active') {
+                card.classList.remove(...amberSurface); card.classList.add(...emeraldSurface);
+                badge && badge.classList.remove(...amberBadge); badge && badge.classList.add(...emeraldBadge);
+                eyebrow && eyebrow.classList.remove(...amberEyebrow); eyebrow && eyebrow.classList.add(...emeraldEyebrow);
+                out.classList.remove(...upcomingNumberClasses); out.classList.add(...activeNumberClasses);
+                if (icon) { icon.classList.remove('fa-hourglass-start'); icon.classList.add('fa-circle-dot'); }
+                if (eyebrow) eyebrow.textContent = 'Class in session';
+                if (label) label.textContent = 'Ends in';
+            } else {
+                card.classList.remove(...emeraldSurface); card.classList.add(...amberSurface);
+                badge && badge.classList.remove(...emeraldBadge); badge && badge.classList.add(...amberBadge);
+                eyebrow && eyebrow.classList.remove(...emeraldEyebrow); eyebrow && eyebrow.classList.add(...amberEyebrow);
+                out.classList.remove(...activeNumberClasses); out.classList.add(...upcomingNumberClasses);
+                if (icon) { icon.classList.remove('fa-circle-dot'); icon.classList.add('fa-hourglass-start'); }
+                if (eyebrow) eyebrow.textContent = 'Next class';
+                if (label) label.textContent = 'Starts in';
+            }
+            card.setAttribute('data-state', state);
         }
 
         let intervalId = null;
         function tick() {
-            const diff = startMs - Date.now();
-            if (diff <= 0) {
-                out.textContent = 'Now';
-                out.classList.add('animate-pulse');
+            const now = Date.now();
+
+            if (Number.isFinite(endMs) && now >= endMs) {
+                // Class has ended — fade the card out and stop
+                // ticking. The rest of the dashboard takes over.
                 if (intervalId !== null) clearInterval(intervalId);
-                // Give the user a beat to see the "Now" badge, then
-                // hand the screen back to the rest of the dashboard.
-                setTimeout(function () {
-                    card.style.transition = 'opacity 400ms ease, transform 400ms ease';
-                    card.style.opacity = '0';
-                    card.style.transform = 'translateY(-6px)';
-                    setTimeout(function () { card.remove(); }, 420);
-                }, 4000);
+                card.style.transition = 'opacity 400ms ease, transform 400ms ease';
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(-6px)';
+                setTimeout(function () { card.remove(); }, 420);
                 return;
             }
-            out.textContent = format(diff);
+
+            if (now < startMs) {
+                if (card.getAttribute('data-state') !== 'upcoming') setCardPalette('upcoming');
+                out.textContent = format(startMs - now);
+                return;
+            }
+
+            // now >= startMs: we're inside the class window.
+            if (card.getAttribute('data-state') !== 'active') {
+                setCardPalette('active');
+                out.classList.add('animate-pulse');
+                setTimeout(function () { out.classList.remove('animate-pulse'); }, 1200);
+            }
+            if (Number.isFinite(endMs)) {
+                out.textContent = format(endMs - now);
+            } else {
+                out.textContent = 'live';
+            }
         }
 
         tick();
         intervalId = setInterval(tick, 1000);
+    })();
+
+    // ── Avatar click → file picker → crop preview → AJAX upload ──
+    // Lazy-load Cropper.js the first time the user opens the
+    // modal so the dashboard's first paint isn't slowed by a
+    // dependency most visits never touch.
+    (function () {
+        const trigger   = document.querySelector('[data-avatar-trigger]');
+        const fileInput = document.querySelector('[data-avatar-file]');
+        const modal     = document.getElementById('avatar-cropper-modal');
+        const imgEl     = document.getElementById('avatar-cropper-image');
+        const errBox    = document.getElementById('avatar-cropper-error');
+        const saveBtn   = modal && modal.querySelector('[data-cropper-save]');
+        const saveLabel = modal && modal.querySelector('[data-cropper-save-label]');
+        const avatarImg = document.querySelector('[data-avatar-img]');
+        const avatarFallback = document.querySelector('[data-avatar-fallback]');
+        if (!trigger || !fileInput || !modal || !imgEl || !saveBtn) return;
+
+        const UPLOAD_URL = @json(route('student.profile.image.update'));
+        const CSRF       = @json(csrf_token());
+
+        let cropper = null;
+        let cropperPromise = null;
+
+        function loadCropper() {
+            if (window.Cropper) return Promise.resolve();
+            if (cropperPromise) return cropperPromise;
+            cropperPromise = new Promise(function (resolve, reject) {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js';
+                s.async = true;
+                s.onload = function () { resolve(); };
+                s.onerror = function () { reject(new Error('Could not load image editor.')); };
+                document.head.appendChild(s);
+            });
+            return cropperPromise;
+        }
+
+        function openModal() {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.style.overflow = '';
+            if (cropper) { cropper.destroy(); cropper = null; }
+            imgEl.removeAttribute('src');
+            errBox.classList.add('hidden');
+            saveBtn.disabled = false;
+            if (saveLabel) saveLabel.textContent = 'Save photo';
+            fileInput.value = '';
+        }
+
+        function showError(message) {
+            errBox.textContent = message;
+            errBox.classList.remove('hidden');
+        }
+
+        trigger.addEventListener('click', function () {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', function () {
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
+                alert('Pick a JPG, PNG, or WEBP image.');
+                fileInput.value = '';
+                return;
+            }
+            if (file.size > 7 * 1024 * 1024) {
+                alert('Image is too large. Use one under 7 MB.');
+                fileInput.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function (ev) {
+                openModal();
+                imgEl.src = ev.target.result;
+                loadCropper().then(function () {
+                    if (cropper) { cropper.destroy(); cropper = null; }
+                    cropper = new window.Cropper(imgEl, {
+                        aspectRatio: 1,
+                        viewMode: 1,
+                        dragMode: 'move',
+                        autoCropArea: 1,
+                        cropBoxResizable: true,
+                        cropBoxMovable: true,
+                        background: false,
+                        responsive: true,
+                        guides: false,
+                    });
+                }).catch(function (err) {
+                    showError(err && err.message ? err.message : 'Could not load image editor.');
+                });
+            };
+            reader.onerror = function () {
+                openModal();
+                showError('Could not read that image. Try a different file.');
+            };
+            reader.readAsDataURL(file);
+        });
+
+        modal.querySelectorAll('[data-cropper-close]').forEach(function (btn) {
+            btn.addEventListener('click', closeModal);
+        });
+        modal.addEventListener('click', function (ev) {
+            if (ev.target === modal) closeModal();
+        });
+
+        modal.querySelectorAll('[data-cropper-zoom]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!cropper) return;
+                cropper.zoom(parseFloat(btn.getAttribute('data-cropper-zoom') || '0'));
+            });
+        });
+        modal.querySelectorAll('[data-cropper-rotate]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!cropper) return;
+                cropper.rotate(parseFloat(btn.getAttribute('data-cropper-rotate') || '0'));
+            });
+        });
+        const resetBtn = modal.querySelector('[data-cropper-reset]');
+        if (resetBtn) resetBtn.addEventListener('click', function () { if (cropper) cropper.reset(); });
+
+        saveBtn.addEventListener('click', function () {
+            if (!cropper) return;
+            errBox.classList.add('hidden');
+            saveBtn.disabled = true;
+            if (saveLabel) saveLabel.textContent = 'Uploading…';
+
+            // 512x512 JPEG keeps the payload small (~30-80 KB) while
+            // delivering a sharper avatar than the legacy 200x200.
+            const canvas = cropper.getCroppedCanvas({
+                width: 512,
+                height: 512,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high',
+                fillColor: '#ffffff',
+            });
+            if (!canvas) {
+                showError('Could not render the crop. Try again.');
+                saveBtn.disabled = false;
+                if (saveLabel) saveLabel.textContent = 'Save photo';
+                return;
+            }
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+            fetch(UPLOAD_URL, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF,
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ image_data: dataUrl }),
+            })
+            .then(function (r) {
+                return r.json().then(function (body) { return { status: r.status, body: body }; });
+            })
+            .then(function (resp) {
+                if (resp.status === 200 && resp.body && resp.body.ok) {
+                    // Swap the visible avatar without a reload.
+                    if (avatarImg) {
+                        avatarImg.src = resp.body.url || '';
+                        avatarImg.classList.remove('hidden');
+                        avatarImg.style.display = '';
+                    }
+                    if (avatarFallback) {
+                        avatarFallback.classList.add('hidden');
+                        avatarFallback.style.display = 'none';
+                    }
+                    closeModal();
+                } else {
+                    const err = (resp.body && (resp.body.error || (resp.body.errors && Object.values(resp.body.errors)[0] && Object.values(resp.body.errors)[0][0]))) || 'Upload failed. Try again.';
+                    showError(err);
+                    saveBtn.disabled = false;
+                    if (saveLabel) saveLabel.textContent = 'Save photo';
+                }
+            })
+            .catch(function () {
+                showError('Network error. Check your connection and try again.');
+                saveBtn.disabled = false;
+                if (saveLabel) saveLabel.textContent = 'Save photo';
+            });
+        });
     })();
 })();
 </script>
