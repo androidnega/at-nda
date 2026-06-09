@@ -5,10 +5,6 @@
 @section('body_class', 'select-none overscroll-y-auto dashboard-fixed')
 
 @push('styles')
-{{-- Cropper.js stylesheet for the in-modal photo cropper. Pulled
-     from a CDN with an integrity hash so the bundle ships
-     untouched. Tiny (~3KB gzipped). --}}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
 <style>
     .dashboard-fixed {
         scrollbar-width: none;
@@ -243,13 +239,14 @@
          dashboard. --}}
     <div class="flex items-center justify-between gap-3 pt-1">
         <div class="flex items-center gap-3 min-w-0">
-            {{-- Tap to change profile photo. The button wraps both
-                 the avatar and an initials fallback so we can swap
-                 between them client-side when the image fails to
-                 load or the model is still in the queued-resize
-                 "pending" state. --}}
+            {{-- Tap to change profile photo. The partial below
+                 supplies the modal + file input. We only need to
+                 carry the data-cropper-trigger / data-avatar-img /
+                 data-avatar-fallback hooks here. The onerror
+                 handler keeps us safe if the served PNG is the
+                 queued-resize placeholder. --}}
             <button type="button"
-                    data-avatar-trigger
+                    data-cropper-trigger
                     aria-label="Change profile photo"
                     class="group relative shrink-0 w-11 h-11 rounded-full ring-2 ring-white dark:ring-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
                 <img data-avatar-img
@@ -265,7 +262,6 @@
                     <i class="fas fa-camera"></i>
                 </span>
             </button>
-            <input type="file" data-avatar-file accept="image/png,image/jpeg,image/webp" class="hidden">
             <div class="min-w-0">
                 <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Welcome back,</p>
                 <p class="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">{{ $displayName }}</p>
@@ -412,51 +408,11 @@
     </div>
     @endif
 
-    {{-- ─── Profile photo cropper modal ───────────────────────────
-         Loaded lazily — the avatar-trigger script wires the file
-         input and the modal once they're both in the DOM. We pull
-         Cropper.js from a CDN so we don't add an npm build step. --}}
-    <div id="avatar-cropper-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="avatar-cropper-title">
-        <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
-            <div class="flex items-start justify-between gap-3 p-4 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                    <p class="text-[10px] font-bold uppercase tracking-wider text-sky-700 dark:text-sky-300">Profile photo</p>
-                    <h3 id="avatar-cropper-title" class="text-base font-bold text-slate-900 dark:text-slate-100">Crop your photo</h3>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Drag to position. Pinch or scroll to zoom.</p>
-                </div>
-                <button type="button" data-cropper-close class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-                    <i class="fas fa-xmark"></i>
-                </button>
-            </div>
-            <div class="bg-slate-50 dark:bg-slate-950 p-3">
-                <div class="relative w-full aspect-square overflow-hidden rounded-xl bg-black">
-                    <img id="avatar-cropper-image" alt="" class="max-w-full block">
-                </div>
-                <div class="mt-3 flex items-center gap-2">
-                    <button type="button" data-cropper-zoom="-0.1" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
-                        <i class="fas fa-minus text-xs"></i>
-                    </button>
-                    <button type="button" data-cropper-zoom="0.1" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
-                        <i class="fas fa-plus text-xs"></i>
-                    </button>
-                    <button type="button" data-cropper-rotate="90" class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
-                        <i class="fas fa-rotate-right text-xs"></i>
-                    </button>
-                    <button type="button" data-cropper-reset class="inline-flex items-center justify-center px-3 h-9 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
-                        Reset
-                    </button>
-                </div>
-                <p id="avatar-cropper-error" class="hidden mt-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-xs"></p>
-            </div>
-            <div class="p-4 flex items-center justify-end gap-2 bg-slate-50/60 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                <button type="button" data-cropper-close class="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
-                <button type="button" data-cropper-save class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60 disabled:cursor-wait">
-                    <i class="fas fa-check text-[11px]"></i>
-                    <span data-cropper-save-label>Save photo</span>
-                </button>
-            </div>
-        </div>
-    </div>
+    {{-- Photo cropper modal lives in a shared partial so the
+         profile page can use the same flow. We pin it at the
+         bottom of the page just before the closing wrapper so it
+         doesn't interrupt the document flow. --}}
+    @include('partials.student-photo-cropper')
 
     {{-- ─── ACTION PILLS · Mark / Timetable / Materials ───────────────
          Three equal-weight pills. The old standalone "+" button has
@@ -780,197 +736,6 @@
         intervalId = setInterval(tick, 1000);
     })();
 
-    // ── Avatar click → file picker → crop preview → AJAX upload ──
-    // Lazy-load Cropper.js the first time the user opens the
-    // modal so the dashboard's first paint isn't slowed by a
-    // dependency most visits never touch.
-    (function () {
-        const trigger   = document.querySelector('[data-avatar-trigger]');
-        const fileInput = document.querySelector('[data-avatar-file]');
-        const modal     = document.getElementById('avatar-cropper-modal');
-        const imgEl     = document.getElementById('avatar-cropper-image');
-        const errBox    = document.getElementById('avatar-cropper-error');
-        const saveBtn   = modal && modal.querySelector('[data-cropper-save]');
-        const saveLabel = modal && modal.querySelector('[data-cropper-save-label]');
-        const avatarImg = document.querySelector('[data-avatar-img]');
-        const avatarFallback = document.querySelector('[data-avatar-fallback]');
-        if (!trigger || !fileInput || !modal || !imgEl || !saveBtn) return;
-
-        const UPLOAD_URL = @json(route('student.profile.image.update'));
-        const CSRF       = @json(csrf_token());
-
-        let cropper = null;
-        let cropperPromise = null;
-
-        function loadCropper() {
-            if (window.Cropper) return Promise.resolve();
-            if (cropperPromise) return cropperPromise;
-            cropperPromise = new Promise(function (resolve, reject) {
-                const s = document.createElement('script');
-                s.src = 'https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js';
-                s.async = true;
-                s.onload = function () { resolve(); };
-                s.onerror = function () { reject(new Error('Could not load image editor.')); };
-                document.head.appendChild(s);
-            });
-            return cropperPromise;
-        }
-
-        function openModal() {
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeModal() {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            document.body.style.overflow = '';
-            if (cropper) { cropper.destroy(); cropper = null; }
-            imgEl.removeAttribute('src');
-            errBox.classList.add('hidden');
-            saveBtn.disabled = false;
-            if (saveLabel) saveLabel.textContent = 'Save photo';
-            fileInput.value = '';
-        }
-
-        function showError(message) {
-            errBox.textContent = message;
-            errBox.classList.remove('hidden');
-        }
-
-        trigger.addEventListener('click', function () {
-            fileInput.click();
-        });
-
-        fileInput.addEventListener('change', function () {
-            const file = fileInput.files && fileInput.files[0];
-            if (!file) return;
-            if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
-                alert('Pick a JPG, PNG, or WEBP image.');
-                fileInput.value = '';
-                return;
-            }
-            if (file.size > 7 * 1024 * 1024) {
-                alert('Image is too large. Use one under 7 MB.');
-                fileInput.value = '';
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function (ev) {
-                openModal();
-                imgEl.src = ev.target.result;
-                loadCropper().then(function () {
-                    if (cropper) { cropper.destroy(); cropper = null; }
-                    cropper = new window.Cropper(imgEl, {
-                        aspectRatio: 1,
-                        viewMode: 1,
-                        dragMode: 'move',
-                        autoCropArea: 1,
-                        cropBoxResizable: true,
-                        cropBoxMovable: true,
-                        background: false,
-                        responsive: true,
-                        guides: false,
-                    });
-                }).catch(function (err) {
-                    showError(err && err.message ? err.message : 'Could not load image editor.');
-                });
-            };
-            reader.onerror = function () {
-                openModal();
-                showError('Could not read that image. Try a different file.');
-            };
-            reader.readAsDataURL(file);
-        });
-
-        modal.querySelectorAll('[data-cropper-close]').forEach(function (btn) {
-            btn.addEventListener('click', closeModal);
-        });
-        modal.addEventListener('click', function (ev) {
-            if (ev.target === modal) closeModal();
-        });
-
-        modal.querySelectorAll('[data-cropper-zoom]').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                if (!cropper) return;
-                cropper.zoom(parseFloat(btn.getAttribute('data-cropper-zoom') || '0'));
-            });
-        });
-        modal.querySelectorAll('[data-cropper-rotate]').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                if (!cropper) return;
-                cropper.rotate(parseFloat(btn.getAttribute('data-cropper-rotate') || '0'));
-            });
-        });
-        const resetBtn = modal.querySelector('[data-cropper-reset]');
-        if (resetBtn) resetBtn.addEventListener('click', function () { if (cropper) cropper.reset(); });
-
-        saveBtn.addEventListener('click', function () {
-            if (!cropper) return;
-            errBox.classList.add('hidden');
-            saveBtn.disabled = true;
-            if (saveLabel) saveLabel.textContent = 'Uploading…';
-
-            // 512x512 JPEG keeps the payload small (~30-80 KB) while
-            // delivering a sharper avatar than the legacy 200x200.
-            const canvas = cropper.getCroppedCanvas({
-                width: 512,
-                height: 512,
-                imageSmoothingEnabled: true,
-                imageSmoothingQuality: 'high',
-                fillColor: '#ffffff',
-            });
-            if (!canvas) {
-                showError('Could not render the crop. Try again.');
-                saveBtn.disabled = false;
-                if (saveLabel) saveLabel.textContent = 'Save photo';
-                return;
-            }
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-
-            fetch(UPLOAD_URL, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': CSRF,
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify({ image_data: dataUrl }),
-            })
-            .then(function (r) {
-                return r.json().then(function (body) { return { status: r.status, body: body }; });
-            })
-            .then(function (resp) {
-                if (resp.status === 200 && resp.body && resp.body.ok) {
-                    // Swap the visible avatar without a reload.
-                    if (avatarImg) {
-                        avatarImg.src = resp.body.url || '';
-                        avatarImg.classList.remove('hidden');
-                        avatarImg.style.display = '';
-                    }
-                    if (avatarFallback) {
-                        avatarFallback.classList.add('hidden');
-                        avatarFallback.style.display = 'none';
-                    }
-                    closeModal();
-                } else {
-                    const err = (resp.body && (resp.body.error || (resp.body.errors && Object.values(resp.body.errors)[0] && Object.values(resp.body.errors)[0][0]))) || 'Upload failed. Try again.';
-                    showError(err);
-                    saveBtn.disabled = false;
-                    if (saveLabel) saveLabel.textContent = 'Save photo';
-                }
-            })
-            .catch(function () {
-                showError('Network error. Check your connection and try again.');
-                saveBtn.disabled = false;
-                if (saveLabel) saveLabel.textContent = 'Save photo';
-            });
-        });
-    })();
 })();
 </script>
 @endpush

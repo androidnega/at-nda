@@ -149,6 +149,7 @@
                 'prefix' => 'profile_edit',
                 'required' => !$student->profile_image,
                 'label' => $student->profile_image ? 'Update profile photo' : 'Profile photo',
+                'student' => $student,
             ])
             @error('profile_photo')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
             @unless($identityLocked)
@@ -180,6 +181,10 @@
             </button>
         </form>
     </div>
+
+    {{-- Shared cropper modal. Reload-after-save keeps the hero
+         avatar + flash message in sync with one server round-trip. --}}
+    @include('partials.student-photo-cropper', ['cropperReload' => true])
 </div>
 @endsection
 

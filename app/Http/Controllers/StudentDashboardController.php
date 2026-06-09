@@ -1258,9 +1258,12 @@ class StudentDashboardController extends Controller
 
         $rules = [
             'phone_number' => 'nullable|string|max:30',
-            'profile_photo' => ($requirePhoto && ! $student->profile_image)
-                ? ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240']
-                : ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            // profile_photo is no longer collected by the web form
+            // — the dashboard / profile-page cropper uploads via the
+            // dedicated AJAX endpoint (profileImageUpdate). We still
+            // accept it here as nullable so a legacy multipart POST
+            // (e.g. older mobile build) keeps working.
+            'profile_photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ];
         if (! $identityLocked) {
             $rules += [
@@ -1287,6 +1290,16 @@ class StudentDashboardController extends Controller
             if (! $student->saveProfileImageFromUpload($request->file('profile_photo'))) {
                 return redirect()->back()->withInput()->with('error', 'Could not process that profile image. Use a clear JPG, PNG, or WEBP photo.');
             }
+        }
+
+        // If the deployment policy requires a profile photo and one
+        // is still missing, bounce back with a clear instruction.
+        // The cropper button is the only on-screen path to add one,
+        // so the message points at it instead of saying "field
+        // required".
+        if ($requirePhoto && ! $student->profile_image && ! $request->hasFile('profile_photo')) {
+            return redirect()->back()->withInput()->with('error',
+                'Please add a profile photo first — tap "Choose photo" and crop it to your face.');
         }
 
         if (array_key_exists('phone_number', $validated) && $validated['phone_number'] !== null && $validated['phone_number'] !== '') {
