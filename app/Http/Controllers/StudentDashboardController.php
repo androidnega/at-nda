@@ -347,7 +347,33 @@ class StudentDashboardController extends Controller
                         ->groupBy('course_id')
                         ->pluck('n', 'course_id');
 
-                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $semesterWeeks) {
+                    // "Where the class is in the semester" — class-wide,
+                    // not per-course. We take the highest week_number
+                    // any course in this class has reached (including
+                    // cancelled weeks: reaching week 5 still means
+                    // we're in week 5, even if no class met). This
+                    // makes every course card share the same "weeks
+                    // left" reading, which is what users expect from
+                    // a single calendar semester.
+                    $currentSemesterWeek = 0;
+                    try {
+                        $weekQuery = DB::table('attendance_weeks')
+                            ->whereIn('course_id', $courseIds);
+                        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
+                            $weekQuery->where(function ($q) use ($student) {
+                                $q->where('class_id', (int) $student->class_id)
+                                  ->orWhereNull('class_id');
+                            });
+                        }
+                        $currentSemesterWeek = (int) ($weekQuery->max('week_number') ?? 0);
+                    } catch (\Throwable $e) {
+                        report($e);
+                        $currentSemesterWeek = 0;
+                    }
+                    // Don't pretend we're past the configured term.
+                    $currentSemesterWeek = min($currentSemesterWeek, (int) $semesterWeeks);
+
+                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $semesterWeeks, $currentSemesterWeek) {
                         $present = (int) ($presentByCourse[$c->id] ?? 0);
                         $weeks = max(1, (int) $semesterWeeks);
                         // Cap present at the configured semester length
@@ -355,7 +381,12 @@ class StudentDashboardController extends Controller
                         // course over-runs the configured term.
                         $presentDisplay = min($present, $weeks);
                         $pct = min(100, (int) round(($presentDisplay / $weeks) * 100));
-                        $remaining = max(0, $weeks - $presentDisplay);
+                        // "Weeks left" is now semester-aware, not
+                        // attendance-aware: if we're in week 5 of 14,
+                        // 9 weeks remain whether you were marked or
+                        // not. This fixes the bug where a student with
+                        // 0 marks in week 5 was told "14 weeks left".
+                        $remaining = max(0, $weeks - $currentSemesterWeek);
 
                         return [
                             'id' => $c->id,
@@ -365,6 +396,7 @@ class StudentDashboardController extends Controller
                             'venue' => $c->venueRelation?->name,
                             'present' => $presentDisplay,
                             'weeks' => $weeks,
+                            'current_week' => $currentSemesterWeek,
                             'remaining' => $remaining,
                             'pct' => $pct,
                         ];

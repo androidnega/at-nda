@@ -295,9 +295,21 @@
                             <p class="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-slate-100 tabular-nums leading-none">{{ $cs['pct'] }}<span class="text-xl text-slate-400 dark:text-slate-500">%</span></p>
                             <p class="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{{ $cs['present'] }} / {{ $cs['weeks'] }} wks</p>
                         </div>
-                        @if(($cs['remaining'] ?? 0) > 0)
+                        @php
+                            $currentWeek = (int) ($cs['current_week'] ?? 0);
+                            $remainingWeeks = (int) ($cs['remaining'] ?? 0);
+                        @endphp
+                        @if($currentWeek > 0)
                             <p class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-1 font-semibold">
-                                {{ $cs['remaining'] }} {{ $cs['remaining'] === 1 ? 'week' : 'weeks' }} left
+                                Week {{ $currentWeek }} of {{ $cs['weeks'] }}
+                                @if($remainingWeeks > 0)
+                                    <span class="text-slate-400 dark:text-slate-500 normal-case font-medium">·</span>
+                                    {{ $remainingWeeks }} {{ $remainingWeeks === 1 ? 'week' : 'weeks' }} left
+                                @endif
+                            </p>
+                        @elseif($remainingWeeks > 0)
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-1 font-semibold">
+                                Semester not started · {{ $remainingWeeks }} {{ $remainingWeeks === 1 ? 'week' : 'weeks' }} planned
                             </p>
                         @endif
                         <div class="mt-2 h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
