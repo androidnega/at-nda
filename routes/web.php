@@ -71,6 +71,11 @@ Route::post('/clear-filter', function (Request $request) {
     return redirect()->route('home');
 })->name('home.clear-filter');
 
+// Public-facing About page. No auth, no session reads — safe to cache
+// behind a CDN if desired. Lives outside any prefix so it's reachable
+// at /about regardless of role or sign-in state.
+Route::view('/about', 'about')->name('about');
+
 Route::get('/run-migrations', RunMigrationsController::class)->name('system.run-migrations');
 Route::get('/run-migartions', RunMigrationsController::class); // alias for common typo
 Route::get('/run-migrations-auto', function () {

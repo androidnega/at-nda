@@ -274,7 +274,7 @@
             <div class="flex lg:grid lg:grid-cols-2 gap-3 overflow-x-auto lg:overflow-visible snap-x snap-mandatory no-scrollbar px-1 pb-2">
                 @foreach($courseSummaries as $i => $cs)
                     @php $p = $cardPalette[$i % count($cardPalette)]; @endphp
-                    <div class="snap-start shrink-0 w-[85%] sm:w-[60%] lg:w-auto rounded-2xl bg-gradient-to-br {{ $p['from'] }} to-white dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-slate-700 ring-1 {{ $p['ring'] }} dark:ring-slate-700 p-4 sm:p-5 shadow-sm">
+                    <div class="snap-start shrink-0 w-[85%] sm:w-[60%] lg:w-auto rounded-2xl bg-gradient-to-br {{ $p['from'] }} to-white dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-slate-700 ring-1 {{ $p['ring'] }} dark:ring-slate-700 p-4 sm:p-5 shadow-[0_14px_28px_-12px_rgba(15,23,42,0.22),0_4px_10px_-6px_rgba(15,23,42,0.10)] sm:shadow-sm">
                         <div class="flex items-start justify-between gap-3 mb-3">
                             <div class="flex items-center gap-2 min-w-0">
                                 <span class="shrink-0 w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center {{ $p['accent'] }} dark:text-slate-200">

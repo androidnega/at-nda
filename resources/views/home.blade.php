@@ -45,5 +45,13 @@
         </a>
     </div>
     @endif
+
+    @if(\Illuminate\Support\Facades\Route::has('about'))
+    <div class="mt-2 text-center">
+        <a href="{{ route('about') }}" class="text-[11px] text-gray-500 hover:text-gray-800 transition font-medium inline-flex items-center gap-1">
+            <i class="fas fa-circle-info text-[10px]"></i> About
+        </a>
+    </div>
+    @endif
 </x-auth-signin-layout>
 @endsection
