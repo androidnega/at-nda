@@ -279,8 +279,9 @@
     {{-- ─── SECTION TITLE · "Courses" ────────────────────────────────── --}}
     <div class="flex items-end justify-between gap-3 px-1">
         <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">Courses</h1>
-        @if($student->department?->name)
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[55%] text-right">{{ $student->department->name }}</p>
+        @php $headerDept = $student->effectiveDepartment(); @endphp
+        @if($headerDept?->name)
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[55%] text-right">{{ $headerDept->name }}</p>
         @endif
     </div>
 

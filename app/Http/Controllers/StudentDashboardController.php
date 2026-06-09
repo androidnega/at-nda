@@ -195,6 +195,16 @@ class StudentDashboardController extends Controller
         return redirect()->route('home');
     }
 
+    /**
+     * The eager-load set every "student-facing screen" controller
+     * method should use. Pulling in schoolClass.department +
+     * schoolClass.faculty here means Student::effectiveDepartment()
+     * / effectiveFaculty() never fall back to a lazy query — and
+     * keeps the profile/dashboard headers showing the class the
+     * admin actually assigned (not the legacy onboarding data).
+     */
+    private const STUDENT_EAGER = ['department.faculty', 'schoolClass.department', 'schoolClass.faculty'];
+
     public function dashboard(Request $request): View|RedirectResponse
     {
         $studentId = $request->session()->get('student_id');
@@ -202,7 +212,7 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('info', 'Please sign in to open your dashboard.');
         }
 
-        $student = Student::with('department.faculty')->find($studentId);
+        $student = Student::with(self::STUDENT_EAGER)->find($studentId);
         if (! $student) {
             $request->session()->forget('student_id');
 
@@ -765,7 +775,7 @@ class StudentDashboardController extends Controller
             return redirect()->route('home')->with('info', 'Please sign in to view attendance history.');
         }
 
-        $student = Student::with('department.faculty')->find($studentId);
+        $student = Student::with(self::STUDENT_EAGER)->find($studentId);
         if (! $student) {
             $request->session()->forget('student_id');
 

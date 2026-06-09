@@ -49,6 +49,75 @@ class Student extends Model implements AuthenticatableContract
     }
 
     /**
+     * The faculty / department the student should be shown as
+     * belonging to. The CLASS the admin assigned them to is the
+     * source of truth — the legacy `students.department_id` column
+     * is often stale (it was copied from onboarding and never
+     * refreshed when an admin moved the cohort to a different
+     * department, which is exactly what surfaced as "wrong
+     * faculty" complaints on the profile page). Callers should
+     * route every display through these two helpers.
+     *
+     * Falls back to the student's own department/faculty rows
+     * ONLY when no class is assigned, which is a legacy state
+     * that should not happen for active accounts.
+     */
+    public function effectiveDepartment(): ?Department
+    {
+        $class = $this->resolvedSchoolClass();
+        if ($class) {
+            if ($class->relationLoaded('department') && $class->department) {
+                return $class->department;
+            }
+            if ($class->department_id) {
+                $dept = Department::query()->find($class->department_id);
+                if ($dept) {
+                    return $dept;
+                }
+            }
+        }
+
+        return $this->department;
+    }
+
+    public function effectiveFaculty(): ?Faculty
+    {
+        $class = $this->resolvedSchoolClass();
+        if ($class) {
+            if ($class->relationLoaded('faculty') && $class->faculty) {
+                return $class->faculty;
+            }
+            if ($class->faculty_id) {
+                $faculty = Faculty::query()->find($class->faculty_id);
+                if ($faculty) {
+                    return $faculty;
+                }
+            }
+        }
+
+        // Fall through: derive from the effective department so
+        // we stay consistent when the class only carries
+        // department_id (faculty_id can be inferred from there).
+        return $this->effectiveDepartment()?->faculty;
+    }
+
+    /**
+     * Internal: get the linked SchoolClass without firing a query
+     * when it's already eager-loaded.
+     */
+    private function resolvedSchoolClass(): ?SchoolClass
+    {
+        if ($this->relationLoaded('schoolClass')) {
+            return $this->schoolClass;
+        }
+        if ($this->class_id) {
+            return $this->schoolClass()->with(['department', 'faculty'])->first();
+        }
+
+        return null;
+    }
+
+    /**
      * Which basic profile fields are still empty (first name, last name, phone).
      *
      * @return list<string>

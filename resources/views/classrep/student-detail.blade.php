@@ -121,11 +121,11 @@
         <dl class="divide-y divide-gray-100 text-xs">
             <div class="px-3 py-2.5 flex justify-between gap-3">
                 <dt class="text-gray-500 shrink-0">Faculty</dt>
-                <dd class="text-gray-900 text-right">{{ $student->schoolClass?->faculty?->name ?? $student->department?->faculty?->name ?? '—' }}</dd>
+                <dd class="text-gray-900 text-right">{{ $student->effectiveFaculty()?->name ?? '—' }}</dd>
             </div>
             <div class="px-3 py-2.5 flex justify-between gap-3">
                 <dt class="text-gray-500 shrink-0">Department</dt>
-                <dd class="text-gray-900 text-right">{{ $student->schoolClass?->department?->name ?? $student->department?->name ?? '—' }}</dd>
+                <dd class="text-gray-900 text-right">{{ $student->effectiveDepartment()?->name ?? '—' }}</dd>
             </div>
             <div class="px-3 py-2.5 flex justify-between gap-3">
                 <dt class="text-gray-500 shrink-0">Level</dt>

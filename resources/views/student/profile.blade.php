@@ -23,8 +23,13 @@
     // gate in StudentDashboardController::profileUpdate enforces the
     // same rule for spoofed POSTs.
     $identityLocked = $student->hasCompletedProfile();
-    $facultyLabel = optional($student->department?->faculty)->name;
-    $departmentLabel = optional($student->department)->name;
+    // Always trust the class the admin assigned this student to.
+    // The legacy students.department_id column drifts out of sync
+    // when admins move cohorts between departments and was the
+    // source of "wrong faculty / wrong department" complaints on
+    // this very page.
+    $facultyLabel = optional($student->effectiveFaculty())->name;
+    $departmentLabel = optional($student->effectiveDepartment())->name;
     $middleDisplay = trim((string) ($student->middle_name ?? ''));
 @endphp
 
@@ -43,8 +48,9 @@
                 <p class="text-[10px] uppercase tracking-widest font-semibold text-sky-100/80">Account holder</p>
                 <p class="text-lg font-bold leading-tight truncate">{{ $student->getDisplayNameOrIndex() }}</p>
                 <p class="text-xs text-sky-100 font-mono mt-0.5">{{ $student->index_number }}</p>
-                @if($student->department?->name)
-                    <p class="text-[11px] text-sky-100/90 mt-0.5 truncate">{{ $student->department->name }}</p>
+                @php $heroDept = $student->effectiveDepartment(); @endphp
+                @if($heroDept?->name)
+                    <p class="text-[11px] text-sky-100/90 mt-0.5 truncate">{{ $heroDept->name }}</p>
                 @endif
             </div>
         </div>

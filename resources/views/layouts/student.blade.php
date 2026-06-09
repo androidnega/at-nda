@@ -155,8 +155,9 @@
                         <div class="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
                             <p class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ $student->getDisplayNameOrIndex() }}</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">{{ $student->index_number }}</p>
-                            @if($student->department?->name)
-                                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">{{ $student->department->name }}</p>
+                            @php $menuDept = $student->effectiveDepartment(); @endphp
+                            @if($menuDept?->name)
+                                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">{{ $menuDept->name }}</p>
                             @endif
                         </div>
                         <a href="{{ route('student.profile') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
