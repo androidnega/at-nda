@@ -11,9 +11,9 @@
     {{-- Zoom-locked per the project-wide policy. --}}
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#0ea5e9">
-    <meta name="description" content="About {{ $name }} — course rep, software developer, and chair of the FASSA planning committee at Takoradi Technical University.">
-    <meta property="og:title" content="About {{ $aka }} · {{ $appName }}">
-    <meta property="og:description" content="Course rep · Software developer · FASSA planning committee chair. Builder of QuizSnap, KuukuaCares and Kikam Tech.">
+    <meta name="description" content="Profile of {{ $name }} — software engineer, class representative, and Planning Committee Chair of the Faculty of Applied Sciences Student Association at Takoradi Technical University.">
+    <meta property="og:title" content="{{ $name }} · {{ $appName }}">
+    <meta property="og:description" content="Software engineer · Class representative · FASSA Planning Committee Chair. Selected projects include QuizSnap, KuukuaCares, and Kikam Tech.">
     <meta property="og:image" content="{{ asset('img/about/manuel.jpg') }}">
     <meta property="og:type" content="profile">
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
@@ -96,22 +96,22 @@
 
                 {{-- Identity block --}}
                 <div class="px-5 pb-5 sm:px-6 sm:pt-6 sm:pb-6 flex flex-col justify-center">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">About</p>
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">Profile</p>
                     <h1 class="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 leading-tight">
                         {{ $name }}
                     </h1>
                     <p class="mt-1 text-sm text-slate-600">
-                        Most people call me <span class="font-semibold text-slate-800">{{ $aka }}</span>.
+                        Also known as <span class="font-semibold text-slate-800">{{ $aka }}</span>.
                     </p>
                     <div class="mt-3 flex flex-wrap gap-1.5">
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-50 text-sky-800 ring-1 ring-sky-200 px-2.5 py-1 text-[11px] font-semibold">
-                            <i class="fas fa-user-graduate text-[10px]"></i> Course Rep · Group A
+                            <i class="fas fa-user-graduate text-[10px]"></i> Class Representative · Group A
                         </span>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 px-2.5 py-1 text-[11px] font-semibold">
-                            <i class="fas fa-code text-[10px]"></i> Software Developer
+                            <i class="fas fa-code text-[10px]"></i> Software Engineer
                         </span>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-2.5 py-1 text-[11px] font-semibold">
-                            <i class="fas fa-people-group text-[10px]"></i> FASSA · Planning Chair
+                            <i class="fas fa-people-group text-[10px]"></i> FASSA · Planning Committee Chair
                         </span>
                     </div>
                 </div>
@@ -131,14 +131,15 @@
                     <i class="fas fa-university"></i>
                 </span>
                 <div>
-                    <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Studies</p>
-                    <p class="text-sm font-bold text-slate-900">BTECH I.T · Level 200</p>
+                    <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Education</p>
+                    <p class="text-sm font-bold text-slate-900">BTECH, Information Technology · Level 200</p>
                 </div>
             </div>
             <p class="mt-3 text-sm text-slate-600 leading-relaxed">
-                Student at <span class="font-semibold text-slate-800">Takoradi Technical University</span>,
-                Faculty of Applied Sciences, Department of Computer Science — majoring in
-                <span class="font-semibold text-slate-800">Computer Software Engineering</span>.
+                Currently reading for a Bachelor of Technology in Information Technology at
+                <span class="font-semibold text-slate-800">Takoradi Technical University</span>,
+                under the Faculty of Applied Sciences, Department of Computer Science.
+                Area of specialisation: <span class="font-semibold text-slate-800">Computer Software Engineering</span>.
             </p>
         </div>
 
@@ -153,9 +154,10 @@
                 </div>
             </div>
             <p class="mt-3 text-sm text-slate-600 leading-relaxed">
-                Current planning committee chair for <span class="font-semibold text-slate-800">FASSA</span> —
-                the Faculty of Applied Sciences Student Association — coordinating
-                events, programmes and student welfare initiatives.
+                Serves as Planning Committee Chair for the
+                <span class="font-semibold text-slate-800">Faculty of Applied Sciences Student Association (FASSA)</span>,
+                with responsibility for coordinating faculty programmes, academic events,
+                and student-welfare initiatives.
             </p>
         </div>
 
@@ -167,20 +169,21 @@
     <div class="max-w-3xl mx-auto rounded-2xl bg-white border border-slate-200 p-5 sm:p-6 shadow-sm">
         <div class="flex items-center gap-3">
             <span class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                <i class="fas fa-route"></i>
+                <i class="fas fa-briefcase"></i>
             </span>
             <div>
-                <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">My journey</p>
-                <p class="text-sm font-bold text-slate-900">Software developer since 2016</p>
+                <p class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Professional Background</p>
+                <p class="text-sm font-bold text-slate-900">Software Engineer · Active since 2016</p>
             </div>
         </div>
         <p class="mt-4 text-sm text-slate-700 leading-relaxed">
-            I started my career as a software developer in <span class="font-semibold text-slate-900">2016</span>
-            and have been at it ever since. My focus is
-            <span class="font-semibold text-slate-900">web development</span> and
-            <span class="font-semibold text-slate-900">mobile app development</span> —
-            building products that solve real problems for the people around me, from
-            campus-scale tools to public-facing organisational platforms.
+            Practising software engineer since <span class="font-semibold text-slate-900">2016</span>,
+            with a near-decade of continuous delivery experience. Primary expertise spans
+            <span class="font-semibold text-slate-900">full-stack web development</span> and
+            <span class="font-semibold text-slate-900">mobile application development</span>.
+            Engagements have included educational platforms, public-sector digital presences,
+            and institutional websites — delivered with a focus on reliability,
+            accessibility, and long-term maintainability.
         </p>
     </div>
 </section>
@@ -190,8 +193,8 @@
     <div class="max-w-3xl mx-auto">
 
         <div class="flex items-end justify-between mb-3">
-            <h2 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">Selected work</h2>
-            <p class="text-[11px] text-slate-500">A few things I've shipped</p>
+            <h2 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">Selected Projects</h2>
+            <p class="text-[11px] text-slate-500">A representative sample</p>
         </div>
 
         <div class="grid sm:grid-cols-3 gap-3">
@@ -204,8 +207,9 @@
                     <p class="text-sm font-bold text-slate-900">QuizSnap</p>
                 </div>
                 <p class="text-[12px] text-slate-600 leading-relaxed">
-                    A quiz-creation system for campus assessments — fast to set up,
-                    easy to invigilate, and friendly for students on any device.
+                    An academic assessment platform for authoring and administering quizzes.
+                    Built for rapid setup, straightforward invigilation, and consistent
+                    performance across devices.
                 </p>
             </div>
 
@@ -218,7 +222,8 @@
                     <p class="text-sm font-bold text-slate-900 group-hover:text-sky-800">KuukuaCares</p>
                 </div>
                 <p class="text-[12px] text-slate-600 leading-relaxed">
-                    Official website for the Member of Parliament for Ahanta West —
+                    Official digital platform for the Member of Parliament for the
+                    Ahanta West Constituency. Available at
                     <span class="text-sky-700 underline decoration-sky-300 underline-offset-2">kuukuacares.com</span>.
                 </p>
             </a>
@@ -232,7 +237,7 @@
                     <p class="text-sm font-bold text-slate-900 group-hover:text-amber-800">Kikam Tech</p>
                 </div>
                 <p class="text-[12px] text-slate-600 leading-relaxed">
-                    Official site for Kikam Technical Institute —
+                    Institutional website for Kikam Technical Institute. Available at
                     <span class="text-amber-700 underline decoration-amber-300 underline-offset-2">kikamtech.org</span>.
                 </p>
             </a>
@@ -247,20 +252,20 @@
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
                 <p class="text-[11px] uppercase tracking-wider text-sky-300 font-semibold">{{ $appName }}</p>
-                <p class="text-base sm:text-lg font-bold mt-0.5">Built for students, by a student.</p>
-                <p class="text-sm text-slate-300 mt-1">Sign in with your student ID to mark attendance and stay on top of your courses.</p>
+                <p class="text-base sm:text-lg font-bold mt-0.5">Engineered for academic communities.</p>
+                <p class="text-sm text-slate-300 mt-1">Sign in with your student credentials to manage attendance and access course information.</p>
             </div>
             <a href="{{ $signInUrl }}"
                class="shrink-0 inline-flex items-center gap-2 rounded-xl bg-white text-slate-900 px-4 py-2.5 text-sm font-bold hover:bg-slate-100 transition">
                 <i class="fas fa-arrow-right-to-bracket text-xs"></i>
-                Go to sign in
+                Proceed to sign in
             </a>
         </div>
     </div>
 </section>
 
 <footer class="px-4 sm:px-6 pb-6 text-center text-[11px] text-slate-500">
-    © {{ now()->year }} {{ $name }} · {{ $appName }}
+    © {{ now()->year }} {{ $appName }}. All rights reserved.
 </footer>
 
 </body>
