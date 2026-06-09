@@ -4,7 +4,43 @@
      destination chips that fade up around the button. Long enough
      to fit Home / Mark / Timetable / History / Materials / Profile
      without crowding the bottom of the screen, and never visible
-     on desktop (the sidebar is still there). --}}
+     on desktop (the sidebar is still there).
+
+     IMPORTANT: this partial is included at the BOTTOM of the body,
+     after <head> has already streamed. That means @push('styles')
+     would arrive too late to land inside @stack('styles'), so the
+     open-state CSS would never apply and the menu would silently
+     do nothing when tapped. We inline the <style> block here
+     instead — browsers happily parse and apply style blocks that
+     live in the body. --}}
+<style>
+    /* Soft halo + pulse on the FAB so it reads as "tap me" without
+       being noisy. We pulse a transparent shadow ring at ~1.6s
+       cadence (slower than animate-ping which feels nervous). */
+    @keyframes studentFabPulse {
+        0%   { box-shadow: 0 0 0 0   rgba(14, 165, 233, 0.45), 0 8px 18px rgba(14, 165, 233, 0.45); }
+        70%  { box-shadow: 0 0 0 18px rgba(14, 165, 233, 0),   0 8px 18px rgba(14, 165, 233, 0.45); }
+        100% { box-shadow: 0 0 0 0   rgba(14, 165, 233, 0),   0 8px 18px rgba(14, 165, 233, 0.45); }
+    }
+    .student-fab-pulse { animation: studentFabPulse 1.6s ease-out infinite; }
+    .student-fab-pulse.is-open { animation: none; }
+
+    /* Stacked menu items: hidden by default, visible when the
+       parent <ul> has .is-open. Selectors use IDs so they beat
+       Tailwind's utility classes without needing !important. */
+    #student-fab-items.is-open { pointer-events: auto; }
+    #student-fab-items.is-open .fab-item {
+        transform: translateY(0) !important;
+        opacity: 1 !important;
+    }
+
+    /* Backdrop fades in on open. */
+    #student-fab-backdrop.is-open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+</style>
+
 <div id="student-fab-root" class="lg:hidden">
 
     {{-- Backdrop. Click anywhere outside the FAB to collapse the menu. --}}
@@ -57,40 +93,6 @@
         <i id="student-fab-icon" class="fas fa-plus text-xl transition-transform duration-300"></i>
     </button>
 </div>
-
-@push('styles')
-<style>
-    /* Soft halo + pulse on the FAB so it reads as "tap me" without
-       being noisy. We pulse a transparent shadow ring at ~1.4s
-       cadence (slower than animate-ping which feels nervous). The
-       inner button stays steady. */
-    @keyframes studentFabPulse {
-        0%   { box-shadow: 0 0 0 0   rgba(14, 165, 233, 0.45), 0 8px 18px rgba(14, 165, 233, 0.45); }
-        70%  { box-shadow: 0 0 0 18px rgba(14, 165, 233, 0),   0 8px 18px rgba(14, 165, 233, 0.45); }
-        100% { box-shadow: 0 0 0 0   rgba(14, 165, 233, 0),   0 8px 18px rgba(14, 165, 233, 0.45); }
-    }
-    .student-fab-pulse {
-        animation: studentFabPulse 1.6s ease-out infinite;
-    }
-    /* When the menu is open we stop the pulse — no need to keep
-       drawing attention to a button that's already showing its
-       state. */
-    .student-fab-pulse.is-open { animation: none; }
-
-    /* Open state for the stacked menu items. */
-    #student-fab-items.is-open { pointer-events: auto; }
-    #student-fab-items.is-open .fab-item {
-        transform: translateY(0);
-        opacity: 1;
-    }
-
-    /* Show the backdrop with a fade. */
-    #student-fab-backdrop.is-open {
-        opacity: 1;
-        pointer-events: auto;
-    }
-</style>
-@endpush
 
 @push('scripts')
 <script>
