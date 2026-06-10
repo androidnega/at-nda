@@ -327,20 +327,18 @@ class StudentDashboardController extends Controller
         }
 
         // ---- Per-course attendance summary cards ------------------------
-        // Every card on the carousel reads against the SAME denominator
-        // — the class's configured semester length in weeks — so the
-        // dashboard never displays inconsistent fractions like "1/1 wks"
-        // next to "1/4 wks". Admins set this on the class create/edit
-        // form; we fall back to the project default if unset or when
-        // the schema feature isn't deployed yet.
+        // Each card shows: percentage, and "present / classes held".
+        // The denominator is the count of non-cancelled
+        // attendance_weeks for that (course, class) — i.e. the
+        // number of teaching sessions that actually happened. This
+        // makes the percentage FAIR: two students with the same
+        // attendance count in the same course will always see the
+        // same percentage, because the denominator is identical.
+        // Cancelled weeks are excluded from the denominator
+        // (nobody could attend them anyway).
         $courseSummaries = collect();
         if ($student->class_id) {
             try {
-                $studentClass = \App\Models\SchoolClass::query()->find((int) $student->class_id);
-                $semesterWeeks = \App\Support\SchemaFeatures::hasClassesSemesterWeeks() && $studentClass
-                    ? $studentClass->resolvedSemesterWeeks()
-                    : \App\Models\SchoolClass::DEFAULT_SEMESTER_WEEKS;
-
                 $enrolledCourses = Course::query()
                     ->forManagedClasses([(int) $student->class_id])
                     ->with(['lecturer:id,name', 'venueRelation:id,name'])
@@ -358,57 +356,41 @@ class StudentDashboardController extends Controller
                         ->groupBy('course_id')
                         ->pluck('n', 'course_id');
 
-                    // "Where the class is in the semester" — class-wide,
-                    // not per-course. Resolution order:
-                    //
-                    //   1. Calendar-based (admin override, then
-                    //      semester_start_date math on SchoolClass).
-                    //      This is the source of truth when configured.
-                    //   2. Activity-based fallback: highest week_number
-                    //      across this class's attendance_weeks rows
-                    //      (cancelled weeks count — reaching week 5
-                    //      still means we're in week 5). Used when no
-                    //      calendar dates are set yet.
-                    //
-                    // Either way the value is shared across every
-                    // course card so the user sees one truth.
-                    $currentSemesterWeek = null;
-                    if (\App\Support\SchemaFeatures::hasClassesSemesterDates() && $studentClass) {
-                        $currentSemesterWeek = $studentClass->computeCurrentSemesterWeek();
-                    }
-                    if ($currentSemesterWeek === null) {
-                        try {
-                            $weekQuery = DB::table('attendance_weeks')
-                                ->whereIn('course_id', $courseIds);
-                            if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
-                                $weekQuery->where(function ($q) use ($student) {
-                                    $q->where('class_id', (int) $student->class_id)
-                                      ->orWhereNull('class_id');
-                                });
-                            }
-                            $currentSemesterWeek = (int) ($weekQuery->max('week_number') ?? 0);
-                        } catch (\Throwable $e) {
-                            report($e);
-                            $currentSemesterWeek = 0;
+                    // Count of classes actually held per course, for
+                    // THIS student's class. Excludes cancelled weeks
+                    // so a cancelled session doesn't drag the
+                    // denominator without giving anyone a chance to
+                    // attend. Falls back to "all weeks for the
+                    // course" when the schema doesn't carry class_id.
+                    $classesHeldByCourse = collect();
+                    try {
+                        $heldQuery = DB::table('attendance_weeks')
+                            ->whereIn('course_id', $courseIds)
+                            ->whereNull('cancelled_at');
+                        if (\App\Support\SchemaFeatures::hasAttendanceWeeksClassId()) {
+                            $heldQuery->where(function ($q) use ($student) {
+                                $q->where('class_id', (int) $student->class_id)
+                                  ->orWhereNull('class_id');
+                            });
                         }
+                        $classesHeldByCourse = $heldQuery
+                            ->select('course_id', DB::raw('COUNT(*) as n'))
+                            ->groupBy('course_id')
+                            ->pluck('n', 'course_id');
+                    } catch (\Throwable $e) {
+                        report($e);
+                        $classesHeldByCourse = collect();
                     }
-                    // Don't pretend we're past the configured term.
-                    $currentSemesterWeek = min((int) $currentSemesterWeek, (int) $semesterWeeks);
 
-                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $semesterWeeks, $currentSemesterWeek) {
+                    $courseSummaries = $enrolledCourses->map(function (Course $c) use ($presentByCourse, $classesHeldByCourse) {
                         $present = (int) ($presentByCourse[$c->id] ?? 0);
-                        $weeks = max(1, (int) $semesterWeeks);
-                        // Cap present at the configured semester length
-                        // so the fraction never reads "5/4 wks" if a
-                        // course over-runs the configured term.
-                        $presentDisplay = min($present, $weeks);
-                        $pct = min(100, (int) round(($presentDisplay / $weeks) * 100));
-                        // "Weeks left" is now semester-aware, not
-                        // attendance-aware: if we're in week 5 of 14,
-                        // 9 weeks remain whether you were marked or
-                        // not. This fixes the bug where a student with
-                        // 0 marks in week 5 was told "14 weeks left".
-                        $remaining = max(0, $weeks - $currentSemesterWeek);
+                        $classesHeld = (int) ($classesHeldByCourse[$c->id] ?? 0);
+                        // Never let "present" exceed the count of
+                        // held classes — that would happen if older
+                        // marks linger after a week was cancelled.
+                        $pct = $classesHeld > 0
+                            ? min(100, (int) round(($presentDisplay / $classesHeld) * 100))
+                            : 0;
 
                         return [
                             'id' => $c->id,
@@ -417,9 +399,7 @@ class StudentDashboardController extends Controller
                             'lecturer' => $c->lecturer?->name ?: null,
                             'venue' => $c->venueRelation?->name,
                             'present' => $presentDisplay,
-                            'weeks' => $weeks,
-                            'current_week' => $currentSemesterWeek,
-                            'remaining' => $remaining,
+                            'classes_held' => $classesHeld,
                             'pct' => $pct,
                         ];
                     })->values();
