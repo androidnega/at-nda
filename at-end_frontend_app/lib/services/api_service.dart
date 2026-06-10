@@ -695,8 +695,10 @@ class ApiService {
       lastActiveSessionErrorMessage =
           'Network error. Check connection and try again.';
       lastSessionWarnings = [];
-      // ignore: avoid_print
-      print('SESSION RESPONSE (error): $e\n$st');
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('SESSION RESPONSE (error): $e\n$st');
+      }
       return [];
     }
 
@@ -711,12 +713,14 @@ class ApiService {
     }
 
     if (response.statusCode != 200) {
-      final preview =
-          response.body.length > 800
-              ? '${response.body.substring(0, 800)}…'
-              : response.body;
-      // ignore: avoid_print
-      print('SERVER ERROR (${response.statusCode}): $preview');
+      if (kDebugMode) {
+        final preview =
+            response.body.length > 800
+                ? '${response.body.substring(0, 800)}…'
+                : response.body;
+        // ignore: avoid_print
+        print('SERVER ERROR (${response.statusCode}): $preview');
+      }
       lastActiveSessionErrorMessage =
           'Server error (${response.statusCode}). Please try again.';
       lastSessionWarnings = [];
@@ -724,10 +728,12 @@ class ApiService {
     }
 
     if (!_responseBodyLooksLikeJson(response.body)) {
-      // ignore: avoid_print
-      print(
-        'INVALID RESPONSE (NOT JSON): ${response.body.length > 400 ? response.body.substring(0, 400) : response.body}',
-      );
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print(
+          'INVALID RESPONSE (NOT JSON): ${response.body.length > 400 ? response.body.substring(0, 400) : response.body}',
+        );
+      }
       lastActiveSessionErrorMessage =
           'Invalid response from server (expected JSON). Is the API URL correct?';
       return [];
@@ -737,8 +743,10 @@ class ApiService {
     try {
       decoded = jsonDecode(response.body);
     } catch (e, st) {
-      // ignore: avoid_print
-      print('SESSION JSON PARSE ERROR: $e\n$st');
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('SESSION JSON PARSE ERROR: $e\n$st');
+      }
       lastActiveSessionErrorMessage =
           'Could not read session data. Please try again.';
       return [];
@@ -754,8 +762,10 @@ class ApiService {
     if (decoded is List) {
       lastSessionWarnings = [];
       sessionItems = decoded;
-      // ignore: avoid_print
-      print('SESSIONS (top-level array, legacy): ${sessionItems.length} items');
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('SESSIONS (top-level array, legacy): ${sessionItems.length} items');
+      }
     } else if (decoded is Map) {
       final res = Map<String, dynamic>.from(decoded);
       _setWarningsFromActiveResponse(res);
