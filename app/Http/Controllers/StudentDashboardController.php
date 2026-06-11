@@ -337,8 +337,22 @@ class StudentDashboardController extends Controller
         // Cancelled weeks are excluded from the denominator
         // (nobody could attend them anyway).
         $courseSummaries = collect();
-        if ($student->class_id) {
+        // Diagnostic: when the carousel ends up empty, this tells
+        // the view WHY so it can render a precise message instead
+        // of a vague "ask your rep". Possible values:
+        //   no_class    — student isn't assigned to a class
+        //   no_courses  — class exists but no courses linked yet
+        //   error       — query threw (logged separately)
+        //   null        — there ARE courses; reason is moot
+        $noCoursesReason = null;
+        $studentClassName = null;
+        if (! $student->class_id) {
+            $noCoursesReason = 'no_class';
+        } else {
             try {
+                $studentClassName = optional($student->schoolClass)->name
+                    ?? optional(\App\Models\SchoolClass::query()->find((int) $student->class_id))->name;
+
                 $enrolledCourses = Course::query()
                     ->forManagedClasses([(int) $student->class_id])
                     ->with(['lecturer:id,name', 'venueRelation:id,name'])
@@ -346,7 +360,14 @@ class StudentDashboardController extends Controller
                     ->limit(8)
                     ->get();
 
-                if ($enrolledCourses->isNotEmpty()) {
+                if ($enrolledCourses->isEmpty()) {
+                    $noCoursesReason = 'no_courses';
+                    \Illuminate\Support\Facades\Log::info('student.dashboard.no_courses', [
+                        'student_id' => (int) $student->id,
+                        'class_id' => (int) $student->class_id,
+                        'class_name' => $studentClassName,
+                    ]);
+                } else {
                     $courseIds = $enrolledCourses->pluck('id')->all();
                     $presentByCourse = Attendance::query()
                         ->where('student_id', $student->id)
@@ -388,6 +409,7 @@ class StudentDashboardController extends Controller
                         // Never let "present" exceed the count of
                         // held classes — that would happen if older
                         // marks linger after a week was cancelled.
+                        $presentDisplay = $classesHeld > 0 ? min($present, $classesHeld) : 0;
                         $pct = $classesHeld > 0
                             ? min(100, (int) round(($presentDisplay / $classesHeld) * 100))
                             : 0;
@@ -407,6 +429,7 @@ class StudentDashboardController extends Controller
             } catch (\Throwable $e) {
                 report($e);
                 $courseSummaries = collect();
+                $noCoursesReason = 'error';
             }
         }
 
@@ -452,6 +475,8 @@ class StudentDashboardController extends Controller
             'cancelledWeeks',
             'studentDashboardTheme',
             'courseSummaries',
+            'noCoursesReason',
+            'studentClassName',
             'recentActivity',
             'nextClassWithin1Hour'
         ));

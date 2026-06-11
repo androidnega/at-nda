@@ -336,8 +336,24 @@
             </div>
         </div>
     @else
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 text-center text-sm text-slate-500 dark:text-slate-400">
-            No courses linked to your class yet. Ask your rep to enrol you.
+        @php $reason = $noCoursesReason ?? 'no_courses'; @endphp
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 text-center text-sm text-slate-500 dark:text-slate-400 space-y-1.5">
+            @if($reason === 'no_class')
+                <p class="font-semibold text-slate-700 dark:text-slate-200">You're not in a class yet</p>
+                <p class="text-[12px]">An admin needs to assign you to a class before your courses will appear here.</p>
+            @elseif($reason === 'error')
+                <p class="font-semibold text-rose-700 dark:text-rose-300">Couldn't load your courses</p>
+                <p class="text-[12px]">Pull down to refresh, or sign out and back in. If it keeps happening, let your admin know.</p>
+            @else
+                <p class="font-semibold text-slate-700 dark:text-slate-200">
+                    @if(! empty($studentClassName))
+                        No courses linked to <span class="text-slate-900 dark:text-slate-100">{{ $studentClassName }}</span> yet
+                    @else
+                        No courses linked to your class yet
+                    @endif
+                </p>
+                <p class="text-[12px]">An admin needs to add courses for your class so they appear here.</p>
+            @endif
         </div>
     @endif
 
