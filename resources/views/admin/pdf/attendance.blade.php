@@ -316,30 +316,29 @@
 
         <div class="table-wrap">
             @php
-                // Carve up 100% of the table width between the two
-                // fixed columns and the variable-count week columns.
-                // The fixed columns are tuned tight against their real
-                // content (an index number like BC/ITD/24/025 is ~13
-                // chars at 8px so ~25mm) so a 14-column landscape grid
-                // sits compactly without horizontal overflow.
+                // Tight mm-based column widths instead of percentages.
+                // Using percentages forced each week column to balloon
+                // when there were only a handful of weeks (e.g. 4 weeks
+                // landscape ≈ 54mm per column). With fixed mm the week
+                // columns are sized to their content (the ✔/✘ pill plus
+                // a sliver of padding) and the Index column takes the
+                // leftover so the table fills the page width cleanly.
                 $count = max($weeks->count(), 1);
-                if (($orientation ?? 'portrait') === 'landscape') {
-                    $hashW = 3; $indexW = 14;
-                } else {
-                    $hashW = 4; $indexW = 20;
-                }
+                $isLandscape = ($orientation ?? 'portrait') === 'landscape';
+                $hashMm = 8;
+                $weekMm = $isLandscape ? 11 : 10;
                 if ($count > 10) {
-                    $indexW = max(12, $indexW - 2);
+                    $weekMm = $isLandscape ? 10 : 9;
                 }
-                $weekTotal = max(100 - ($hashW + $indexW), 30);
-                $weekW = round($weekTotal / $count, 2);
             @endphp
             <table class="grid">
                 <colgroup>
-                    <col style="width: {{ $hashW }}%">
-                    <col style="width: {{ $indexW }}%">
+                    <col style="width: {{ $hashMm }}mm">
+                    {{-- Index column has no width: dompdf gives it
+                         whatever's left after the fixed columns. --}}
+                    <col>
                     @foreach($weeks as $w)
-                        <col style="width: {{ $weekW }}%">
+                        <col style="width: {{ $weekMm }}mm">
                     @endforeach
                 </colgroup>
                 <thead>
