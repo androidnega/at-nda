@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\AttendanceLateController;
 use App\Http\Controllers\Api\AttendanceRecordsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClassRepApiController;
 use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\ClassSessionController;
+use App\Http\Controllers\Api\StudentAttendanceGridController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\LecturerMobileApiController;
@@ -69,6 +71,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/class/active-session', [ClassSessionController::class, 'activeSession']);
         Route::get('/session/{session}/stats', [ClassSessionController::class, 'stats'])
             ->whereNumber('session');
+        // Per-student week-by-week attendance grid (JSON + PDF).
+        // Match both verbs so the mobile app can POST credentials in
+        // the JSON body or pass them as query params on GET.
+        Route::match(['get', 'post'], '/student/attendance-grid', [StudentAttendanceGridController::class, 'index']);
+        Route::match(['get', 'post'], '/student/attendance-grid/pdf', [StudentAttendanceGridController::class, 'pdf']);
         Route::get('/sessions/current-qr/{session}', [SessionController::class, 'currentQr'])
             ->whereNumber('session');
     });
@@ -97,6 +104,7 @@ Route::match(['get', 'post'], '/class-rep/student-detail', [ClassRepRestControll
 Route::post('/class-rep/sessions/open', [ClassRepRestController::class, 'openSession']);
 Route::post('/class-rep/sessions/close', [ClassRepRestController::class, 'closeSession']);
 Route::post('/class-rep/sessions/extend', [ClassRepRestController::class, 'extendSession']);
+Route::post('/class-rep/sessions/prune-ghosts', [ClassRepRestController::class, 'pruneGhostSessions']);
 
 Route::post('/attendance/open', [ClassRepRestController::class, 'openSession']);
 Route::post('/attendance/close', [ClassRepRestController::class, 'closeSession']);
@@ -110,8 +118,30 @@ Route::post('/notifications/pending', [NotificationsController::class, 'pending'
 Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
 Route::post('/attendance/checkout', [AttendanceController::class, 'checkout']);
 Route::get('/attendance/sync', [AttendanceController::class, 'sync']);
-Route::post('/attendance/sync', [AttendanceController::class, 'syncPush']);
+
+// Batch offline-sync — throttle to 30 batches/minute per token and
+// reject any body larger than 256 KB before the validator runs. The
+// validator additionally caps `records` at 50 entries (mirrors the
+// mobile bin-packer's batchMaxRows constant).
+Route::post('/attendance/sync', [AttendanceController::class, 'syncPush'])
+    ->middleware(['throttle:attendance-sync', 'max.body:256']);
+
 Route::get('/attendance/missed-warnings', [AttendanceController::class, 'missedWarnings']);
+
+// Late-attendance review surface. Reads are 60/min/token, decides are
+// 20/min/token (see POST_IMPLEMENTATION_ARCHITECTURE_AUDIT §C-3). All
+// bodies are tiny (notes only) — cap at 8 KB.
+Route::get('/attendance/late', [AttendanceLateController::class, 'index'])
+    ->middleware(['throttle:attendance-late-read', 'max.body:8']);
+Route::get('/attendance/late/status/{uuid}', [AttendanceLateController::class, 'statusByUuid'])
+    ->where('uuid', '[A-Za-z0-9._-]+')
+    ->middleware(['throttle:attendance-late-read', 'max.body:8']);
+Route::post('/attendance/late/{id}/approve', [AttendanceLateController::class, 'approve'])
+    ->whereNumber('id')
+    ->middleware(['throttle:attendance-late-decide', 'max.body:8']);
+Route::post('/attendance/late/{id}/deny', [AttendanceLateController::class, 'deny'])
+    ->whereNumber('id')
+    ->middleware(['throttle:attendance-late-decide', 'max.body:8']);
 
 Route::get('/attendance/{session}/records', [AttendanceRecordsController::class, 'records'])->whereNumber('session');
 Route::get('/attendance/{session}/export/csv', [AttendanceRecordsController::class, 'exportCsv'])->whereNumber('session');

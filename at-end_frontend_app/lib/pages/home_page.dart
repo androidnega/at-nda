@@ -3,9 +3,9 @@ import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-import '../widgets/app_drawer_shell.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/app_primary_fab.dart';
 import '../widgets/modern_pull_to_refresh.dart';
 
 import '../models/student.dart';
@@ -32,10 +32,10 @@ import '../widgets/student_team_reach_dashboard.dart';
 import '../widgets/student_today_dashboard.dart';
 import '../widgets/student_violet_calendar_dashboard.dart';
 import '../widgets/student_midnight_control_dashboard.dart';
-import '../widgets/student_drawer_header.dart';
 import '../widgets/dynamic_widget_renderer.dart';
 import 'attendance_history_page.dart';
 import 'attendance_page.dart';
+import 'student_attendance_table_page.dart';
 import 'login_page.dart';
 import 'rep_home_page.dart';
 import 'sync_status_page.dart';
@@ -945,6 +945,10 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
     }
   }
 
+  // The drawer that called this lives in Profile now; keep the dialog
+  // helper for the in-progress profile redesign so the logout-lock rule
+  // isn't lost.
+  // ignore: unused_element
   Future<void> _confirmLogout() async {
     if (!_logoutAllowed) {
       final msg =
@@ -1215,10 +1219,38 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
     // Keep dashboard theme consistent even when offline/slow.
     final studentTheme = ApiService.studentDashboardTheme;
 
+    final isRep = s.isClassRep;
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: light ? StudentSoftUi.cream(cs) : cs.surface,
-      drawer: _buildDrawer(context),
+      // Drawer removed in favour of a Material 3 bottom navigation bar
+      // and a context-aware primary FAB (Phase: Navigation refactor).
+      bottomNavigationBar: AppBottomNav(
+        role: isRep ? AppNavRole.rep : AppNavRole.student,
+        currentTab: AppNavTab.home,
+        onHistoryPressed: _openAttendanceHistory,
+        onRecordsPressed:
+            isRep ? _openAttendanceHistory : _openAttendanceTable,
+        onClassPressed: isRep
+            ? () => Navigator.of(context)
+                .pushNamed('/class-rep/students')
+                .then((_) => _load())
+            : null,
+        onProfilePressed: () => Navigator.of(context)
+            .pushNamed('/profile')
+            .then((_) => _load()),
+      ),
+      floatingActionButton: AppPrimaryFab(
+        role: isRep ? AppNavRole.rep : AppNavRole.student,
+        onPressed: () {
+          if (isRep) {
+            Navigator.of(context).pushNamed('/rep-sessions').then((_) => _load());
+          } else {
+            Navigator.of(context).pushNamed('/attendance').then((_) => _load());
+          }
+        },
+      ),
       body: SafeArea(
         top: true,
         bottom: false,
@@ -1240,7 +1272,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     onOpenFullTimetable: _openTimetable,
                     onSeeAllClasses: _openTimetable,
@@ -1310,7 +1342,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     onOpenFullTimetable: _openTimetable,
                     onSeeAllClasses: _openTimetable,
@@ -1380,7 +1412,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     onOpenFullTimetable: _openTimetable,
                     onSeeAllClasses: _openTimetable,
@@ -1451,7 +1483,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     onOpenFullTimetable: _openTimetable,
                     onSeeAllClasses: _openTimetable,
@@ -1516,7 +1548,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     onMarkAttendance:
                         () => _handleDashboardAttendanceAction(um.first),
                     primaryActionLabel: primaryActionLabel,
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     statsClassesToday: _todayTimetable.length,
                     statsLiveSessions: liveSessionCount,
@@ -1561,7 +1593,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     primaryActionLabel: primaryActionLabel,
                     lastCheckInLine: _lastCheckInLine,
                     dayProgress: _workingDayProgressFraction(),
-                    onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+                    onOpenDrawer: () => Navigator.of(context).pushNamed('/profile').then((_) => _load()),
                     onBell: _onDashboardBell,
                     onOpenFullTimetable: _openTimetable,
                     onSeeAllClasses: _openTimetable,
@@ -1811,140 +1843,6 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
     );
   }
 
-  Widget _buildDrawer(BuildContext context) {
-    final s = _student;
-    final colorScheme = Theme.of(context).colorScheme;
-    final headerColor = colorScheme.primaryContainer.withValues(alpha: 0.45);
-
-    return Drawer(
-      child: AppDrawerShell(
-        child: SafeArea(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              if (s != null)
-                StudentDrawerHeader(student: s, decorationColor: headerColor)
-              else
-                Material(
-                  color: headerColor,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: colorScheme.primary.withValues(
-                            alpha: 0.3,
-                          ),
-                          radius: 28,
-                          child: Icon(
-                            Icons.person,
-                            color: colorScheme.primary,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '—',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ListTile(
-                leading: const Icon(Icons.person_outline_rounded),
-                title: const Text('Profile'),
-                subtitle: const Text('Account details'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(
-                    context,
-                  ).pushNamed('/profile').then((_) => _load());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.calendar_month_rounded),
-                title: const Text('Timetable'),
-                subtitle: const Text('Weekly class schedule'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(
-                    context,
-                  ).pushNamed('/timetable').then((_) => _load());
-                },
-              ),
-              if (s?.isClassRep == true)
-                ListTile(
-                  leading: Icon(
-                    Icons.dashboard_customize_outlined,
-                    color: colorScheme.primary,
-                  ),
-                  title: const Text('Class rep dashboard'),
-                  subtitle: const Text('Sessions, QR & tools'),
-                  onTap: () {
-                    _scaffoldKey.currentState?.closeDrawer();
-                    Navigator.of(context)
-                        .push(
-                          MaterialPageRoute<void>(
-                            builder:
-                                (_) => appSelectableScope(const RepHomePage()),
-                          ),
-                        )
-                        .then((_) => _load());
-                  },
-                ),
-              ListTile(
-                leading: const Icon(Icons.history_rounded),
-                title: const Text('Attendance history'),
-                subtitle: const Text('Past sessions & status'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _openAttendanceHistory();
-                },
-              ),
-              const Divider(),
-              ListTile(
-                enabled: _logoutAllowed,
-                leading: Icon(
-                  Icons.logout,
-                  color:
-                      _logoutAllowed
-                          ? colorScheme.error
-                          : colorScheme.onSurfaceVariant,
-                ),
-                title: Text(
-                  'Log out',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color:
-                        _logoutAllowed
-                            ? colorScheme.error
-                            : colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                subtitle:
-                    _logoutLockHint != null && !_logoutAllowed
-                        ? Text(
-                          _logoutLockHint!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        )
-                        : null,
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _confirmLogout();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _openOfflineQueue() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -1968,6 +1866,20 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
         .push(
           MaterialPageRoute(
             builder: (_) => appSelectableScope(const AttendanceHistoryPage()),
+          ),
+        )
+        .then((_) => _load());
+  }
+
+  /// Per-course attendance grid (the same week-by-week view as the
+  /// web register, just per-student). Reachable from the "Records"
+  /// bottom-nav tab for students.
+  void _openAttendanceTable() {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) =>
+                appSelectableScope(const StudentAttendanceTablePage()),
           ),
         )
         .then((_) => _load());
