@@ -120,9 +120,14 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
     }
 
     for (final r in logs) {
+      // Prefer the human-readable course name; fall back to course
+      // code only if the name is missing on the API payload, so
+      // students see "E-Commerce" instead of "BIT240" in history.
+      final name = r['course_name']?.toString().trim();
       final code = r['course_code']?.toString().trim();
-      final courseLabel =
-          (code != null && code.isNotEmpty) ? code : 'Course';
+      final courseLabel = (name != null && name.isNotEmpty)
+          ? name
+          : ((code != null && code.isNotEmpty) ? code : 'Course');
       final at = r['marked_at']?.toString() ?? '';
       final sid = _sessionIdFromLog(r);
       final rawStatus = r['status']?.toString().toLowerCase().trim();

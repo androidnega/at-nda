@@ -24,17 +24,25 @@ return [
         : null,
 
     /*
+    | A session only counts as "missed" when at least this many OTHER students
+    | already marked it. Filters out abandoned/ghost sessions (rep opens then
+    | never closes, no students mark). Set to 0 to disable the witness filter
+    | and fall back to the legacy "any ended session counts" behaviour.
+    */
+    'missed_warning_min_witnesses' => (int) env('MISSED_WARNING_MIN_WITNESSES', 1),
+
+    /*
     |--------------------------------------------------------------------------
     | Online rolling-code rotation
     |--------------------------------------------------------------------------
     |
     | How long an online-session attendance code stays valid before the next
-    | one auto-mints. Default 120s (2 min). A small grace window keeps the
+    | one auto-mints. Default 600s (10 min). A short grace window keeps the
     | previously-current code valid for that many seconds AFTER it expires
     | so students mid-submit during a rotation don't get a 422.
     |
     */
-    'online_code_rotation_seconds' => (int) env('ONLINE_CODE_ROTATION_SECONDS', 120),
+    'online_code_rotation_seconds' => (int) env('ONLINE_CODE_ROTATION_SECONDS', 600),
     'online_code_grace_seconds'    => (int) env('ONLINE_CODE_GRACE_SECONDS', 10),
 
     /*
