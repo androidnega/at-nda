@@ -131,12 +131,35 @@
             width: 28px;
             text-align: center;
         }
-        .check {
-            color: #0b3c98;
+        /* Present / absent pill badges. dompdf 3.x bundles DejaVu Sans
+           which does NOT include the colour emoji ✅ ❌ glyphs (U+2705 /
+           U+274C). The bold check (U+2714) and bold cross (U+2718) ARE
+           in DejaVu, so we use those wrapped in a small coloured pill to
+           give the same "green present / red absent" reading at a
+           glance. */
+        .mark {
+            display: inline-block;
+            min-width: 14px;
+            padding: 1px 3px;
+            font-size: 10px;
             font-weight: bold;
+            line-height: 1;
+            border-radius: 7px;
+            text-align: center;
         }
-        .miss {
-            color: #a16207;
+        .mark-present {
+            color: #14532d;
+            background: #bbf7d0;
+            border: 1px solid #16a34a;
+        }
+        .mark-absent {
+            color: #7f1d1d;
+            background: #fecaca;
+            border: 1px solid #dc2626;
+        }
+        .mark-blank {
+            color: #a8a29e;
+            font-weight: normal;
         }
         .week-cancelled {
             font-size: 8px;
@@ -166,57 +189,33 @@
             background: #b45309;
             color: #fffbeb;
         }
-        /* Stack the word CANCELLED letter-by-letter so it reads top-to-bottom
-           inside narrow week columns. dompdf doesn't reliably honour CSS
-           writing-mode / transform: rotate, so this stacked approach is the
-           most portable way to get vertical text in the PDF. */
-        .week-cancelled-vert {
-            display: inline-block;
-            font-size: 7px;
-            font-weight: bold;
-            color: #b91c1c;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-            line-height: 1.05;
-            text-align: center;
-            padding: 1px 0;
-        }
-        .week-cancelled-vert span {
-            display: block;
-        }
+        /* Cancelled-week column: every cell prints one letter of the
+           word CANCELLED, stacked vertically down the column with the
+           word centred against the rows — exactly how a lecturer writes
+           it in a paper register. dompdf doesn't reliably honour CSS
+           writing-mode / transform: rotate(), so the per-row letter
+           stack is the most portable way to get that vertical look. */
         td.week-cancelled-cell {
-            background: repeating-linear-gradient(
-                45deg,
-                #fff7ed,
-                #fff7ed 3px,
-                #fed7aa 3px,
-                #fed7aa 4px
-            ) !important;
-            color: #a8a29e;
+            background: #fff7ed !important;
+            color: #b91c1c;
+            padding: 4px 2px;
         }
-        /* Header for a cancelled week column — same striped background as
-           the cells so the whole vertical column reads as one cancelled
-           block without us having to repeat the "CANCELLED" label in
-           every student row (which used to blow up row heights). */
+        td.week-cancelled-cell .cancelled-letter {
+            display: inline-block;
+            font-weight: bold;
+            font-size: 11px;
+            line-height: 1;
+            color: #b91c1c;
+            letter-spacing: 0;
+        }
         th.week-cancelled-header {
-            background: repeating-linear-gradient(
-                45deg,
-                #fef3c7,
-                #fef3c7 3px,
-                #fde68a 3px,
-                #fde68a 4px
-            ) !important;
-            color: #78350f !important;
+            background: #fed7aa !important;
+            color: #7c2d12 !important;
+            border-color: #c2410c !important;
         }
         th.week-cancelled-header .week-cancelled {
-            color: #b91c1c;
+            color: #7c2d12;
             font-weight: bold;
-        }
-        td.week-cancelled-cell .week-cancelled-marker {
-            color: #b45309;
-            font-weight: bold;
-            font-size: 8px;
-            letter-spacing: 0.08em;
         }
         .footer-note {
             font-size: 8px;
@@ -285,12 +284,20 @@
             </tr>
         </table>
 
+        @php
+            $heldCount = $weeks->filter(fn($w) => $w->id && ! $w->isCancelled())->count();
+            $cancelledCount = $weeks->filter(fn($w) => $w->isCancelled())->count();
+            $pendingCount = $weeks->filter(fn($w) => ! $w->id)->count();
+        @endphp
         <p class="weeks-summary">
-            Classes held: <strong>{{ $weeks->reject(fn($w) => $w->isCancelled())->count() }}</strong>
-            @if($weeks->filter(fn($w) => $w->isCancelled())->isNotEmpty())
-                · Cancelled: <strong>{{ $weeks->filter(fn($w) => $w->isCancelled())->count() }}</strong>
+            Semester weeks: <strong>{{ $weeks->count() }}</strong>
+            · Held: <strong>{{ $heldCount }}</strong>
+            @if($cancelledCount > 0)
+                · Cancelled: <strong>{{ $cancelledCount }}</strong>
             @endif
-            · Total weeks shown: <strong>{{ $weeks->count() }}</strong>
+            @if($pendingCount > 0)
+                · Not held yet: <strong>{{ $pendingCount }}</strong>
+            @endif
         </p>
 
         <div class="table-wrap">
@@ -301,7 +308,7 @@
                         <th>Index No.</th>
                         <th>Program</th>
                         @foreach($weeks as $w)
-                        <th class="week-col @if($w->isCancelled()) week-cancelled-header @endif">W{{ $w->week_number }}@if($w->isCancelled())<br><span class="week-cancelled">Off</span>@endif</th>
+                        <th class="week-col @if($w->isCancelled()) week-cancelled-header @endif">W{{ $w->week_number }}</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -326,22 +333,23 @@
                         </td>
                         <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
-                        {{-- Cancelled weeks: keep the cell deliberately empty (with the
-                             striped amber background) so every student row stays the same
-                             short height. The "W# / Off" column header already labels the
-                             entire column as cancelled — a per-cell CANCELLED label is
-                             just visual noise that stretches each row vertically. --}}
+                        {{-- Cancelled column: each row contributes one letter
+                             of CANCELLED, stacked vertically down the column
+                             (the controller pre-centred the word against the
+                             total row count). Held weeks show a green check
+                             pill for present, a red cross pill for absent. --}}
                         <td class="week-col @if($w->isCancelled()) week-cancelled-cell @endif">
                             @if($w->isCancelled())
-                                <span class="week-cancelled-marker" aria-label="Cancelled">&middot;</span>
-                            @elseif(isset($row['weeks'][$w->week_number]))
-                                @if($row['weeks'][$w->week_number] === true)
-                                    <span class="check">&#10003;</span>
-                                @else
-                                    <span class="miss">&times;</span>
+                                @php $letter = $cancelledLetterByWeekAndRow[$w->week_number][$idx] ?? ''; @endphp
+                                @if($letter !== '')
+                                    <span class="cancelled-letter">{{ $letter }}</span>
                                 @endif
+                            @elseif(($row['weeks'][$w->week_number] ?? null) === true)
+                                <span class="mark mark-present" aria-label="Present">&#10004;</span>
+                            @elseif(($row['weeks'][$w->week_number] ?? null) === false)
+                                <span class="mark mark-absent" aria-label="Absent">&#10008;</span>
                             @else
-                                <span style="color:#a8a29e;">—</span>
+                                <span class="mark-blank" aria-label="Not held yet">&mdash;</span>
                             @endif
                         </td>
                         @endforeach
