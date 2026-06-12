@@ -1,4 +1,4 @@
-@props(['logs', 'available' => true, 'actions' => []])
+@props(['logs', 'available' => true, 'actions' => [], 'studentMetaByLog' => []])
 
 @if(! $available)
     <div class="rounded-xl border border-amber-200 bg-amber-50/60 p-6 text-center text-sm text-amber-900">
@@ -35,6 +35,16 @@
                             default => 'bg-gray-50 text-gray-700 border-gray-200',
                         };
                         $payload = $log->payload ?? [];
+                        // Resolved student/department/class for this
+                        // log (controller-side join). Falls back to
+                        // payload['index_number'] when nothing else
+                        // is linkable. Keys: student_id, index_number,
+                        // full_name, class_id, class_name,
+                        // department_id, department_name,
+                        // faculty_id, faculty_name.
+                        $studentMeta = $studentMetaByLog[(int) $log->id] ?? null;
+                        $rowIndex = $studentMeta['index_number']
+                            ?? ($payload['index_number'] ?? null);
 
                         // Build a self-contained, JSON-encoded snapshot
                         // for the detail modal. Keep it readable + safe.
@@ -61,6 +71,7 @@
                                 'user_agent' => $log->user_agent,
                                 'device_fingerprint' => $log->device_fingerprint,
                             ],
+                            'student' => $studentMeta,
                             'payload' => $payload,
                         ];
                     @endphp
@@ -87,23 +98,31 @@
                             @endif
                         </td>
                         <td class="px-3 py-2 text-[11px] text-gray-700">
+                            @if($rowIndex)
+                                <div class="font-mono text-[11px] font-semibold text-slate-800 inline-flex items-center gap-1">
+                                    <i class="fas fa-id-card text-slate-400 text-[10px]"></i>
+                                    {{ $rowIndex }}
+                                </div>
+                                @if($studentMeta && ! empty($studentMeta['full_name']))
+                                    <div class="text-[10.5px] text-gray-600 leading-tight">{{ $studentMeta['full_name'] }}</div>
+                                @endif
+                            @endif
+                            @if($studentMeta && ! empty($studentMeta['class_name']))
+                                <div class="text-[10.5px] text-gray-600 mt-0.5">
+                                    <i class="fas fa-users text-gray-400 text-[10px] mr-0.5"></i>{{ $studentMeta['class_name'] }}
+                                </div>
+                            @elseif($log->class_id)
+                                <div class="text-[10.5px] text-gray-600 mt-0.5">
+                                    <i class="fas fa-users text-gray-400 text-[10px] mr-0.5"></i>Class #{{ $log->class_id }}
+                                </div>
+                            @endif
                             @if($log->course_id)
-                                <span class="inline-flex items-center gap-1 text-gray-700">
-                                    <i class="fas fa-book text-gray-400 text-[10px]"></i>
-                                    Course #{{ $log->course_id }}
-                                </span>
+                                <div class="text-[10.5px] text-gray-600 mt-0.5">
+                                    <i class="fas fa-book text-gray-400 text-[10px] mr-0.5"></i>Course #{{ $log->course_id }}
+                                </div>
                             @endif
-                            @if($log->class_id)
-                                <span class="ml-1 inline-flex items-center gap-1 text-gray-700">
-                                    <i class="fas fa-users text-gray-400 text-[10px]"></i>
-                                    Class #{{ $log->class_id }}
-                                </span>
-                            @endif
-                            @if($log->subject_type)
+                            @if($log->subject_type && ! $rowIndex)
                                 <div class="text-[10.5px] text-gray-500 mt-0.5">{{ $log->subject_type }} #{{ $log->subject_id }}</div>
-                            @endif
-                            @if(! empty($payload['index_number']))
-                                <div class="text-[10.5px] text-gray-700 font-mono mt-0.5">{{ $payload['index_number'] }}</div>
                             @endif
                         </td>
                         <td class="px-3 py-2 text-[10.5px] text-gray-600">
@@ -160,6 +179,22 @@
                     <dd id="audit-modal-actor-role" class="sm:col-span-2 capitalize text-gray-800">—</dd>
                     <dt class="text-gray-500">Internal id</dt>
                     <dd id="audit-modal-actor-id" class="sm:col-span-2 font-mono text-gray-700">—</dd>
+                </dl>
+            </section>
+
+            <section id="audit-modal-student-section" class="hidden">
+                <h4 class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Student</h4>
+                <dl class="grid grid-cols-[110px_1fr] sm:grid-cols-3 gap-x-3 gap-y-1.5 text-[12px]">
+                    <dt class="text-gray-500">Index number</dt>
+                    <dd id="audit-modal-student-index" class="sm:col-span-2 font-mono font-semibold text-gray-900">—</dd>
+                    <dt class="text-gray-500">Full name</dt>
+                    <dd id="audit-modal-student-name" class="sm:col-span-2 text-gray-800">—</dd>
+                    <dt class="text-gray-500">Class</dt>
+                    <dd id="audit-modal-student-class" class="sm:col-span-2 text-gray-800">—</dd>
+                    <dt class="text-gray-500">Department</dt>
+                    <dd id="audit-modal-student-dept" class="sm:col-span-2 text-gray-800">—</dd>
+                    <dt class="text-gray-500">Faculty</dt>
+                    <dd id="audit-modal-student-faculty" class="sm:col-span-2 text-gray-800">—</dd>
                 </dl>
             </section>
 
@@ -223,6 +258,12 @@
             actor:   document.getElementById('audit-modal-actor-name'),
             role:    document.getElementById('audit-modal-actor-role'),
             actorId: document.getElementById('audit-modal-actor-id'),
+            studentSection: document.getElementById('audit-modal-student-section'),
+            studentIndex:   document.getElementById('audit-modal-student-index'),
+            studentName:    document.getElementById('audit-modal-student-name'),
+            studentClass:   document.getElementById('audit-modal-student-class'),
+            studentDept:    document.getElementById('audit-modal-student-dept'),
+            studentFaculty: document.getElementById('audit-modal-student-faculty'),
             subject: document.getElementById('audit-modal-subject'),
             course:  document.getElementById('audit-modal-course'),
             class_:  document.getElementById('audit-modal-class'),
@@ -252,6 +293,22 @@
             setText(els.subject, subj);
             setText(els.course,  t.course_id ? '#' + t.course_id : '—');
             setText(els.class_,  t.class_id  ? '#' + t.class_id  : '—');
+
+            // Student metadata (resolved server-side; only present
+            // for rows that touch a student — mark / fraud / login).
+            const student = detail.student || null;
+            if (student && (student.index_number || student.full_name)) {
+                els.studentSection.classList.remove('hidden');
+                setText(els.studentIndex,   student.index_number);
+                setText(els.studentName,    student.full_name);
+                setText(els.studentClass,   student.class_name
+                    ? (student.class_id ? `${student.class_name} · #${student.class_id}` : student.class_name)
+                    : (student.class_id ? '#' + student.class_id : ''));
+                setText(els.studentDept,    student.department_name);
+                setText(els.studentFaculty, student.faculty_name);
+            } else {
+                els.studentSection.classList.add('hidden');
+            }
 
             const n = detail.network || {};
             setText(els.ip, n.ip);

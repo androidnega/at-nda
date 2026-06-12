@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AttendanceRecordsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AppReleaseApiController;
 use App\Http\Controllers\Api\ClassRepApiController;
+use App\Http\Controllers\Api\ClassRepMarksController;
 use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\ClassSessionController;
 use App\Http\Controllers\Api\StudentAttendanceGridController;
@@ -111,6 +112,13 @@ Route::post('/class-rep/sessions/open', [ClassRepRestController::class, 'openSes
 Route::post('/class-rep/sessions/close', [ClassRepRestController::class, 'closeSession']);
 Route::post('/class-rep/sessions/extend', [ClassRepRestController::class, 'extendSession']);
 Route::post('/class-rep/sessions/prune-ghosts', [ClassRepRestController::class, 'pruneGhostSessions']);
+
+// Per-student roster for an active session, plus the manual mark
+// endpoint that backs the mobile rep "Mark students" flow. Both
+// idempotent and rate-limited via the same throttle as the rest
+// of the rep API.
+Route::post('/class-rep/sessions/roster', [ClassRepMarksController::class, 'roster']);
+Route::post('/class-rep/marks', [ClassRepMarksController::class, 'mark']);
 
 Route::post('/attendance/open', [ClassRepRestController::class, 'openSession']);
 Route::post('/attendance/close', [ClassRepRestController::class, 'closeSession']);

@@ -47,5 +47,5 @@
     </div>
 </form>
 
-@include('_partials.audit-log-table', ['logs' => $logs, 'available' => $available, 'actions' => $actions])
+@include('_partials.audit-log-table', ['logs' => $logs, 'available' => $available, 'actions' => $actions, 'studentMetaByLog' => $studentMetaByLog ?? []])
 @endsection

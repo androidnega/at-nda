@@ -11,14 +11,15 @@ import '../services/logout_lock_prefs.dart';
 import '../services/notification_bridge.dart';
 import '../services/offline_service.dart';
 import '../services/student_profile_refresh.dart';
-import '../widgets/app_drawer_shell.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/app_primary_fab.dart';
 import '../widgets/attendance_trend_chart.dart';
 import '../widgets/modern_pull_to_refresh.dart';
-import '../widgets/student_drawer_header.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/app_state.dart';
 import '../utils/connectivity_util.dart';
 import 'login_page.dart';
+import 'rep_manual_mark_page.dart';
 import 'rep_session_page.dart';
 
 class RepHomePage extends StatefulWidget {
@@ -371,6 +372,9 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     );
   }
 
+  // Logout moved to the Profile tab — kept here so the lock rule lives
+  // alongside the bool that drives it.
+  // ignore: unused_element
   Future<void> _confirmLogout() async {
     if (!_logoutAllowed) {
       final msg =
@@ -428,145 +432,36 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
         });
   }
 
-  Widget _buildDrawer(BuildContext context, Student s) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final headerColor = colorScheme.primaryContainer.withValues(alpha: 0.45);
+  /// Material 3 bottom navigation for the rep shell. Used by all four
+  /// dashboard themes so we get one consistent footer regardless of
+  /// which body variant the rep is looking at.
+  AppBottomNav _buildBottomNav() {
+    return AppBottomNav(
+      role: AppNavRole.rep,
+      currentTab: AppNavTab.home,
+      onRecordsPressed: () {
+        final sid = _activeSessionDetail?['id'];
+        final int? id = sid is int
+            ? sid
+            : sid is num
+                ? sid.toInt()
+                : int.tryParse(sid?.toString() ?? '');
+        Navigator.of(context).pushNamed('/attendance-records', arguments: id);
+      },
+      onClassPressed: () => Navigator.of(context)
+          .pushNamed('/class-rep/students')
+          .then((_) => _loadStudent()),
+      onProfilePressed: () => Navigator.of(context)
+          .pushNamed('/profile')
+          .then((_) => _loadStudent()),
+    );
+  }
 
-    return Drawer(
-      child: AppDrawerShell(
-        child: SafeArea(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              StudentDrawerHeader(student: s, decorationColor: headerColor),
-              ListTile(
-                leading: const Icon(Icons.event_note_rounded),
-                title: const Text('Session management'),
-                subtitle: const Text('Open, QR & close attendance'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _openSessions();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.fact_check_outlined),
-                title: const Text('Attendance Records'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  final sid = _activeSessionDetail?['id'];
-                  final int? id =
-                      sid is int
-                          ? sid
-                          : sid is num
-                          ? sid.toInt()
-                          : int.tryParse(sid?.toString() ?? '');
-                  Navigator.of(
-                    context,
-                  ).pushNamed('/attendance-records', arguments: id);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.groups_outlined),
-                title: const Text('Class List'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/class-rep/students');
-                },
-              ),
-              ListTile(
-                leading: Badge(
-                  isLabelVisible: _flaggedStudents.isNotEmpty,
-                  label: Text(
-                    _flaggedStudents.length > 99
-                        ? '99+'
-                        : '${_flaggedStudents.length}',
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                  child: const Icon(Icons.flag_outlined),
-                ),
-                title: const Text('Flagged students'),
-                subtitle: const Text('3+ consecutive misses'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/class-rep/flagged');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.insights_outlined),
-                title: const Text('Insights'),
-                subtitle: const Text('Attendance trends & summary'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/class-rep/insights');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('Profile'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(
-                    context,
-                  ).pushNamed('/profile').then((_) => _loadStudent());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.calendar_month_rounded),
-                title: const Text('Timetable'),
-                subtitle: const Text('Weekly class schedule'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(
-                    context,
-                  ).pushNamed('/timetable').then((_) => _loadStudent());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Settings'),
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  Navigator.of(context).pushNamed('/settings');
-                },
-              ),
-              const Divider(),
-              ListTile(
-                enabled: _logoutAllowed,
-                leading: Icon(
-                  Icons.logout,
-                  color:
-                      _logoutAllowed
-                          ? colorScheme.error
-                          : colorScheme.onSurfaceVariant,
-                ),
-                title: Text(
-                  'Log out',
-                  style: TextStyle(
-                    color:
-                        _logoutAllowed
-                            ? colorScheme.error
-                            : colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                subtitle:
-                    _logoutLockHint != null && !_logoutAllowed
-                        ? Text(
-                          _logoutLockHint!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        )
-                        : null,
-                onTap: () {
-                  _scaffoldKey.currentState?.closeDrawer();
-                  _confirmLogout();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+  /// "Open session" FAB shared by every dashboard theme.
+  AppPrimaryFab _buildPrimaryFab() {
+    return AppPrimaryFab(
+      role: AppNavRole.rep,
+      onPressed: _openSessions,
     );
   }
 
@@ -672,7 +567,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: pageBg,
-      drawer: _buildDrawer(context, s),
+      bottomNavigationBar: _buildBottomNav(),
+      floatingActionButton: _buildPrimaryFab(),
       body: SafeArea(
         child: ModernPullToRefresh(
           showIndicator: false,
@@ -711,7 +607,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                           IconButton(
                             icon: Icon(Icons.menu_rounded, color: textPrimary),
                             onPressed:
-                                () => _scaffoldKey.currentState?.openDrawer(),
+                                () => Navigator.of(context).pushNamed('/profile').then((_) => _loadStudent()),
                             tooltip: 'Menu',
                           ),
                           Expanded(
@@ -917,15 +813,6 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
-      floatingActionButton:
-          useTeamReach
-              ? FloatingActionButton(
-                onPressed: _openSessions,
-                backgroundColor: const Color(0xFF1F6CFF),
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.add_rounded, size: 30),
-              )
-              : null,
     );
   }
 
@@ -1112,25 +999,75 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
             ],
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 40,
-            child: FilledButton.icon(
-              onPressed: _extendActiveSession,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: FilledButton.icon(
+                    onPressed: _openManualMarkPage,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF047857),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    icon: const Icon(Icons.fact_check_outlined, size: 18),
+                    label: const Text('Mark students'),
+                  ),
                 ),
               ),
-              icon: const Icon(Icons.more_time_rounded, size: 18),
-              label: const Text('Extend'),
-            ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 40,
+                child: OutlinedButton.icon(
+                  onPressed: _extendActiveSession,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  icon: const Icon(Icons.more_time_rounded, size: 18),
+                  label: const Text('Extend'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  /// Opens the per-student manual-mark page for the currently
+  /// active session. Works offline — the page enqueues marks via
+  /// the existing outbox + sync engine and replays them when the
+  /// network returns.
+  Future<void> _openManualMarkPage() async {
+    final session = _activeSessionDetail;
+    if (session == null) return;
+    final sid = session['id'];
+    final sessionId = sid is int ? sid : int.tryParse('$sid');
+    if (sessionId == null || sessionId <= 0) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => RepManualMarkPage(
+          sessionId: sessionId,
+          courseName: session['course_name']?.toString(),
+          courseCode: session['course_code']?.toString(),
+        ),
+      ),
+    );
+    // When the rep comes back, refresh the dashboard so the live
+    // present-count reflects whatever they just marked.
+    final s = _student;
+    if (s != null) {
+      unawaited(_loadDashboard(s));
+    }
   }
 
   static const List<String> _repDiaryPillLabels = [
@@ -1159,7 +1096,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: pageBg,
-      drawer: _buildDrawer(context, s),
+      bottomNavigationBar: _buildBottomNav(),
+      floatingActionButton: _buildPrimaryFab(),
       body: SafeArea(
         child: ModernPullToRefresh(
           showIndicator: false,
@@ -1197,7 +1135,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                           IconButton(
                             icon: Icon(Icons.menu_rounded, color: textPrimary),
                             onPressed:
-                                () => _scaffoldKey.currentState?.openDrawer(),
+                                () => Navigator.of(context).pushNamed('/profile').then((_) => _loadStudent()),
                             tooltip: 'Menu',
                           ),
                           Expanded(
@@ -1585,7 +1523,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFF12101F),
-      drawer: _buildDrawer(context, s),
+      bottomNavigationBar: _buildBottomNav(),
+      floatingActionButton: _buildPrimaryFab(),
       body: ColoredBox(
         color: const Color(0xFF4334C4),
         child: SafeArea(
@@ -1606,7 +1545,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                           children: [
                             IconButton(
                               onPressed:
-                                  () => _scaffoldKey.currentState?.openDrawer(),
+                                  () => Navigator.of(context).pushNamed('/profile').then((_) => _loadStudent()),
                               icon: const Icon(
                                 Icons.menu_rounded,
                                 color: Colors.white,
@@ -1806,7 +1745,8 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFF2D2F34),
-      drawer: _buildDrawer(context, s),
+      bottomNavigationBar: _buildBottomNav(),
+      floatingActionButton: _buildPrimaryFab(),
       body: SafeArea(
         child: ModernPullToRefresh(
           showIndicator: false,
@@ -1824,7 +1764,7 @@ class _RepHomePageState extends State<RepHomePage> with WidgetsBindingObserver {
                         children: [
                           IconButton(
                             onPressed:
-                                () => _scaffoldKey.currentState?.openDrawer(),
+                                () => Navigator.of(context).pushNamed('/profile').then((_) => _loadStudent()),
                             icon: const Icon(
                               Icons.menu_rounded,
                               color: Colors.white,

@@ -967,6 +967,44 @@ class ApiService {
     'additional_minutes': additionalMinutes,
   });
 
+  /// `POST /api/class-rep/sessions/roster` — per-student mark
+  /// status for an active session. Used by the rep "Mark students"
+  /// page.
+  static Future<http.Response> classRepSessionRoster({
+    required int sessionId,
+    required String indexNumber,
+    required String password,
+  }) => post('class-rep/sessions/roster', {
+    'session_id': sessionId,
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
+
+  /// `POST /api/class-rep/marks` — rep manually marks a single
+  /// student. Idempotent on `attendance_uuid`. When the network
+  /// is healthy this is called directly (via SyncEngine.attemptSingle
+  /// from inside AttendanceSubmissionService); offline marks ride
+  /// the same outbox and replay automatically when connectivity
+  /// returns.
+  static Future<http.Response> classRepMarkStudent({
+    required int sessionId,
+    required int studentId,
+    required String status, // 'present' | 'late' | 'absent'
+    required String indexNumber,
+    required String password,
+    String reason = '',
+    String? attendanceUuid,
+  }) => post('class-rep/marks', {
+    'session_id': sessionId,
+    'student_id': studentId,
+    'status': status,
+    'reason': reason,
+    if (attendanceUuid != null && attendanceUuid.isNotEmpty)
+      'attendance_uuid': attendanceUuid,
+    'index_number': indexNumber.trim().toUpperCase(),
+    'password': password.trim(),
+  });
+
   /// GET /api/class/active-session
   static Future<http.Response> classActiveSession({
     required String indexNumber,
