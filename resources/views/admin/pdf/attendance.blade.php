@@ -137,7 +137,7 @@
         }
         .week-col {
             text-align: center;
-            padding: 4px 1px;
+            padding: 3px 0;
         }
         /* Repeat <thead> on every printed page — dompdf supports this
            when display: table-header-group is set, and it gives us a
@@ -153,12 +153,12 @@
            glance. */
         .mark {
             display: inline-block;
-            min-width: 14px;
-            padding: 1px 3px;
-            font-size: 10px;
+            min-width: 12px;
+            padding: 1px 2px;
+            font-size: 9px;
             font-weight: bold;
             line-height: 1;
-            border-radius: 7px;
+            border-radius: 6px;
             text-align: center;
         }
         .mark-present {
@@ -316,29 +316,27 @@
 
         <div class="table-wrap">
             @php
-                // Carve up 100% of the table width between the three
+                // Carve up 100% of the table width between the two
                 // fixed columns and the variable-count week columns.
                 // The fixed columns shrink slightly as we add more
                 // weeks so a 14-column landscape grid still fits
                 // without horizontal overflow.
                 $count = max($weeks->count(), 1);
                 if (($orientation ?? 'portrait') === 'landscape') {
-                    $hashW = 4; $indexW = 14; $programW = 12;
+                    $hashW = 4; $indexW = 22;
                 } else {
-                    $hashW = 5; $indexW = 18; $programW = 14;
+                    $hashW = 5; $indexW = 28;
                 }
                 if ($count > 10) {
-                    $indexW = max(11, $indexW - 3);
-                    $programW = max(8, $programW - 4);
+                    $indexW = max(16, $indexW - 4);
                 }
-                $weekTotal = max(100 - ($hashW + $indexW + $programW), 20);
+                $weekTotal = max(100 - ($hashW + $indexW), 30);
                 $weekW = round($weekTotal / $count, 2);
             @endphp
             <table class="grid">
                 <colgroup>
                     <col style="width: {{ $hashW }}%">
                     <col style="width: {{ $indexW }}%">
-                    <col style="width: {{ $programW }}%">
                     @foreach($weeks as $w)
                         <col style="width: {{ $weekW }}%">
                     @endforeach
@@ -347,7 +345,6 @@
                     <tr>
                         <th>#</th>
                         <th>Index No.</th>
-                        <th>Program</th>
                         @foreach($weeks as $w)
                         <th class="week-col @if($w->isCancelled()) week-cancelled-header @endif">W{{ $w->week_number }}</th>
                         @endforeach
@@ -372,7 +369,6 @@
                                 <span class="rep-badge assist">Asst</span>
                             @endif
                         </td>
-                        <td>{{ $row['student']->getProgramLabel() }}</td>
                         @foreach($weeks as $w)
                         {{-- Cancelled column: each row contributes one letter
                              of CANCELLED, stacked vertically down the column
