@@ -6,7 +6,6 @@ use App\Models\Attendance;
 use App\Models\AttendanceWeek;
 use App\Models\ClassRep;
 use App\Models\Course;
-use App\Models\SchoolClass;
 use App\Models\Student;
 use App\Models\University;
 use App\Support\RepCourseAccess;
@@ -19,16 +18,15 @@ use Illuminate\Support\Facades\Storage;
 class AttendancePdfController extends Controller
 {
     /**
-     * PDF preview for the whole semester. ALL configured semester weeks
-     * are shown — e.g. a class configured for 4 weeks gets exactly 4
-     * week columns (W1..W4) whether or not each one has been held yet.
-     * Cancelled weeks render with the vertical "CANCELLED" stripe; held
-     * weeks render present/absent marks; un-held weeks render a dash.
+     * PDF preview for the whole semester. Only weeks that ACTUALLY
+     * happened (had an attendance session opened) plus weeks that were
+     * explicitly cancelled are shown — un-held / future weeks are
+     * omitted so the grid never lies about what's been delivered.
      */
     public function export(Request $request, Course $course): Response
     {
         $this->authorizePdfExport($request, $course);
-        $weeks = $this->fullSemesterWeeks($course, $request);
+        $weeks = $this->materialWeeksForCourse($course, $request);
         return $this->renderPdf($request, $course, $weeks, 'all');
     }
 
@@ -145,11 +143,24 @@ class AttendancePdfController extends Controller
         // see *why* a column is marked CANCELLED without hovering tooltips.
         $cancelledWeeks = $weeks->filter(fn (AttendanceWeek $w) => $w->isCancelled())->values();
 
-        // Pre-compute the vertical CANCELLED letter for each
-        // (week_number, row_index) so the Blade view can render the
-        // word stacked top-to-bottom inside each cancelled column,
-        // matching the handwritten paper-register convention.
-        $cancelledLetterByWeekAndRow = $this->buildCancelledLetterMap($weeks, count($attendanceByStudent));
+        // Pick portrait for narrow grids and landscape once we start
+        // running out of horizontal room. Empirically a portrait A4
+        // page comfortably fits ~7 week columns alongside the
+        // #/Index/Program columns; beyond that landscape gives us
+        // breathing room without shrinking the marks into illegibility.
+        $weekCount = $weeks->count();
+        $orientation = $weekCount > 7 ? 'landscape' : 'portrait';
+
+        // Rough rows-per-page estimate so the CANCELLED stripe repeats
+        // on every page of multi-page exports. Tuned against the
+        // bundled DejaVu Sans at 10px / 5px-padding row spacing.
+        $rowsPerPage = $orientation === 'landscape' ? 16 : 24;
+
+        $cancelledLetterByWeekAndRow = $this->buildCancelledLetterMap(
+            $weeks,
+            count($attendanceByStudent),
+            $rowsPerPage,
+        );
 
         $pdf = Pdf::loadView('admin.pdf.attendance', [
             'course' => $course,
@@ -166,26 +177,25 @@ class AttendancePdfController extends Controller
             'attendanceByStudent' => $attendanceByStudent,
             'repRolesByStudent' => $repRolesByStudent,
             'cancelledLetterByWeekAndRow' => $cancelledLetterByWeekAndRow,
-        ]);
+            'orientation' => $orientation,
+            'weekCount' => $weekCount,
+        ])->setPaper('a4', $orientation);
 
         return $pdf->stream('attendance-'.\Str::slug($course->course_name).'-'.$slugSuffix.'.pdf', ['Attachment' => false]);
     }
 
     /**
-     * Build the full week-by-week grid for the semester export. The grid
-     * is exactly `semester_weeks` columns wide (the value the admin set
-     * on the class) — every week is shown, whether or not it has been
-     * held. Real AttendanceWeek rows are returned where they exist (so
-     * cancellations and attendance lookups continue to work); week
-     * numbers with no row yet are filled with an unsaved placeholder so
-     * the view can still render a column for them.
+     * Weeks that should appear on the semester PDF grid: those that
+     * actually happened (at least one attendance session opened) plus
+     * weeks explicitly cancelled (so the lecturer sees the gap and the
+     * reason). Empty/un-held weeks are dropped so the grid doesn't lie
+     * about the number of classes delivered.
      *
-     * Scoped to the rep's class when a class-rep is logged in, so reps
-     * see only the weeks their own class actually had.
+     * Scoped to the rep's class when a class-rep is logged in.
      *
      * @return Collection<int, AttendanceWeek>
      */
-    private function fullSemesterWeeks(Course $course, Request $request): Collection
+    private function materialWeeksForCourse(Course $course, Request $request): Collection
     {
         $weeksQuery = $course->attendanceWeeks()->orderBy('week_number');
 
@@ -198,63 +208,29 @@ class AttendancePdfController extends Controller
             });
         }
 
-        $realWeeks = $weeksQuery->get()->keyBy(fn (AttendanceWeek $w) => (int) $w->week_number);
-
-        $totalWeeks = $this->semesterWeekCountFor($course, $scopedClassIds);
-        // Defensive: if a rep already opened more weeks than the class
-        // was configured for, widen the grid to include them.
-        $maxRealWeek = (int) ($realWeeks->keys()->max() ?? 0);
-        if ($maxRealWeek > $totalWeeks) {
-            $totalWeeks = $maxRealWeek;
-        }
-        if ($totalWeeks < 1) {
-            return collect();
+        $allWeeks = $weeksQuery->get();
+        if ($allWeeks->isEmpty()) {
+            return $allWeeks;
         }
 
-        $slots = collect();
-        for ($n = 1; $n <= $totalWeeks; $n++) {
-            if ($realWeeks->has($n)) {
-                $slots->push($realWeeks->get($n));
-                continue;
+        // Any week with at least one session was a class that ran (or
+        // was attempted). We deliberately don't require attendance
+        // rows — a held class with nobody marked is still a held class.
+        $usedWeekIds = \App\Models\AttendanceSession::query()
+            ->where('course_id', $course->id)
+            ->whereIn('attendance_week_id', $allWeeks->pluck('id'))
+            ->pluck('attendance_week_id')
+            ->map(fn ($v) => (int) $v)
+            ->unique()
+            ->flip();
+
+        return $allWeeks->filter(function (AttendanceWeek $w) use ($usedWeekIds) {
+            if ($w->isCancelled()) {
+                return true;
             }
-            // Placeholder for a week that hasn't been opened yet. id=0
-            // means lookups against attendance_week_id will find nothing
-            // (correct — there is nothing to find for an un-held week).
-            $placeholder = new AttendanceWeek([
-                'week_number' => $n,
-            ]);
-            $placeholder->id = 0;
-            $slots->push($placeholder);
-        }
 
-        return $slots->values();
-    }
-
-    /**
-     * Determine the semester length (in weeks) we should render for this
-     * export. Reps see their own class's setting; admins/lecturers see
-     * the course's primary class. Falls back to the system default when
-     * nothing is configured.
-     *
-     * @param  list<int>  $scopedClassIds
-     */
-    private function semesterWeekCountFor(Course $course, array $scopedClassIds): int
-    {
-        $classId = $scopedClassIds[0] ?? null;
-        if ($classId === null) {
-            $classId = (int) ($course->class_id ?? 0) ?: null;
-        }
-        if ($classId !== null) {
-            $cls = SchoolClass::find($classId);
-            if ($cls) {
-                return $cls->resolvedSemesterWeeks();
-            }
-        }
-        if ($course->schoolClass) {
-            return $course->schoolClass->resolvedSemesterWeeks();
-        }
-
-        return SchoolClass::DEFAULT_SEMESTER_WEEKS;
+            return $usedWeekIds->has((int) $w->id);
+        })->values();
     }
 
     /**
@@ -329,41 +305,55 @@ class AttendancePdfController extends Controller
     /**
      * For each cancelled week, return a [week_number => [row_index =>
      * letter]] map so the view can stamp one letter of CANCELLED per
-     * student row, vertically centred down the column — the same way a
-     * lecturer would write it in a paper register. Rows above/below the
-     * word are left blank.
+     * student row.
+     *
+     * The word is REPEATED per PDF page so multi-page exports still
+     * read "CANCELLED" on every page (instead of once, centred across
+     * the whole register). dompdf decides page breaks itself based on
+     * row heights, so we estimate "rows per page" from the orientation
+     * and use that as the repeat stride. Worst case the word lands a
+     * row or two off the visual page centre — never invisible.
      *
      * @param  Collection<int, AttendanceWeek>  $weeks
      * @return array<int, array<int, string>>
      */
-    private function buildCancelledLetterMap(Collection $weeks, int $rowCount): array
+    private function buildCancelledLetterMap(Collection $weeks, int $rowCount, int $rowsPerPage): array
     {
         $word = 'CANCELLED';
         $len = strlen($word);
         $map = [];
 
+        if ($rowCount <= 0 || $rowsPerPage <= 0) {
+            foreach ($weeks as $week) {
+                if ($week->isCancelled()) {
+                    $map[(int) $week->week_number] = [];
+                }
+            }
+
+            return $map;
+        }
+
+        // Compute the per-page letter positions once — same word lands
+        // in the same in-page slot for every page, every cancelled
+        // column — then expand across as many pages as we actually
+        // have student rows for.
+        $effectiveLen = min($len, $rowsPerPage);
+        $startInPage = max(0, intdiv($rowsPerPage - $effectiveLen, 2));
+
         foreach ($weeks as $week) {
             if (! $week->isCancelled()) {
                 continue;
             }
-            $weekNumber = (int) $week->week_number;
-
-            if ($rowCount <= 0) {
-                $map[$weekNumber] = [];
-                continue;
-            }
-
-            // Centre CANCELLED vertically. If there are fewer rows than
-            // letters, clip the trailing letters so we never overflow
-            // the visible rows.
-            $effectiveLen = min($len, $rowCount);
-            $startRow = max(0, intdiv($rowCount - $effectiveLen, 2));
-
             $letters = [];
-            for ($i = 0; $i < $effectiveLen; $i++) {
-                $letters[$startRow + $i] = $word[$i];
+            for ($row = 0; $row < $rowCount; $row++) {
+                $indexInPage = $row % $rowsPerPage;
+                if ($indexInPage >= $startInPage
+                    && $indexInPage < $startInPage + $effectiveLen
+                ) {
+                    $letters[$row] = $word[$indexInPage - $startInPage];
+                }
             }
-            $map[$weekNumber] = $letters;
+            $map[(int) $week->week_number] = $letters;
         }
 
         return $map;

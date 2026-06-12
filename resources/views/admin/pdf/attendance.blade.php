@@ -105,21 +105,29 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 4px;
+            /* Fixed layout so dompdf honours the per-column widths we
+               set on the <colgroup> below, instead of auto-sizing to
+               content and overflowing the page when there are many
+               week columns. */
+            table-layout: fixed;
         }
         table.grid th {
             background: #0b3c98;
             color: #fef9c3;
             border: 1px solid #082c71;
-            padding: 7px 6px;
+            padding: 6px 4px;
             text-align: left;
             font-size: 9px;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
+            overflow: hidden;
         }
         table.grid td {
             border: 1px solid #d6d3d1;
-            padding: 5px 6px;
+            padding: 4px 4px;
             font-size: 10px;
+            overflow: hidden;
+            word-wrap: break-word;
         }
         table.grid tbody tr:nth-child(even) td {
             background: #fafaf9;
@@ -128,9 +136,15 @@
             background: #ffffff;
         }
         .week-col {
-            width: 28px;
             text-align: center;
+            padding: 4px 1px;
         }
+        /* Repeat <thead> on every printed page — dompdf supports this
+           when display: table-header-group is set, and it gives us a
+           free per-page banner of W1..Wn (including the amber
+           CANCELLED column headers). */
+        table.grid thead { display: table-header-group; }
+        table.grid tbody { display: table-row-group; }
         /* Present / absent pill badges. dompdf 3.x bundles DejaVu Sans
            which does NOT include the colour emoji ✅ ❌ glyphs (U+2705 /
            U+274C). The bold check (U+2714) and bold cross (U+2718) ARE
@@ -301,10 +315,37 @@
         </p>
 
         <div class="table-wrap">
+            @php
+                // Carve up 100% of the table width between the three
+                // fixed columns and the variable-count week columns.
+                // The fixed columns shrink slightly as we add more
+                // weeks so a 14-column landscape grid still fits
+                // without horizontal overflow.
+                $count = max($weeks->count(), 1);
+                if (($orientation ?? 'portrait') === 'landscape') {
+                    $hashW = 4; $indexW = 14; $programW = 12;
+                } else {
+                    $hashW = 5; $indexW = 18; $programW = 14;
+                }
+                if ($count > 10) {
+                    $indexW = max(11, $indexW - 3);
+                    $programW = max(8, $programW - 4);
+                }
+                $weekTotal = max(100 - ($hashW + $indexW + $programW), 20);
+                $weekW = round($weekTotal / $count, 2);
+            @endphp
             <table class="grid">
+                <colgroup>
+                    <col style="width: {{ $hashW }}%">
+                    <col style="width: {{ $indexW }}%">
+                    <col style="width: {{ $programW }}%">
+                    @foreach($weeks as $w)
+                        <col style="width: {{ $weekW }}%">
+                    @endforeach
+                </colgroup>
                 <thead>
                     <tr>
-                        <th style="width:32px;">#</th>
+                        <th>#</th>
                         <th>Index No.</th>
                         <th>Program</th>
                         @foreach($weeks as $w)
