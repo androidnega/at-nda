@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AttendanceLateController;
 use App\Http\Controllers\Api\AttendanceRecordsController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AppReleaseApiController;
 use App\Http\Controllers\Api\ClassRepApiController;
 use App\Http\Controllers\Api\ClassRepRestController;
 use App\Http\Controllers\Api\ClassSessionController;
@@ -40,6 +41,11 @@ Route::middleware('throttle:api-v1-login')->group(function () {
     Route::post('/me', [AuthController::class, 'me']);
     Route::post('/students/quick-status', [StudentController::class, 'quickStatus']);
 });
+
+// Mobile-app update check. Unauthenticated by design — the app
+// hits this on launch (before login) to learn if a newer build is
+// available. Light read-only call, no PII.
+Route::get('/app/latest', [AppReleaseApiController::class, 'latest']);
 
 Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth:sanctum');

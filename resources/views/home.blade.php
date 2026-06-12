@@ -46,6 +46,20 @@
     </div>
     @endif
 
+    @if(\Illuminate\Support\Facades\Route::has('downloads.app.landing'))
+    <a href="{{ route('downloads.app.landing') }}"
+       class="mt-4 group flex items-center gap-3 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/40 px-3.5 py-2.5 hover:from-emerald-100 hover:to-emerald-200/60 transition">
+        <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
+            <i class="fab fa-android text-base"></i>
+        </span>
+        <span class="flex-1 min-w-0">
+            <span class="block text-[12px] font-semibold text-emerald-900">Get the mobile app</span>
+            <span class="block text-[11px] text-emerald-700/80">Mark attendance from your phone, view weekly grids.</span>
+        </span>
+        <i class="fas fa-arrow-right text-emerald-700/60 group-hover:translate-x-0.5 transition"></i>
+    </a>
+    @endif
+
     @if(\Illuminate\Support\Facades\Route::has('about'))
     <div class="mt-2 text-center">
         <a href="{{ route('about') }}" class="text-[11px] text-gray-500 hover:text-gray-800 transition font-medium inline-flex items-center gap-1">

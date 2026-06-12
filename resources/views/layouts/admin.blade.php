@@ -109,6 +109,12 @@
                     <i class="fas fa-users-cog w-5 text-center"></i>
                     <span>User management</span>
                 </a>
+                @if(\Illuminate\Support\Facades\Route::has('dashboard.app-releases.index'))
+                <a href="{{ route('dashboard.app-releases.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.app-releases.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
+                    <i class="fab fa-android w-5 text-center"></i>
+                    <span>App releases</span>
+                </a>
+                @endif
                 @endif
                 <a href="{{ route('dashboard.venues.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 border border-transparent {{ request()->routeIs('dashboard.venues.*') ? 'bg-sky-500 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900 hover:border-slate-200' }}">
                     <i class="fas fa-map-marker-alt w-5 text-center"></i>

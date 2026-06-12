@@ -40,7 +40,6 @@ dependencies:
 
   # Camera & face capture
   camera: ^0.10.5+9
-  image_picker: ^1.0.7
   image: ^4.3.0
 
   # GPS location
@@ -77,9 +76,11 @@ dependencies:
   uuid: ^4.4.0
   share_plus: ^10.1.4
   package_info_plus: ^8.1.2
+  # Open the APK download URL in the system browser when the app
+  # detects a new release is available.
+  url_launcher: ^6.3.0
   custom_refresh_indicator: ^4.0.1
   crop_your_image: ^2.0.0
-  url_launcher: ^6.3.1
 
   # Local notifications (session live, check-in, checkout) with sound + vibration
   flutter_local_notifications: ^18.0.1
@@ -116,6 +117,8 @@ flutter:
     - assets/models/face_embedding.tflite
     - branding/app_icon.png
     - assets/images/auth/login-hero.jpg
+    - assets/images/onboarding/attendance-marked-hero.png
+    - assets/images/onboarding/student-access-hero.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

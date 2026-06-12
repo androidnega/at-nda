@@ -14,16 +14,20 @@ import 'pages/class_rep_students_page.dart';
 import 'pages/rep_flagged_students_page.dart';
 import 'pages/rep_home_page.dart';
 import 'pages/rep_insights_page.dart';
+import 'pages/rep_late_attendance_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/timetable_page.dart';
+import 'services/app_update_service.dart';
 import 'services/attendance_local_notify.dart';
 import 'services/institution_theme_service.dart';
 import 'services/notification_bridge.dart';
 import 'services/notification_prefs.dart';
+import 'services/offline_sync_coordinator.dart';
 import 'services/theme_service.dart';
 import 'theme/app_theme.dart';
 import 'utils/app_selectable_scope.dart';
+import 'widgets/app_update_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +40,10 @@ Future<void> main() async {
   await NotificationPrefs.load();
   await NotificationBridge.initialize();
   await AttendanceLocalNotify.init();
+  // Phase 2 — app-wide attendance sync coordinator. Runs the outbox
+  // drain on connectivity restore, app resume, and a 60 s heartbeat,
+  // independent of which page is in front.
+  OfflineSyncCoordinator.instance.start();
   runApp(
     const _AppLifecycleShell(
       child: AttendanceApp(),
@@ -60,6 +68,13 @@ class _AppLifecycleShellState extends State<_AppLifecycleShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Run the first update check after the first frame so the
+    // scaffold messenger is mounted and we can display a dialog.
+    // AppUpdateService rate-limits internally (6 h) so back-to-back
+    // resumes won't spam the API.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybePromptForUpdate();
+    });
   }
 
   @override
@@ -72,6 +87,21 @@ class _AppLifecycleShellState extends State<_AppLifecycleShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       NotificationBridge.onAppForegrounded();
+      // Re-check on resume — rate-limited by AppUpdateService so
+      // toggling the app every few seconds won't hit the API.
+      _maybePromptForUpdate();
+    }
+  }
+
+  Future<void> _maybePromptForUpdate() async {
+    try {
+      final info = await AppUpdateService.check();
+      if (!info.hasRelease || !info.isUpdateAvailable) return;
+      final ctx = NotificationBridge.messengerKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      await AppUpdateDialog.maybeShow(ctx, release: info);
+    } catch (_) {
+      // Update checks must never crash the app — swallow.
     }
   }
 
@@ -137,6 +167,8 @@ class AttendanceApp extends StatelessWidget {
                 '/settings': (_) => appSelectableScope(const SettingsPage()),
                 '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
                 '/timetable': (_) => appSelectableScope(const TimetablePage()),
+                RepLateAttendancePage.routeName: (_) =>
+                    appSelectableScope(const RepLateAttendancePage()),
               },
             );
             return SelectionContainer.disabled(child: app);

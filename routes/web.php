@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\AdminAppReleaseController;
 use App\Http\Controllers\AdminAttendanceWeekController;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AppReleaseDownloadController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AttendanceController;
@@ -46,6 +48,16 @@ Route::get('/', function (Request $request) {
 
     return view('home');
 })->middleware('no-store')->name('home');
+
+// ───── Public mobile-app distribution ─────
+// Landing page + direct APK download links. No auth — students need
+// to grab the APK before they can sign in.
+Route::get('/download', [AppReleaseDownloadController::class, 'landing'])->name('downloads.app.landing');
+Route::get('/download/android/latest.apk', [AppReleaseDownloadController::class, 'downloadLatestAndroid'])
+    ->name('downloads.app.android.latest');
+Route::get('/download/android/{versionCode}.apk', [AppReleaseDownloadController::class, 'downloadVersionedAndroid'])
+    ->whereNumber('versionCode')
+    ->name('downloads.app.android.versioned');
 
 Route::post('/filter-by-index', function (Request $request) {
     $validated = $request->validate(['index_number' => 'required|string']);
@@ -392,6 +404,14 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
             Route::match(['put', 'patch'], 'dashboard-themes', [MobileDashboardThemeController::class, 'update'])->name('dashboard-themes.update');
         });
         Route::resource('venues', VenueController::class)->except(['show']);
+        // Mobile-app distribution: upload APKs + flip publish /
+        // required toggles. Strictly admin (not lecturer).
+        Route::middleware('admin.only')->prefix('app-releases')->name('app-releases.')->group(function () {
+            Route::get('/', [AdminAppReleaseController::class, 'index'])->name('index');
+            Route::post('/', [AdminAppReleaseController::class, 'store'])->name('store');
+            Route::patch('/{release}', [AdminAppReleaseController::class, 'update'])->name('update');
+            Route::delete('/{release}', [AdminAppReleaseController::class, 'destroy'])->name('destroy');
+        });
         Route::middleware('admin.only')->prefix('staff-accounts')->name('staff-accounts.')->group(function () {
             Route::get('/', [StaffAccountController::class, 'index'])->name('index');
             Route::get('/create', [StaffAccountController::class, 'create'])->name('create');
