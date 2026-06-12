@@ -115,17 +115,17 @@
             background: #0b3c98;
             color: #fef9c3;
             border: 1px solid #082c71;
-            padding: 6px 4px;
+            padding: 5px 3px;
             text-align: left;
-            font-size: 9px;
+            font-size: 8.5px;
             text-transform: uppercase;
-            letter-spacing: 0.03em;
+            letter-spacing: 0.02em;
             overflow: hidden;
         }
         table.grid td {
             border: 1px solid #d6d3d1;
-            padding: 4px 4px;
-            font-size: 10px;
+            padding: 3px 4px;
+            font-size: 9px;
             overflow: hidden;
             word-wrap: break-word;
         }
@@ -318,17 +318,18 @@
             @php
                 // Carve up 100% of the table width between the two
                 // fixed columns and the variable-count week columns.
-                // The fixed columns shrink slightly as we add more
-                // weeks so a 14-column landscape grid still fits
-                // without horizontal overflow.
+                // The fixed columns are tuned tight against their real
+                // content (an index number like BC/ITD/24/025 is ~13
+                // chars at 8px so ~25mm) so a 14-column landscape grid
+                // sits compactly without horizontal overflow.
                 $count = max($weeks->count(), 1);
                 if (($orientation ?? 'portrait') === 'landscape') {
-                    $hashW = 4; $indexW = 22;
+                    $hashW = 3; $indexW = 14;
                 } else {
-                    $hashW = 5; $indexW = 28;
+                    $hashW = 4; $indexW = 20;
                 }
                 if ($count > 10) {
-                    $indexW = max(16, $indexW - 4);
+                    $indexW = max(12, $indexW - 2);
                 }
                 $weekTotal = max(100 - ($hashW + $indexW), 30);
                 $weekW = round($weekTotal / $count, 2);
