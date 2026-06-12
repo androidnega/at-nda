@@ -1958,6 +1958,29 @@ class ClassRepController extends Controller
             ->where('student_id', $student->id)
             ->where('attendance_session_id', $session->id)
             ->first();
+
+        // Guard against accidentally clobbering a successful mark.
+        // If the student is already counted as present (status =
+        // present OR late), refuse to override and tell the rep —
+        // they should not be flipping a real attendance to absent,
+        // or "re-marking" someone who already showed up.
+        if ($row && Attendance::countsAsPresent($row->status)) {
+            Log::info('[MANUAL-MARK] skipped.already_present', [
+                'debug_id' => $debugId,
+                'attendance_id' => (int) $row->id,
+                'student_id' => (int) $student->id,
+                'existing_status' => $row->status,
+                'attempted_status' => $validated['status'],
+            ]);
+
+            $existingLabel = strtolower((string) $row->status) === 'late' ? 'late' : 'present';
+            $message = $student->index_number
+                .' is already marked '.$existingLabel.' for this session. '
+                .'Existing marks cannot be overridden.';
+
+            return back()->with('info', $message);
+        }
+
         $manualPayload = [
             'status' => $validated['status'],
             'marked_manually_by_id' => (int) $rep->id,

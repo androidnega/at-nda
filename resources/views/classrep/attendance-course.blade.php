@@ -56,6 +56,12 @@
 @if(session('error'))
     <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">{{ session('error') }}</div>
 @endif
+@if(session('info'))
+    <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
+        <i class="fas fa-circle-info text-amber-600 mt-0.5"></i>
+        <span>{{ session('info') }}</span>
+    </div>
+@endif
 
 {{-- Filter bar (date range + index search) removed by request — the
      per-week grid below is the canonical view, and the controller still
