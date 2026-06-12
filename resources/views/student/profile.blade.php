@@ -59,7 +59,6 @@
 
     <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 sm:p-7">
         <h1 class="text-xl font-bold text-slate-900 dark:text-slate-100">{{ $student->hasCompletedProfile() ? 'Your profile' : 'Complete your profile' }}</h1>
-        <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Name, department, phone and photo stay in sync with the mobile app.</p>
 
         @if (session('error'))
             <div class="mt-4 p-4 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 rounded-xl text-sm border border-red-100 dark:border-red-900/50">{{ session('error') }}</div>
@@ -147,7 +146,6 @@
                 <input type="email" id="email" name="email" value="{{ old('email', $student->email) }}" inputmode="email" autocomplete="email"
                     placeholder="you@example.com"
                     class="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500">
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">We only use this to email reset codes if you forget your password.</p>
                 @error('email')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
             </div>
             @endif
@@ -156,6 +154,7 @@
                 'required' => !$student->profile_image,
                 'label' => $student->profile_image ? 'Update profile photo' : 'Profile photo',
                 'student' => $student,
+                'showHelper' => false,
             ])
             @error('profile_photo')<p class="text-red-500 dark:text-red-400 text-sm mt-1">{{ $message }}</p>@enderror
             @unless($identityLocked)
@@ -186,6 +185,41 @@
                 Save changes
             </button>
         </form>
+    </div>
+
+    {{-- About this app — concise credit for the developer, kept
+         out of the form so it doesn't compete with the inputs. --}}
+    <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+        <div class="flex items-start gap-3">
+            <div class="shrink-0 h-9 w-9 rounded-xl bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center text-sky-700 dark:text-sky-300">
+                <i class="fas fa-mobile-screen-button text-[14px]"></i>
+            </div>
+            <div class="min-w-0">
+                <h2 class="text-base font-bold text-slate-900 dark:text-slate-100">About this app</h2>
+                <p class="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed mt-1">
+                    {{ config('app.name', 'a-tenda') }} is a private attendance system built for tertiary classrooms.
+                </p>
+                <p class="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed mt-2">
+                    Developed by <span class="font-semibold text-slate-800 dark:text-slate-200">Emmanuel Kofi Kwofie</span>
+                    (&ldquo;Manuel&rdquo;), a student at
+                    <span class="font-semibold text-slate-800 dark:text-slate-200">Takoradi Technical University</span> &middot;
+                    Department of Computer Science.
+                </p>
+                <div class="mt-3 flex flex-wrap items-center gap-3 text-[12px]">
+                    @if (Route::has('about'))
+                        <a href="{{ route('about') }}" class="inline-flex items-center gap-1.5 text-sky-700 dark:text-sky-300 hover:underline font-semibold">
+                            <i class="fas fa-circle-info text-[11px]"></i> About the developer
+                        </a>
+                    @endif
+                    @if (Route::has('downloads.app.landing'))
+                        <a href="{{ route('downloads.app.landing') }}" class="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:underline font-semibold">
+                            <i class="fab fa-android text-[11px]"></i> Get the mobile app
+                        </a>
+                    @endif
+                    <span class="text-slate-400 dark:text-slate-500">&copy; {{ date('Y') }}</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- Shared cropper modal. Reload-after-save keeps the hero

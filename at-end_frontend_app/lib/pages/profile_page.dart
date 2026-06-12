@@ -1,11 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/device_identity_lock.dart';
+import '../services/device_service.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/profile_identity_cooldown.dart';
+import '../utils/api_user_message.dart';
+import '../utils/constants.dart';
 import 'login_page.dart';
 import 'sync_status_page.dart';
 import '../utils/app_selectable_scope.dart';
@@ -28,6 +34,12 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _editing = false;
   bool _passwordHidden = true;
 
+  String? _boundIndex;
+  DateTime? _boundSince;
+  String? _deviceIp;
+  String? _deviceIdTail;
+  bool _pruningGhosts = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,7 +47,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _nameBadge(Student s, TextTheme tt, ColorScheme cs) {
-    return Container(
+    final url = s.resolvedNetworkProfileUrl(Uri.parse(Constants.baseUrl));
+    final fallback = Container(
       width: 96,
       height: 96,
       decoration: BoxDecoration(
@@ -53,6 +66,20 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
     );
+    if (url == null || url.isEmpty) return fallback;
+    return ClipOval(
+      child: SizedBox(
+        width: 96,
+        height: 96,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+          loadingBuilder: (ctx, child, evt) =>
+              evt == null ? child : fallback,
+        ),
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -61,6 +88,13 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
+
+    final bound = await DeviceIdentityLock.boundIndex();
+    final since = await DeviceIdentityLock.firstSeenAt();
+    final ip = await DeviceService.getDeviceIp();
+    final id = await DeviceService.getDeviceId();
+    final tail = id.length > 6 ? id.substring(id.length - 6) : id;
+
     if (mounted) {
       setState(() {
         _student = student;
@@ -69,7 +103,95 @@ class _ProfilePageState extends State<ProfilePage> {
         _baselineFull = _fullNameController.text.trim();
         _isLoading = false;
         _editing = false;
+        _boundIndex = bound;
+        _boundSince = since;
+        _deviceIp = ip;
+        _deviceIdTail = tail;
       });
+    }
+  }
+
+  String _maskIndex(String? idx) {
+    if (idx == null) return '—';
+    final v = idx.trim();
+    if (v.length <= 4) return v;
+    final tail = v.substring(v.length - 3);
+    return '${v.substring(0, 2)}…$tail';
+  }
+
+  String _formatBoundSince(DateTime? d) {
+    if (d == null) return 'Just now';
+    final diff = DateTime.now().difference(d);
+    if (diff.inDays >= 1) {
+      return 'Since ${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    }
+    if (diff.inHours >= 1) return 'Since ${diff.inHours} h ago';
+    if (diff.inMinutes >= 1) return 'Since ${diff.inMinutes} min ago';
+    return 'Just now';
+  }
+
+  Future<void> _pruneGhostSessions() async {
+    final s = _student;
+    if (s == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Prune ghost sessions?'),
+        content: const Text(
+          'Removes attendance sessions in your classes that have already ended '
+          'and have zero attendance rows. This usually cleans up rep-opened '
+          'sessions that nobody marked. The action is permanent.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Prune'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _pruningGhosts = true);
+    try {
+      final pwd = await OfflineService.getApiSessionPassword();
+      final res = await ApiService.post('class-rep/sessions/prune-ghosts', {
+        'index_number': s.indexNumber,
+        if (pwd != null && pwd.isNotEmpty) 'password': pwd,
+      });
+      if (!mounted) return;
+      String message;
+      if (ApiService.isSuccessfulHttp(res.statusCode)) {
+        var deleted = 0;
+        try {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map &&
+              decoded['data'] is Map &&
+              (decoded['data'] as Map)['deleted'] is num) {
+            deleted = ((decoded['data'] as Map)['deleted'] as num).toInt();
+          }
+        } catch (_) {}
+        message = deleted == 0
+            ? 'No ghost sessions found.'
+            : 'Pruned $deleted ghost session(s).';
+      } else {
+        message = sanitizeApiUserMessage(ApiService.messageFromHttpResponse(res));
+        if (message.isEmpty) {
+          message = 'Could not prune (${res.statusCode}).';
+        }
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Prune failed: ${sanitizeApiUserMessage(e.toString())}')),
+      );
+    } finally {
+      if (mounted) setState(() => _pruningGhosts = false);
     }
   }
 
@@ -239,22 +361,53 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _showAbout() async {
     final info = await PackageInfo.fromPlatform();
     if (!mounted) return;
+    final year = DateTime.now().year;
     await showDialog<void>(
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Information'),
+            title: const Text('About this app'),
             content: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('${info.appName} ${info.version} (${info.buildNumber})'),
-                  const SizedBox(height: 12),
                   Text(
-                    'Name changes are limited to once every 90 days. '
-                    'Phone numbers are updated by an administrator.',
+                    '${info.appName} · v${info.version} (${info.buildNumber})',
+                    style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'A private attendance system for tertiary classrooms.',
                     style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Developed by',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Emmanuel Kofi Kwofie ("Manuel")',
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Takoradi Technical University · Department of Computer Science',
+                    style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '© $year · All rights reserved.',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
                   ),
                 ],
               ),
@@ -262,7 +415,7 @@ class _ProfilePageState extends State<ProfilePage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
+                child: const Text('Close'),
               ),
             ],
           ),
@@ -679,9 +832,137 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                   const SizedBox(height: 8),
                   _kvRow(context, 'Index', s.indexNumber, mono: true),
+                  if (s.email != null && (s.email ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _kvRow(context, 'Email', s.email!.trim()),
+                  ],
+                  if ((s.phoneNumber ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _kvRow(context, 'Phone', s.phoneNumber!.trim()),
+                  ],
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            _ProfileInfoCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.shield_outlined,
+                          size: 18, color: cs.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Account security',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _kvRow(
+                    context,
+                    'Bound to',
+                    _boundIndex == null
+                        ? 'Not yet bound'
+                        : _maskIndex(_boundIndex),
+                    mono: true,
+                  ),
+                  if (_boundIndex != null) ...[
+                    const SizedBox(height: 6),
+                    _kvRow(context, '', _formatBoundSince(_boundSince)),
+                  ],
+                  const SizedBox(height: 8),
+                  _kvRow(context, 'Device IP', _deviceIp ?? '—', mono: true),
+                  const SizedBox(height: 8),
+                  _kvRow(
+                    context,
+                    'Device ID',
+                    _deviceIdTail == null ? '—' : '…$_deviceIdTail',
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'One phone can only be linked to one index number, and can '
+                    'only mark attendance for one student per session. Contact '
+                    'your class rep / IT support if you switched phones and '
+                    'need this device released.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            if (s.isClassRep || s.repRoles.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _ProfileInfoCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.workspace_premium_outlined,
+                            size: 18, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Class rep tools',
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (s.repRoles.isNotEmpty)
+                      _kvRow(
+                        context,
+                        'Classes',
+                        s.repRoles
+                            .map((r) =>
+                                'Class ${r.classId}${r.isMainRep ? ' (main)' : ''}')
+                            .join(', '),
+                      ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.cleaning_services_outlined,
+                            size: 18),
+                        label: Text(
+                          _pruningGhosts
+                              ? 'Pruning…'
+                              : 'Clear ghost sessions (no marks)',
+                        ),
+                        onPressed:
+                            _pruningGhosts ? null : _pruneGhostSessions,
+                        style: OutlinedButton.styleFrom(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Removes ended sessions in your classes that have zero '
+                      'attendance rows — these are usually rep-opened sessions '
+                      'nobody marked, and they inflate "missed" warnings.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

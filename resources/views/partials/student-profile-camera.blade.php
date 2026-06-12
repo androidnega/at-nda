@@ -11,6 +11,10 @@
         ? $student->hasSettledProfileImage()
         : (bool) ($student?->profile_image ?? false);
     $previewUrl = $hasPhoto && $student ? $student->profileImageUrl() : null;
+    // Hosts that want a denser layout (e.g. the trimmed student
+    // profile page) can pass showHelper=false to drop the verbose
+    // "JPG / PNG / WEBP" paragraph.
+    $showHelper = $showHelper ?? true;
 @endphp
 <div class="space-y-3" data-profile-camera="{{ $pf }}">
     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $label }}</label>
@@ -36,9 +40,11 @@
                 <i class="fas fa-camera text-[12px]"></i>
                 <span>{{ $hasPhoto ? 'Change photo' : 'Choose photo' }}</span>
             </button>
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
-                You'll see a square preview so you can frame your face before uploading. JPG, PNG, or WEBP.
-            </p>
+            @if($showHelper)
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                    You'll see a square preview so you can frame your face before uploading. JPG, PNG, or WEBP.
+                </p>
+            @endif
         </div>
     </div>
 </div>
