@@ -8,6 +8,7 @@ use App\Models\AttendanceSession;
 use App\Models\Student;
 use App\Support\FlutterSessionFormatter;
 use App\Support\PasswordPolicy;
+use App\Support\SchemaFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -30,10 +31,27 @@ class ClassSessionController extends Controller
 
         AttendanceSession::deactivateExpiredSessions();
 
+        $classId = (int) $student->class_id;
+
         $session = AttendanceSession::query()
             ->with(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek'])
             ->activeWithinTimeWindow()
-            ->whereHas('course', fn ($q) => $q->where('class_id', (int) $student->class_id))
+            ->where(function ($q) use ($classId) {
+                // Modern path: AttendanceSession.class_id is pinned
+                // when the session is opened — this is the source of
+                // truth and correctly handles courses shared between
+                // multiple classes via the course_class pivot.
+                if (SchemaFeatures::hasAttendanceSessionsClassId()) {
+                    $q->where('class_id', $classId);
+                    $q->orWhere(function ($qq) use ($classId) {
+                        $qq->whereNull('class_id')
+                           ->whereHas('course', fn ($cq) => $cq->forManagedClasses([$classId]));
+                    });
+                } else {
+                    // Legacy schema fallback (pre-class_id column).
+                    $q->whereHas('course', fn ($cq) => $cq->forManagedClasses([$classId]));
+                }
+            })
             ->latest('id')
             ->first();
 
@@ -44,10 +62,14 @@ class ClassSessionController extends Controller
             ]);
         }
 
-        $totalStudents = Student::query()->where('class_id', (int) $student->class_id)->count();
+        $totalStudents = Student::query()->where('class_id', $classId)->count();
+        // "Present" on the dashboard must match how attendance is
+        // counted everywhere else: both 'present' and 'late' status
+        // values count as having shown up. Otherwise late marks make
+        // the tile read e.g. "1 of 30" when the real number is higher.
         $totalPresent = Attendance::query()
             ->where('attendance_session_id', $session->id)
-            ->where('status', 'present')
+            ->countedAsPresent()
             ->count();
 
         return response()->json([
@@ -81,7 +103,7 @@ class ClassSessionController extends Controller
         $totalStudents = Student::query()->where('class_id', (int) $course->class_id)->count();
         $totalPresent = Attendance::query()
             ->where('attendance_session_id', $session->id)
-            ->where('status', 'present')
+            ->countedAsPresent()
             ->count();
 
         return response()->json([
