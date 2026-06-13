@@ -29,6 +29,10 @@ class AuditLogService
     public const MARK_DELETED = 'mark_deleted';
     public const WEEK_DELETED = 'week_deleted';
 
+    /** Late-attendance review actions (POST_IMPLEMENTATION_ARCHITECTURE_AUDIT §C-1). */
+    public const LATE_APPROVED = 'late_approved';
+    public const LATE_DENIED = 'late_denied';
+
     /** Session integrity & fraud. */
     public const FRAUD_DETECTED = 'fraud_detected';
     public const SESSION_INTEGRITY_REVOKED = 'session_integrity_revoked';

@@ -771,10 +771,17 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
       if (st != null && en != null && now.isBefore(st)) {
         final diff = st.difference(now);
         if (diff.inMinutes < 60) {
+          // Prefer the human-readable course name; only fall back to
+          // the code (or "Class") if the name is missing on the
+          // timetable payload.
+          final label = (slot['course_name']?.toString().trim().isNotEmpty == true)
+              ? slot['course_name'].toString().trim()
+              : ((slot['course_code']?.toString().trim().isNotEmpty == true)
+                  ? slot['course_code'].toString().trim()
+                  : 'Class');
           return {
             'title': 'In ${diff.inMinutes} min',
-            'subtitle':
-                '${slot['course_code'] ?? slot['course_name']} · starts ${slot['start_time']}',
+            'subtitle': '$label · starts ${slot['start_time']}',
           };
         }
         return {
@@ -858,8 +865,11 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
         return;
       }
     }
-    final label =
-        code.isNotEmpty ? code : (slot['course_name'] ?? 'This class');
+    // Show students the human-readable course name; the matching
+    // against active sessions above still uses the code, but the
+    // snackbar label they actually see is the friendly title.
+    final name = slot['course_name']?.toString().trim() ?? '';
+    final label = name.isNotEmpty ? name : (code.isNotEmpty ? code : 'This class');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

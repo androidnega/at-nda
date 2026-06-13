@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ data-extraction rules (cloud backup + device-to-device
+    transfer). We use a deny-all policy:
+
+      * Attendance data lives on the server (Laravel). The local SQLite
+        outbox is a *transient* sync queue and a *cache* of remote
+        history — re-downloading from /api/attendance/sync gives the
+        same state after a fresh install.
+      * Sanctum bearer tokens live in flutter_secure_storage (Android
+        Keystore), which is never included in Auto-Backup anyway.
+      * SharedPreferences may carry the last-known student index and
+        Sanctum token id — exfiltrating these to another device could
+        cause a session-impersonation surprise.
+
+    Result: a fresh install must log in again. Annoying for the user
+    once, but eliminates an entire class of credential-leak risk and
+    matches the "device-binding" rule we enforce server-side.
+
+    Reference: https://developer.android.com/about/versions/12/backup-restore
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

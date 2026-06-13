@@ -27,11 +27,16 @@ class OfflineService {
     return _db;
   }
 
+  /// Public handle for sibling services (AttendanceOutboxRepository,
+  /// future SyncEngine) that need direct sqflite access. Returns null on
+  /// web (no-op).
+  static Future<Database?> db() => _database;
+
   static Future<Database> _initDb() async {
     final path = join(await getDatabasesPath(), 'attendance_offline.db');
     return openDatabase(
       path,
-      version: 12,
+      version: 14,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE students(
@@ -67,6 +72,7 @@ class OfflineService {
             week_id INTEGER NOT NULL,
             lat REAL NOT NULL,
             lng REAL NOT NULL,
+            accuracy REAL,
             qr_code TEXT,
             face_descriptor TEXT,
             device_ip TEXT,
@@ -94,6 +100,10 @@ class OfflineService {
             updated_at TEXT
           )
         ''');
+        // Phase 1 outbox — single source of truth for unsynced attendance.
+        // Kept side-by-side with the legacy `attendance` queue so the existing
+        // sync sweep can drain old rows after upgrade.
+        await _createOutboxTableIfMissing(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -196,8 +206,55 @@ class OfflineService {
             );
           } catch (_) {}
         }
+        if (oldVersion < 13) {
+          try {
+            await db.execute('ALTER TABLE attendance ADD COLUMN accuracy REAL');
+          } catch (_) {}
+        }
+        if (oldVersion < 14) {
+          await _createOutboxTableIfMissing(db);
+        }
       },
     );
+  }
+
+  /// Outbox schema — see ARC-1 / Phase 1 of the architecture review.
+  ///
+  /// One row per attendance attempt the client created. The status state
+  /// machine and the retry metadata both live here so the SyncEngine can
+  /// drive them without reading the historical `attendance_log` table.
+  static Future<void> _createOutboxTableIfMissing(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS attendance_outbox(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attendance_uuid TEXT NOT NULL UNIQUE,
+        student_index TEXT NOT NULL,
+        student_id INTEGER,
+        device_id TEXT NOT NULL,
+        session_id INTEGER,
+        course_id INTEGER,
+        endpoint TEXT NOT NULL DEFAULT 'attendance',
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        last_error_at TEXT,
+        next_attempt_after TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    try {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_outbox_status_next ON attendance_outbox(status, next_attempt_after)',
+      );
+    } catch (_) {}
+    try {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_outbox_student ON attendance_outbox(student_index)',
+      );
+    } catch (_) {}
   }
 
   static Future<void> _upsertUsersRow(Database database, Student student) async {

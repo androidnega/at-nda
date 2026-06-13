@@ -361,7 +361,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _showAbout() async {
     final info = await PackageInfo.fromPlatform();
     if (!mounted) return;
-    final year = DateTime.now().year;
     await showDialog<void>(
       context: context,
       builder:
@@ -378,33 +377,21 @@ class _ProfilePageState extends State<ProfilePage> {
                           fontWeight: FontWeight.w700,
                         ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'A private attendance system for tertiary classrooms.',
-                    style: Theme.of(ctx).textTheme.bodyMedium,
-                  ),
                   const SizedBox(height: 14),
                   Text(
-                    'Developed by',
-                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Emmanuel Kofi Kwofie ("Manuel")',
+                    'Developed by Manuel',
                     style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Takoradi Technical University · Department of Computer Science',
+                    'Student · Takoradi Technical University',
                     style: Theme.of(ctx).textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 2),
                   Text(
-                    '© $year · All rights reserved.',
+                    'Department of Computer Science',
                     style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                           color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                         ),

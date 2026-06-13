@@ -43,3 +43,16 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release-signing material. The .jks keystore and the credentials file
+# MUST stay out of source control — leaking either lets anyone publish
+# updates to Play under the team's identity. The .example file is the
+# committed template.
+/android/key.properties
+/android/app/key.properties
+/android/*.jks
+/android/app/*.jks
+/android/*.keystore
+/android/app/*.keystore
+/android/upload-keystore.jks
+/android/app/upload-keystore.jks

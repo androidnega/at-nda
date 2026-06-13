@@ -88,6 +88,7 @@ Map<String, dynamic> buildAttendancePostBody({
   dynamic faceDescriptor,
   String? deviceIp,
   String? deviceId,
+  double? accuracyMeters,
   required String timestamp,
 }) {
   final m = <String, dynamic>{
@@ -105,6 +106,11 @@ Map<String, dynamic> buildAttendancePostBody({
   if (includeLocation && lat != null && lng != null) {
     m['lat'] = lat;
     m['lng'] = lng;
+    if (accuracyMeters != null &&
+        accuracyMeters.isFinite &&
+        accuracyMeters >= 0) {
+      m['accuracy'] = accuracyMeters;
+    }
   }
   if (qrCode != null && qrCode.isNotEmpty) {
     m['qr_code'] = qrCode;

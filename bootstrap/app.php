@@ -1,6 +1,7 @@
 <?php
 
 use App\Console\Commands\AttendanceDedupeWeeksCommand;
+use App\Console\Commands\AttendanceLatePruneCommand;
 use App\Console\Commands\DispatchClassStartReminders;
 use App\Console\Commands\MigrateSqliteToMysql;
 use App\Console\Commands\QrRotateSecret;
@@ -16,6 +17,7 @@ use App\Http\Middleware\EnsureSignedInAnybody;
 use App\Http\Middleware\EnsureStudentAuthenticated;
 use App\Http\Middleware\EnsureStudentSessionIntegrity;
 use App\Http\Middleware\ForceHttpsForApi;
+use App\Http\Middleware\LimitRequestBody;
 use App\Http\Middleware\NoStoreCache;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -39,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         MigrateSqliteToMysql::class,
         DispatchClassStartReminders::class,
         AttendanceDedupeWeeksCommand::class,
+        AttendanceLatePruneCommand::class,
         RehashStudentPasswords::class,
         QrRotateSecret::class,
     ])
@@ -67,6 +70,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.version' => ApiVersionHeaders::class,
             'no-store' => NoStoreCache::class,
             'class.access' => EnsureCallerCanSeeClass::class,
+            'max.body' => LimitRequestBody::class,
         ]);
 
         // Stamp X-Api-Version / Sunset headers on every /api/* response so

@@ -1,22 +1,22 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../models/attendance_record.dart';
 import '../models/qr_submit_result.dart';
 import '../models/student.dart';
 import '../services/api_service.dart';
 import '../services/biometric_service.dart';
 import '../services/attendance_local_notify.dart';
+import '../services/device_identity_lock.dart';
 import '../services/device_service.dart';
 import '../services/location_service.dart';
+import '../services/attendance_submission_service.dart';
+import '../services/offline_sync_coordinator.dart';
 import '../services/offline_service.dart';
 import '../services/last_attendance_prefs.dart';
 import '../services/session_cache_prefs.dart';
 import '../services/session_qr_host_guard.dart';
 import '../services/success_chime.dart';
-import '../services/sync_service.dart';
 import '../utils/app_selectable_scope.dart';
 import '../utils/app_state.dart';
 import '../utils/connectivity_util.dart';
@@ -150,10 +150,12 @@ class _AttendancePageState extends State<AttendancePage> {
   String? _softCourseLine() {
     final s = _session;
     if (s == null) return null;
-    final code = (s['course_code']?.toString() ?? '').trim();
+    // Show the human-readable course name first — students don't
+    // want to see "BIT240" on the marking screen when the course is
+    // actually "E-Commerce". Code is a quiet fallback only.
     final name = (s['course_name'] ?? s['course_title'] ?? '').toString().trim();
-    if (code.isNotEmpty && name.isNotEmpty) return '$code · $name';
     if (name.isNotEmpty) return name;
+    final code = (s['course_code']?.toString() ?? '').trim();
     if (code.isNotEmpty) return code;
     return null;
   }
@@ -597,6 +599,36 @@ class _AttendancePageState extends State<AttendancePage> {
     return ok;
   }
 
+  /// Stops a second student account from marking the same session on this
+  /// phone. Returns true when the submit may proceed.
+  Future<bool> _enforceSingleStudentPerSession(int sessionId) async {
+    final me = AppState.studentIndex ?? _student?.indexNumber ?? '';
+    if (me.isEmpty) return true;
+    final conflict = await DeviceIdentityLock.conflictingMarkForSession(
+      sessionId: sessionId,
+      indexNumber: me,
+    );
+    if (conflict != null) {
+      if (mounted) {
+        _showErrorSnackBar(
+          'This phone already marked attendance for another student in this '
+          'session. Each device can only mark one student per session.',
+        );
+      }
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _rememberMarkedFromThisDevice(int sessionId) async {
+    final me = AppState.studentIndex ?? _student?.indexNumber ?? '';
+    if (me.isEmpty || sessionId <= 0) return;
+    await DeviceIdentityLock.rememberSessionMark(
+      sessionId: sessionId,
+      indexNumber: me,
+    );
+  }
+
   Future<void> _submitCheckout() async {
     if (_session == null || _student == null || _isCheckingOut) return;
     if (!await _confirmBiometrics('checking out')) return;
@@ -612,32 +644,6 @@ class _AttendancePageState extends State<AttendancePage> {
     double? lat;
     double? lng;
 
-    Future<void> queueOfflineCheckout() async {
-      if (lat == null || lng == null) return;
-      final record = AttendanceRecord(
-        sessionId: sessionId,
-        endpoint: 'attendance/checkout',
-        studentIndex: AppState.studentIndex ?? _student!.indexNumber,
-        courseId: courseId ?? 0,
-        weekId: weekId ?? 0,
-        lat: lat,
-        lng: lng,
-        qrCode: null,
-        timestamp: ts,
-        faceDescriptor: ApiService.attachFaceDescriptorToAttendance
-            ? _student!.faceDescriptor
-            : null,
-      );
-      final dip = await DeviceService.getIp();
-      await OfflineService.insert(record, deviceIp: dip);
-      if (mounted) {
-        _showSuccessSnackBar(
-          'Checkout saved offline',
-          'Will sync automatically when internet returns.',
-        );
-      }
-    }
-
     try {
       final venue = _sessionVenueLatLng();
       if (venue == null) {
@@ -650,6 +656,9 @@ class _AttendancePageState extends State<AttendancePage> {
       final position = await LocationService.getCurrentLocation();
       lat = position.latitude;
       lng = position.longitude;
+      final acc = position.accuracy.isFinite && position.accuracy >= 0
+          ? position.accuracy
+          : null;
       final payload = buildAttendancePostBody(
         indexNumber: AppState.studentIndex ?? _student!.indexNumber,
         sessionId: sessionId,
@@ -658,10 +667,21 @@ class _AttendancePageState extends State<AttendancePage> {
         lat: lat,
         lng: lng,
         includeLocation: true,
+        accuracyMeters: acc,
         timestamp: ts,
       );
-      final res = await ApiService.post('attendance/checkout', payload);
-      if (ApiService.isSuccessfulHttp(res.statusCode)) {
+
+      // Offline-first: save → mark pending → attempt sync.
+      final result = await AttendanceSubmissionService.submit(
+        studentIndex: AppState.studentIndex ?? _student!.indexNumber,
+        payload: payload,
+        endpoint: 'attendance/checkout',
+        sessionId: sessionId,
+        courseId: courseId,
+        studentId: _student!.serverId,
+      );
+
+      if (result.isAccepted) {
         await _refreshSessionFromActiveList();
         if (!mounted) return;
         await SuccessChime.celebrateAttendanceMarked(playChime: true);
@@ -674,16 +694,30 @@ class _AttendancePageState extends State<AttendancePage> {
             _softCourseLine() ?? 'your class',
           ),
         );
-      } else {
-        final msg = ApiService.messageFromHttpResponse(res);
-        if (mounted) setState(() => _error = msg.isEmpty ? 'Checkout failed.' : msg);
+      } else if (result.isLateCapture) {
+        if (mounted) {
+          _showInfoSnackBar(
+            'Saved. Waiting for lecturer approval.',
+          );
+        }
+      } else if (result.isQueuedForRetry) {
+        if (mounted) {
+          _showSuccessSnackBar(
+            'Checkout saved offline',
+            'Will sync automatically when internet returns.',
+          );
+        }
+      } else if (result.isPermanentFailure) {
+        if (mounted) {
+          setState(() => _error = result.outcome.message ?? 'Checkout failed.');
+        }
       }
-    } on TimeoutException {
-      await queueOfflineCheckout();
-    } catch (_) {
-      await queueOfflineCheckout();
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error: $e');
     } finally {
       if (mounted) setState(() => _isCheckingOut = false);
+      // Kick the coordinator so any queued rows get a fresh sweep.
+      unawaited(OfflineSyncCoordinator.instance.requestSync(reason: 'after_submit'));
     }
   }
 
@@ -718,6 +752,19 @@ class _AttendancePageState extends State<AttendancePage> {
       return QrSubmitResult.fail(400, 'Invalid session (missing id and course)');
     }
 
+    // Single-student-per-device-per-session gate. Catches "log in as A, mark
+    // attendance, log out, log in as B, mark attendance for the same session"
+    // before we touch the network.
+    if (sessionId != null && sessionId > 0) {
+      if (!await _enforceSingleStudentPerSession(sessionId)) {
+        return QrSubmitResult.fail(
+          403,
+          'This phone already marked attendance for another student in this '
+          'session.',
+        );
+      }
+    }
+
     // Biometric gate — runs after structural validation but before
     // we touch the network so a cancelled prompt costs nothing.
     if (!await _confirmBiometrics('submitting your QR mark')) {
@@ -734,6 +781,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
     var lat = 0.0;
     var lng = 0.0;
+    double? accuracyMeters;
 
     try {
       if (locationRequired) {
@@ -747,6 +795,9 @@ class _AttendancePageState extends State<AttendancePage> {
         final position = await LocationService.getCurrentLocation();
         lat = position.latitude;
         lng = position.longitude;
+        if (position.accuracy.isFinite && position.accuracy >= 0) {
+          accuracyMeters = position.accuracy;
+        }
         if (requireRange &&
             !LocationService.isWithinRange(
           position,
@@ -760,18 +811,6 @@ class _AttendancePageState extends State<AttendancePage> {
           );
         }
       }
-
-      final record = AttendanceRecord(
-        sessionId: sessionId,
-        studentIndex: index,
-        courseId: courseId ?? 0,
-        weekId: weekId ?? 0,
-        lat: lat,
-        lng: lng,
-        qrCode: token,
-        timestamp: ts,
-        faceDescriptor: faceForPayload,
-      );
 
       final deviceIp = await DeviceService.getIp();
       final deviceId = await DeviceService.getDeviceId();
@@ -790,57 +829,64 @@ class _AttendancePageState extends State<AttendancePage> {
         faceDescriptor: faceForPayload,
         deviceIp: deviceIp,
         deviceId: deviceId,
+        accuracyMeters: accuracyMeters,
         timestamp: ts,
       );
 
-      try {
-        final res = await ApiService.post('attendance', payload);
-        final msg = ApiService.messageFromHttpResponse(res);
-        if (ApiService.isSuccessfulHttp(res.statusCode)) {
-          await _persistAttendanceLog(ts);
-          try {
-            await SyncService.syncAttendance();
-          } catch (_) {}
-          return QrSubmitResult.ok(res.statusCode);
-        }
-        if (res.statusCode == 409) {
-          await _persistAttendanceLog(ts);
-          try {
-            await SyncService.syncAttendance();
-          } catch (_) {}
-          return QrSubmitResult.ok(res.statusCode);
-        }
-        final err = msg.isNotEmpty
-            ? msg
-            : 'Could not submit attendance (${res.statusCode})';
-        return QrSubmitResult.fail(res.statusCode, err);
-      } on TimeoutException {
-        if (token.isEmpty &&
-            codeTrim != null &&
-            codeTrim.isNotEmpty) {
-          return QrSubmitResult.fail(
-            null,
-            'Request timed out. Session code attendance needs a stable connection.',
-          );
-        }
-        final dip = await DeviceService.getIp();
-        await OfflineService.insert(record, deviceIp: dip);
+      final isSessionCodeOnly =
+          token.isEmpty && codeTrim != null && codeTrim.isNotEmpty;
+
+      final submission = await AttendanceSubmissionService.submit(
+        studentIndex: index,
+        payload: payload,
+        endpoint: 'attendance',
+        sessionId: sessionId,
+        courseId: courseId,
+        studentId: _student!.serverId,
+      );
+
+      // Tell the coordinator to drain any other rows we have on next loop.
+      unawaited(
+        OfflineSyncCoordinator.instance.requestSync(reason: 'after_qr_submit'),
+      );
+
+      if (submission.isAccepted) {
         await _persistAttendanceLog(ts);
+        if (sessionId != null) {
+          await _rememberMarkedFromThisDevice(sessionId);
+        }
         return QrSubmitResult.ok(200);
-      } catch (_) {
-        if (token.isEmpty &&
-            codeTrim != null &&
-            codeTrim.isNotEmpty) {
+      }
+
+      if (submission.isLateCapture) {
+        await _persistAttendanceLog(ts);
+        if (sessionId != null) {
+          await _rememberMarkedFromThisDevice(sessionId);
+        }
+        return QrSubmitResult.ok(
+          202,
+        );
+      }
+
+      if (submission.isQueuedForRetry) {
+        // Session-code attendance always needs a live connection — fail
+        // loud so the student doesn't think it worked.
+        if (isSessionCodeOnly) {
           return QrSubmitResult.fail(
             null,
-            'No connection. Session code requires an online connection.',
+            submission.outcome.message ??
+                'Session code attendance needs a stable connection.',
           );
         }
-        final dip = await DeviceService.getIp();
-        await OfflineService.insert(record, deviceIp: dip);
         await _persistAttendanceLog(ts);
         return QrSubmitResult.ok(200);
       }
+
+      // Permanent failure (Rejected) — surface the server reason.
+      return QrSubmitResult.fail(
+        500,
+        submission.outcome.message ?? 'Could not submit attendance.',
+      );
     } catch (e) {
       return QrSubmitResult.fail(500, e.toString());
     }
@@ -911,13 +957,14 @@ class _AttendancePageState extends State<AttendancePage> {
       return;
     }
     if (!_rangeChecked || !_withinRange) return;
-    if (!await _confirmBiometrics('marking attendance')) return;
     final rawSession = Map<String, dynamic>.from(_session!);
     final sessionId = parseSessionId(rawSession);
     if (sessionId == null) {
       setState(() => _error = 'Invalid session (missing id).');
       return;
     }
+    if (!await _enforceSingleStudentPerSession(sessionId)) return;
+    if (!await _confirmBiometrics('marking attendance')) return;
 
     setState(() {
       _isSubmitting = true;
@@ -964,17 +1011,10 @@ class _AttendancePageState extends State<AttendancePage> {
       final weekId = parseOptionalWeekId(rawSession);
       final ts = DateTime.now().toIso8601String();
 
-      final record = AttendanceRecord(
-        sessionId: sessionId,
-        studentIndex: AppState.studentIndex ?? _student!.indexNumber,
-        courseId: courseId ?? 0,
-        weekId: weekId ?? 0,
-        lat: position.latitude,
-        lng: position.longitude,
-        qrCode: null,
-        timestamp: ts,
-        faceDescriptor: faceForPayload,
-      );
+      final accuracyMeters =
+          position.accuracy.isFinite && position.accuracy >= 0
+              ? position.accuracy
+              : null;
 
       final deviceIp = await DeviceService.getIp();
       final deviceId = await DeviceService.getDeviceId();
@@ -992,77 +1032,63 @@ class _AttendancePageState extends State<AttendancePage> {
         faceDescriptor: faceForPayload,
         deviceIp: deviceIp,
         deviceId: deviceId,
+        accuracyMeters: accuracyMeters,
         timestamp: ts,
       );
 
-      try {
-        final res = await ApiService.post('attendance', payload);
+      final submission = await AttendanceSubmissionService.submit(
+        studentIndex: AppState.studentIndex ?? _student!.indexNumber,
+        payload: payload,
+        endpoint: 'attendance',
+        sessionId: sessionId,
+        courseId: courseId,
+        studentId: _student!.serverId,
+      );
 
-        if (ApiService.isSuccessfulHttp(res.statusCode) && mounted) {
-          Map<String, dynamic>? body;
-          try {
-            body = jsonDecode(res.body) as Map<String, dynamic>;
-          } catch (_) {}
-          final status = body?['status']?.toString();
-          await _persistAttendanceLog(ts);
-          try {
-            await SyncService.syncAttendance();
-          } catch (_) {}
+      // Always notify the coordinator after a submit so any other rows
+      // that piled up get drained on the same online window.
+      unawaited(
+        OfflineSyncCoordinator.instance.requestSync(reason: 'after_submit'),
+      );
+
+      if (submission.isAccepted) {
+        await _persistAttendanceLog(ts);
+        await _rememberMarkedFromThisDevice(sessionId);
+        if (!mounted) return;
+        final already = submission.outcome.code == 'already_marked';
+        if (_isCheckInCheckoutMode) {
+          await _refreshSessionFromActiveList();
           if (!mounted) return;
-          final already = status == 'already_marked' ||
-              body?['already_marked'] == true;
-          if (_isCheckInCheckoutMode) {
-            await _refreshSessionFromActiveList();
-            if (!mounted) return;
-            if (already) {
-              _showInfoSnackBar('Already checked in for this session.');
-            } else {
-              await SuccessChime.celebrateAttendanceMarked(playChime: true);
-              _showSuccessSnackBar(
-                'Checked in',
-                'We will notify you when it is time to check out.',
-              );
-              unawaited(
-                AttendanceLocalNotify.notifyCheckedIn(
-                  _softCourseLine() ?? 'your class',
-                ),
-              );
-            }
-          } else {
-            _presentSuccessAndPop(
-              subtitle: already
-                  ? 'Your attendance was already recorded.'
-                  : 'You have successfully marked attendance',
-            );
-          }
-        } else if (res.statusCode == 409 && mounted) {
-          await _persistAttendanceLog(ts);
-          try {
-            await SyncService.syncAttendance();
-          } catch (_) {}
-          if (!mounted) return;
-          if (_isCheckInCheckoutMode) {
-            await _refreshSessionFromActiveList();
-            if (!mounted) return;
+          if (already) {
             _showInfoSnackBar('Already checked in for this session.');
           } else {
-            _presentSuccessAndPop(
-              subtitle: 'Your attendance was already recorded.',
+            await SuccessChime.celebrateAttendanceMarked(playChime: true);
+            _showSuccessSnackBar(
+              'Checked in',
+              'We will notify you when it is time to check out.',
+            );
+            unawaited(
+              AttendanceLocalNotify.notifyCheckedIn(
+                _softCourseLine() ?? 'your class',
+              ),
             );
           }
-        } else if (mounted) {
-          String msg = 'Attendance failed';
-          try {
-            final body = jsonDecode(res.body) as Map<String, dynamic>;
-            msg = body['message']?.toString() ?? res.body;
-          } catch (_) {
-            msg = 'Attendance failed: ${res.body}';
-          }
-          _showErrorSnackBar(msg);
+        } else {
+          _presentSuccessAndPop(
+            subtitle: already
+                ? 'Your attendance was already recorded.'
+                : 'You have successfully marked attendance',
+          );
         }
-      } on TimeoutException {
-        final dip = await DeviceService.getIp();
-        await OfflineService.insert(record, deviceIp: dip);
+      } else if (submission.isLateCapture) {
+        await _persistAttendanceLog(ts);
+        await _rememberMarkedFromThisDevice(sessionId);
+        if (!mounted) return;
+        _presentSuccessAndPop(
+          subtitle:
+              submission.outcome.message ?? 'Saved. Awaiting lecturer approval.',
+        );
+      } else if (submission.isQueuedForRetry) {
         await _persistAttendanceLog(ts);
         if (mounted) {
           if (_isCheckInCheckoutMode) {
@@ -1072,26 +1098,15 @@ class _AttendancePageState extends State<AttendancePage> {
             );
           } else {
             _presentSuccessAndPop(
-              subtitle: 'Weak network detected. Attendance saved offline and will sync.',
+              subtitle:
+                  'Saved offline. Will sync automatically when online.',
             );
           }
         }
-      } catch (_) {
-        final dip = await DeviceService.getIp();
-        await OfflineService.insert(record, deviceIp: dip);
-        await _persistAttendanceLog(ts);
-        if (mounted) {
-          if (_isCheckInCheckoutMode) {
-            _showSuccessSnackBar(
-              'Check-in saved offline',
-              'Will sync when you are back online.',
-            );
-          } else {
-            _presentSuccessAndPop(
-              subtitle: 'Saved offline. Will sync when online.',
-            );
-          }
-        }
+      } else if (submission.isPermanentFailure && mounted) {
+        _showErrorSnackBar(
+          submission.outcome.message ?? 'Attendance failed.',
+        );
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error: $e');

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-build network security policy. Applies ONLY to debug
+    variant outputs of `flutter run` / `flutter build apk` (Android
+    resource merging prefers the debug-flavour file over the main
+    one with the same name).
+
+    Cleartext stays OFF by default — the release-build base-config
+    inherits here too. We add explicit cleartext-permitted exceptions
+    for the Android emulator host loopback and localhost, so
+    overriding API_BASE_URL via a dart-define to
+    http://10.0.2.2:8000/api still works when running against
+    `php artisan serve` on the developer's machine.
+
+    user-installed CA certs are also trusted in debug so Charles /
+    mitmproxy / Fiddler can be used during development.
+
+    NONE of this leaks into release: this file lives under
+    `src/debug/res/xml/` and Android does not include debug resources
+    in the release variant.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Android emulator's loopback to the host machine. -->
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <!-- Devices using a USB-cable reverse-proxy or wifi tethered tests. -->
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

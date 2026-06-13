@@ -63,10 +63,38 @@ class AttendanceController extends Controller
             'wifi_ssid' => 'nullable|string|max:128',
             'session_code' => 'nullable|string|max:48',
             'client_meta' => 'nullable',
+            // Client-generated idempotency key. Format is informal — anything
+            // 8-64 chars works (we recommend `att_<crockford32>`). Same value
+            // can be replayed safely; a duplicate hits the unique index and
+            // collapses to "already_marked".
+            'attendance_uuid' => 'nullable|string|min:8|max:64|regex:/^[A-Za-z0-9._-]+$/',
         ], [
             'course_id.exists' => 'Invalid course_id. Use the numeric course_id from GET /api/sessions/active for this session.',
             'course_id.integer' => 'course_id must be the numeric database id (integer), not the course code.',
         ])->validate();
+
+        // Idempotency short-circuit. If the client sent an attendance_uuid
+        // and we already accepted it before, return the exact same shape
+        // we returned the first time, so the mobile outbox can mark the
+        // row Synced without any side-effects.
+        $attendanceUuid = isset($validated['attendance_uuid'])
+            ? trim((string) $validated['attendance_uuid'])
+            : '';
+        if ($attendanceUuid !== '' && \App\Support\SchemaFeatures::hasAttendanceUuid()) {
+            $existingByUuid = \App\Models\Attendance::query()
+                ->where('attendance_uuid', $attendanceUuid)
+                ->orderByDesc('id')
+                ->first();
+            if ($existingByUuid !== null) {
+                return response()->json([
+                    'status' => 'already_marked',
+                    'already_marked' => true,
+                    'attendance_uuid' => $attendanceUuid,
+                    'attendance_id' => (int) $existingByUuid->id,
+                    'message' => 'Attendance already recorded.',
+                ], 200);
+            }
+        }
 
         $settings = $settingsEarly;
         $ip = $request->ip();
@@ -75,6 +103,52 @@ class AttendanceController extends Controller
         $student = Student::whereRaw('UPPER(TRIM(index_number)) = ?', [$indexUpper])->first();
         if (!$student) {
             return response()->json(['message' => 'Student not found'], 404);
+        }
+
+        // Bind body.index_number to the authenticated Sanctum user — a valid
+        // bearer for student A must not be able to POST attendance for
+        // student B. Lecturer / admin tokens are allowed to keep their
+        // existing supplemental-mark flows working.
+        $authUser = $request->user();
+        if ($authUser instanceof Student && (int) $authUser->id !== (int) $student->id) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'You can only submit attendance for your own account.',
+            ], 403);
+        }
+
+        // Single-student-per-device guard for the mobile client. The Flutter
+        // app stores a stable per-install UUID in device_id; the same device
+        // must not be used to mark attendance for two different students.
+        // This is a hard block once any prior mark exists for a *different*
+        // student tied to this device_id.
+        $deviceId = isset($validated['device_id']) ? trim((string) $validated['device_id']) : '';
+        if ($deviceId !== '') {
+            $foreignDeviceMark = \App\Models\Attendance::query()
+                ->where('device_id', $deviceId)
+                ->where('student_id', '!=', $student->id)
+                ->orderByDesc('id')
+                ->first();
+            if ($foreignDeviceMark !== null) {
+                \App\Services\AuditLogService::record(\App\Services\AuditLogService::FRAUD_DETECTED, [
+                    'request' => $request,
+                    'subject_type' => 'student',
+                    'subject_id' => (int) $student->id,
+                    'class_id' => $student->class_id,
+                    'payload' => [
+                        'type' => 'device_id_dual_student',
+                        'channel' => 'api',
+                        'device_id' => $deviceId,
+                        'previous_student_id' => (int) $foreignDeviceMark->student_id,
+                    ],
+                ]);
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This device has already been used to mark attendance for a different student. Each phone can only be linked to one student.',
+                    'fraud' => true,
+                ], 403);
+            }
         }
 
         if ($settings->require_password_on_first_login ?? true) {
@@ -142,7 +216,19 @@ class AttendanceController extends Controller
             ], 403);
         }
         if (! $session->isValid()) {
-            return response()->json(['status' => 'error', 'message' => 'Session closed or expired'], 422);
+            // Late offline mark — capture for lecturer approval instead of
+            // silently dropping. The client transitions the row to
+            // Quarantined on `late=true` and surfaces the pending status.
+            return \App\Services\AttendanceLateCaptureService::captureFor(
+                $request,
+                $student,
+                $session,
+                $course,
+                \App\Services\AttendanceLateCaptureService::REASON_SESSION_EXPIRED,
+                $validated,
+                $attendanceUuid !== '' ? $attendanceUuid : null,
+                isset($validated['timestamp']) ? Carbon::parse($validated['timestamp']) : null
+            );
         }
 
         $supplementalRepMark = false;
@@ -203,7 +289,16 @@ class AttendanceController extends Controller
 
         $windowMinutes = $course->attendance_window_minutes ?? 60;
         if (! $supplementalRepMark && $attendanceTime->diffInMinutes(now()) > $windowMinutes) {
-            return response()->json(['status' => 'error', 'message' => 'Attendance time outside allowed window'], 422);
+            return \App\Services\AttendanceLateCaptureService::captureFor(
+                $request,
+                $student,
+                $session,
+                $course,
+                \App\Services\AttendanceLateCaptureService::REASON_OUTSIDE_WINDOW,
+                $validated,
+                $attendanceUuid !== '' ? $attendanceUuid : null,
+                $attendanceTime
+            );
         }
 
         $deviceId = $validated['device_id'] ?? null;
@@ -263,7 +358,7 @@ class AttendanceController extends Controller
 
             $capture = \App\Services\AttendanceFraudGuard::captureFromRequest($request);
 
-            Attendance::create([
+            $checkinPayload = [
                 'student_id' => $student->id,
                 'course_id' => $course->id,
                 'attendance_session_id' => $session->id,
@@ -281,13 +376,20 @@ class AttendanceController extends Controller
                 'user_agent' => $capture['user_agent'],
                 'device_fingerprint' => $capture['device_fingerprint'],
                 'client_meta' => $capture['client_meta'],
-            ]);
+            ];
+            if ($attendanceUuid !== '' && \App\Support\SchemaFeatures::hasAttendanceUuid()) {
+                $checkinPayload['attendance_uuid'] = $attendanceUuid;
+            }
+
+            $checkinRow = Attendance::create($checkinPayload);
 
             return response()->json([
                 'message' => 'Check-in recorded successfully',
                 'status' => 'success',
                 'attendance_status' => $status,
                 'checkout_enabled' => (bool) $session->checkout_enabled,
+                'attendance_uuid' => $attendanceUuid !== '' ? $attendanceUuid : null,
+                'attendance_id' => (int) $checkinRow->id,
             ]);
         }
 
@@ -333,33 +435,46 @@ class AttendanceController extends Controller
         $clientMeta = $capture['client_meta'];
         $created = false;
 
+        $hasUuidColumn = \App\Support\SchemaFeatures::hasAttendanceUuid();
+        $createdRowId = null;
         \App\Support\AttendanceMarkLock::run(
             (int) $session->id,
             (int) $student->id,
-            function () use ($student, $course, $session, $attendanceTime, $latitude, $longitude, $distanceFromAnchor, $request, $validated, $deviceIp, $deviceId, $userAgent, $deviceFingerprint, $clientMeta, &$created) {
+            function () use (
+                $student, $course, $session, $attendanceTime, $latitude, $longitude,
+                $distanceFromAnchor, $request, $validated, $deviceIp, $deviceId, $userAgent,
+                $deviceFingerprint, $clientMeta, $attendanceUuid, $hasUuidColumn,
+                &$created, &$createdRowId
+            ) {
+                $defaults = [
+                    'course_id' => $course->id,
+                    'attendance_week_id' => $session->attendance_week_id,
+                    'attendance_time' => $attendanceTime,
+                    'status' => 'present',
+                    'synced' => true,
+                    'lat' => $latitude,
+                    'lng' => $longitude,
+                    'distance_from_anchor' => $distanceFromAnchor,
+                    'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
+                    'device_ip' => $deviceIp,
+                    'device_id' => $deviceId,
+                    'user_agent' => $userAgent,
+                    'device_fingerprint' => $deviceFingerprint,
+                    'client_meta' => $clientMeta,
+                ];
+                if ($attendanceUuid !== '' && $hasUuidColumn) {
+                    $defaults['attendance_uuid'] = $attendanceUuid;
+                }
+
                 $row = Attendance::firstOrCreate(
                     [
                         'student_id' => $student->id,
                         'attendance_session_id' => $session->id,
                     ],
-                    [
-                        'course_id' => $course->id,
-                        'attendance_week_id' => $session->attendance_week_id,
-                        'attendance_time' => $attendanceTime,
-                        'status' => 'present',
-                        'synced' => true,
-                        'lat' => $latitude,
-                        'lng' => $longitude,
-                        'distance_from_anchor' => $distanceFromAnchor,
-                        'qr_code' => $request->input('qr_code') ?? $request->input('session_token') ?? $validated['qr_code'] ?? null,
-                        'device_ip' => $deviceIp,
-                        'device_id' => $deviceId,
-                        'user_agent' => $userAgent,
-                        'device_fingerprint' => $deviceFingerprint,
-                        'client_meta' => $clientMeta,
-                    ]
+                    $defaults
                 );
                 $created = $row->wasRecentlyCreated;
+                $createdRowId = (int) $row->id;
             }
         );
 
@@ -385,8 +500,13 @@ class AttendanceController extends Controller
         }
 
         return response()->json([
-            'message' => 'Attendance recorded successfully',
-            'status' => 'success',
+            'message' => $created
+                ? 'Attendance recorded successfully'
+                : 'Attendance already recorded.',
+            'status' => $created ? 'success' : 'already_marked',
+            'already_marked' => ! $created,
+            'attendance_uuid' => $attendanceUuid !== '' ? $attendanceUuid : null,
+            'attendance_id' => $createdRowId,
         ]);
     }
 
@@ -545,24 +665,35 @@ class AttendanceController extends Controller
     public function syncPush(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'records' => 'required|array',
+            'records' => 'required|array|max:100',
             'records.*.index_number' => 'required|string',
             'records.*.course_id' => 'required|exists:courses,id',
+            'records.*.session_id' => 'nullable|integer',
             'records.*.latitude' => 'nullable|numeric',
             'records.*.longitude' => 'nullable|numeric',
+            'records.*.accuracy' => 'nullable|numeric|min:0|max:2000',
             'records.*.session_token' => 'nullable|string',
+            'records.*.qr_code' => 'nullable|string',
             'records.*.qr_sig' => 'nullable|string',
             'records.*.qr_t' => 'nullable|integer',
+            'records.*.session_code' => 'nullable|string|max:48',
             'records.*.wifi_ssid' => 'nullable|string|max:128',
             'records.*.attendance_time' => 'required|string',
+            'records.*.device_id' => 'nullable|string|max:128',
+            'records.*.device_ip' => 'nullable|string|max:45',
+            'records.*.attendance_uuid' => 'nullable|string|min:8|max:64|regex:/^[A-Za-z0-9._-]+$/',
         ]);
 
         $result = AttendanceOfflineSyncService::process($validated['records']);
 
+        // Response shape is additive: legacy `synced` / `failed` counts
+        // stay so older clients keep working; the new `results` array
+        // gives the offline outbox per-row state transitions.
         return response()->json([
             'success' => true,
             'synced' => $result['synced'],
             'failed' => $result['failed'],
+            'results' => $result['results'] ?? [],
         ]);
     }
 

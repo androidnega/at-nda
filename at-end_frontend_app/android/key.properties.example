@@ -1,0 +1,16 @@
+# Release signing config for Google Play uploads.
+#
+# Copy this file to `android/key.properties` (which is git-ignored) and
+# fill in the values that match the keystore you generated for the app.
+# See docs/ANDROID_RELEASE.md (or follow Flutter's signing guide) for
+# the `keytool -genkey -v -keystore upload-keystore.jks ...` command.
+#
+# After this file exists, `flutter build appbundle --release` will
+# produce an APK / AAB signed with your release key, ready for Play.
+# When this file is missing, release builds fall back to the debug
+# signer (which Play rejects on upload).
+
+storeFile=upload-keystore.jks
+storePassword=CHANGE_ME
+keyAlias=upload
+keyPassword=CHANGE_ME

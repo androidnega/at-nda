@@ -60,6 +60,36 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->ip());
         });
 
+        // Attendance batch sync — token-keyed when authenticated, IP-keyed
+        // otherwise. 30 batches/minute × 50 rows/batch = 1,500 marks/min,
+        // far above any legitimate user pattern but bounded against a
+        // compromised token. The bucket also caps the wifi-recovery
+        // stampede described in POST_IMPLEMENTATION_ARCHITECTURE_AUDIT §C-2.
+        RateLimiter::for('attendance-sync', function (Request $request) {
+            $key = self::throttleKeyForRequest($request);
+
+            return Limit::perMinute(30)->by('att-sync:'.$key);
+        });
+
+        // Late-attendance review actions — approve/deny. Tighter than
+        // sync because each call inserts a real Attendance row (approve)
+        // or finalises a decision (deny). 20/min is plenty for human use
+        // and refuses scripted abuse.
+        RateLimiter::for('attendance-late-decide', function (Request $request) {
+            $key = self::throttleKeyForRequest($request);
+
+            return Limit::perMinute(20)->by('att-late-decide:'.$key);
+        });
+
+        // Polling endpoints (list pending + status-by-uuid). Generous
+        // enough for the mobile coordinator to refresh on every drain
+        // and for a rep dashboard to auto-refresh every few seconds.
+        RateLimiter::for('attendance-late-read', function (Request $request) {
+            $key = self::throttleKeyForRequest($request);
+
+            return Limit::perMinute(60)->by('att-late-read:'.$key);
+        });
+
         View::composer(['layouts.classrep', 'layouts.student'], function ($view) {
             // Every rep / student page render passes through here. A bad
             // relation eager-load, a corrupted Redis cache value inside
@@ -123,6 +153,32 @@ class AppServiceProvider extends ServiceProvider
                 $view->with('user', User::find(session('admin_id')));
             }
         });
+    }
+
+    /**
+     * Build the rate-limiter bucket key. Prefer Sanctum tokenable id
+     * (stable per device/token); fall back to client IP when the route
+     * is hit without a bearer (web view, anonymous probe).
+     *
+     * Keys are returned WITHOUT the bucket name prefix; callers prepend
+     * a bucket-specific prefix so two buckets sharing the same key value
+     * never share counters.
+     */
+    private static function throttleKeyForRequest(Request $request): string
+    {
+        $bearer = $request->bearerToken();
+        if ($bearer !== null && $bearer !== '') {
+            try {
+                $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($bearer);
+                if ($pat !== null) {
+                    return 'tok-'.$pat->id;
+                }
+            } catch (\Throwable $e) {
+                // Fall through to ip-based key on lookup failure.
+            }
+        }
+
+        return 'ip-'.$request->ip();
     }
 
     /**

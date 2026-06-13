@@ -14,6 +14,15 @@ abstract final class AttendanceLocalNotify {
   static const _prefsBaseline = 'att_notify_baseline_ids';
   static const _prefsCheckout = 'att_notify_checkout_ids';
   static const _prefsStudent = 'att_notify_student_index';
+  // Persisted set of server-message notification ids we've already
+  // pushed locally — so a second poll never re-buzzes the same
+  // lecturer message even if the cron pipeline ever returns it twice.
+  static const _prefsSeenServerMsg = 'att_notify_seen_server_msg_ids';
+  // Persisted set of OS notification ids currently shown for
+  // server-side lecturer messages. When the user re-opens the app we
+  // cancel all of them so the notification shade clears.
+  static const _prefsActiveServerOsIds = 'att_notify_active_server_os_ids';
+  static const int _serverMsgIdBase = 930000;
 
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -143,10 +152,12 @@ abstract final class AttendanceLocalNotify {
   }
 
   static String _courseName(Map<String, dynamic> s) {
+    // Push notifications must read like "E-Commerce is live now",
+    // not "BIT240 · E-Commerce is live now". Use the name as the
+    // primary label; code is a fallback only.
     final n = (s['course_name'] ?? s['course_title'] ?? '').toString().trim();
-    final c = (s['course_code'] ?? '').toString().trim();
-    if (n.isNotEmpty && c.isNotEmpty) return '$c · $n';
     if (n.isNotEmpty) return n;
+    final c = (s['course_code'] ?? '').toString().trim();
     if (c.isNotEmpty) return c;
     return 'your class';
   }
@@ -281,16 +292,63 @@ abstract final class AttendanceLocalNotify {
   }
 
   /// Mirrors server-sent in-app notifications into OS notification area.
+  ///
+  /// Idempotent on [notificationId]: a second call with the same id
+  /// is a no-op, so a noisy backend (or two-fast polls) can't make
+  /// the phone buzz twice for the same lecturer message.
   static Future<void> notifyServerMessage({
     int? notificationId,
     required String title,
     required String body,
   }) async {
+    if (kIsWeb || !_initialized) return;
+    if (!NotificationPrefs.enabled) return;
+
+    final p = await SharedPreferences.getInstance();
+    final seen = _parseIdSet(p.getString(_prefsSeenServerMsg));
+    final active = _parseIdSet(p.getString(_prefsActiveServerOsIds));
+
+    if (notificationId != null && seen.contains(notificationId)) {
+      // Already shown on this device — skip.
+      return;
+    }
+
     final fallbackId = DateTime.now().millisecondsSinceEpoch.remainder(500000);
-    await _show(
-      930000 + ((notificationId ?? fallbackId) % 500000),
-      title: title,
-      body: body,
-    );
+    final osId = _serverMsgIdBase + ((notificationId ?? fallbackId) % 500000);
+    await _show(osId, title: title, body: body);
+
+    if (notificationId != null) {
+      seen.add(notificationId);
+      // Keep the seen-set small (capped at 500 most recent ids).
+      if (seen.length > 500) {
+        final trimmed = seen.toList()..sort();
+        final kept = trimmed.sublist(trimmed.length - 500).toSet();
+        await p.setString(_prefsSeenServerMsg, _joinIds(kept));
+      } else {
+        await p.setString(_prefsSeenServerMsg, _joinIds(seen));
+      }
+    }
+    active.add(osId);
+    await p.setString(_prefsActiveServerOsIds, _joinIds(active));
+  }
+
+  /// Cancels every lecturer-message OS notification still sitting in
+  /// the notification shade. Called when the user comes back to the
+  /// app — once they've seen the app, the corresponding bubbles in
+  /// the system tray are stale and should disappear.
+  static Future<void> dismissAllServerMessages() async {
+    if (kIsWeb || !_initialized) return;
+    final p = await SharedPreferences.getInstance();
+    final active = _parseIdSet(p.getString(_prefsActiveServerOsIds));
+    if (active.isEmpty) return;
+    for (final id in active) {
+      try {
+        await _plugin.cancel(id);
+      } catch (_) {
+        // Best-effort — never crash because the system tray rejected
+        // a stale id.
+      }
+    }
+    await p.remove(_prefsActiveServerOsIds);
   }
 }

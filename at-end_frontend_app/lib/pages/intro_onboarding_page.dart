@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class IntroOnboardingPage extends StatefulWidget {
@@ -21,22 +22,42 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
   static Color _bodyOnLightBg(ColorScheme cs) =>
       Color.lerp(cs.primary, const Color(0xFF134E4A), 0.42)!;
 
-  static const _items = <({String title, String text})>[
+  /// Assets used as the visual on a slide. When set, [icon] is ignored.
+  static const _studentAccessAsset =
+      'assets/images/onboarding/student-access-hero.png';
+  static const _attendanceMarkedAsset =
+      'assets/images/onboarding/attendance-marked-hero.png';
+
+  static const _items = <({String title, String text, IconData? icon, String? imageAsset})>[
+    (
+      title: 'Sign In With Your Student ID',
+      text: 'Use your official ID to open your a-tenda account',
+      icon: null,
+      imageAsset: _studentAccessAsset,
+    ),
     (
       title: 'Attendance, Simplified',
       text: 'Track attendance with ease and clarity',
+      icon: Icons.fact_check_rounded,
+      imageAsset: null,
     ),
     (
       title: 'Start Sessions Instantly',
       text: 'Open attendance sessions in seconds',
+      icon: Icons.play_circle_outline_rounded,
+      imageAsset: null,
     ),
     (
       title: 'Fast Student Check-In',
       text: 'QR-based system for quick attendance',
+      icon: Icons.qr_code_2_rounded,
+      imageAsset: null,
     ),
     (
-      title: 'Built for Your Institution',
-      text: 'Designed for students, reps, and lecturers',
+      title: 'You Are All Set',
+      text: 'Mark attendance in seconds, even offline',
+      icon: null,
+      imageAsset: _attendanceMarkedAsset,
     ),
   ];
 
@@ -47,53 +68,60 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
     Navigator.of(context).pushReplacementNamed('/login');
   }
 
-  /// Large icons with distinct motion (no bitmap splash — text-first).
+  /// Slide visual: bitmap when [imageAsset] is set, otherwise a tinted icon.
   Widget _slideVisual(BuildContext context, int i, double t) {
     final cs = Theme.of(context).colorScheme;
+    final item = _items[i];
+    final imageAsset = item.imageAsset;
 
-    late final IconData icon;
-    if (i == 0) {
-      icon = Icons.fact_check_rounded;
-    } else if (i == 1) {
-      icon = Icons.play_circle_outline_rounded;
-    } else if (i == 2) {
-      icon = Icons.qr_code_2_rounded;
+    Widget visual;
+    if (imageAsset != null) {
+      // Constrained box keeps the hero from dominating; fits ~260 dp tall on a
+      // typical phone, smaller on compact devices.
+      visual = ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxHeight: 280,
+          maxWidth: 320,
+        ),
+        child: Image.asset(
+          imageAsset,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+        ),
+      );
     } else {
-      icon = Icons.groups_2_rounded;
+      visual = Icon(
+        item.icon ?? Icons.fact_check_rounded,
+        size: 132,
+        color: cs.primary.withValues(alpha: 0.92),
+      );
     }
-
-    final iconWidget = Icon(
-      icon,
-      size: 132,
-      color: cs.primary.withValues(alpha: 0.92),
-    );
 
     if (i == 0) {
       final scale = 0.88 + (0.12 * t);
       return Opacity(
         opacity: t,
-        child: Transform.scale(scale: scale, child: iconWidget),
+        child: Transform.scale(scale: scale, child: visual),
       );
     }
-
     if (i == 1) {
       final dx = (1 - t) * 42;
       return Transform.translate(
         offset: Offset(dx, 0),
-        child: Opacity(opacity: t, child: iconWidget),
+        child: Opacity(opacity: t, child: visual),
       );
     }
     if (i == 2) {
       final bounce = Curves.elasticOut.transform(t);
       return Transform.scale(
         scale: 0.85 + (0.15 * bounce),
-        child: Opacity(opacity: t, child: iconWidget),
+        child: Opacity(opacity: t, child: visual),
       );
     }
     final dy = (1 - t) * 24;
     return Transform.translate(
       offset: Offset(0, dy),
-      child: Opacity(opacity: t, child: iconWidget),
+      child: Opacity(opacity: t, child: visual),
     );
   }
 
@@ -147,14 +175,16 @@ class _IntroOnboardingPageState extends State<IntroOnboardingPage> {
                                   ),
                             ),
                             if (last) ...[
-                              const SizedBox(height: 18),
+                              const SizedBox(height: 22),
                               Text(
-                                'Powered by AuswebLabs',
-                                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.2,
-                                      color: _bodyOnLightBg(cs),
-                                    ),
+                                'Developed by Manuel',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.35,
+                                  color: _bodyOnLightBg(cs)
+                                      .withValues(alpha: 0.85),
+                                ),
                               ),
                             ],
                           ],

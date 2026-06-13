@@ -30,7 +30,12 @@ abstract final class NotificationBridge {
   }
 
   /// Called when the app becomes active (e.g. after `resumed`) to fetch reminders.
+  ///
+  /// Also clears any lecturer-message OS notifications still sitting
+  /// in the system tray — once the user is back in the app they've
+  /// effectively "seen" those, and we don't want them to linger.
   static Future<void> onAppForegrounded() async {
+    await AttendanceLocalNotify.dismissAllServerMessages();
     await _pollPendingOnce(showSnackBars: true);
   }
 

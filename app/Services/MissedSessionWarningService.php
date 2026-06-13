@@ -37,10 +37,28 @@ class MissedSessionWarningService
             ];
         }
 
+        // Only count a session as "missable" when there is evidence that the
+        // class actually happened — i.e. at least one OTHER student in the
+        // same class already marked it. This silently filters out:
+        //   • sessions opened by a rep then abandoned with zero marks
+        //   • test sessions opened on the admin side
+        //   • sessions duplicated by a reopen + close cycle
+        // The student's own missing row is what makes it "missed".
+        $minimumWitnesses = (int) config('attendance.missed_warning_min_witnesses', 1);
+        if ($minimumWitnesses < 1) {
+            $minimumWitnesses = 1;
+        }
+
         $query = AttendanceSession::query()
             ->whereHas('course', fn ($q) => $q->where('class_id', $student->class_id))
             ->ended()
-            ->whereDoesntHave('attendances', fn ($q) => $q->where('student_id', $student->id));
+            ->whereDoesntHave('attendances', fn ($q) => $q->where('student_id', $student->id))
+            ->whereHas(
+                'attendances',
+                fn ($q) => $q->where('student_id', '!=', $student->id),
+                '>=',
+                $minimumWitnesses
+            );
 
         if ($lookbackDays !== null && $lookbackDays > 0) {
             $query->whereRaw('COALESCE(attendance_sessions.end_time, attendance_sessions.expires_at) >= ?', [

@@ -1,12 +1,39 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+/// Thrown when GPS data is intentionally manipulated (mock-location apps).
+class MockLocationDetectedException implements Exception {
+  const MockLocationDetectedException();
+
+  @override
+  String toString() =>
+      'Mock-location apps are not allowed for attendance. Disable any GPS '
+      'spoofer (e.g. FakeGPS) and try again.';
+}
+
+/// Thrown when no fix could be obtained with usable accuracy.
+class LocationAccuracyTooLowException implements Exception {
+  LocationAccuracyTooLowException(this.reportedMeters);
+  final double reportedMeters;
+
+  @override
+  String toString() =>
+      'GPS accuracy is too weak (${reportedMeters.toStringAsFixed(0)} m). '
+      'Move to an open area and try again.';
+}
+
 /// GPS location and range checking for attendance validation.
 /// Uses multiple high-accuracy fixes and picks the best (lowest horizontal uncertainty),
 /// then applies a geofence tolerance based on reported GPS accuracy (reduces false
 /// "out of range" when indoors / weak signal).
 class LocationService {
   static const Duration _fixTimeLimit = Duration(seconds: 45);
+
+  /// Hard ceiling for an attendance fix; above this the position is rejected
+  /// regardless of how many samples we collected. Wider than the typical
+  /// geofence but tight enough that a hostile "huge accuracy" payload still
+  /// fails the server-side cap.
+  static const double maxAcceptableAccuracyMeters = 200.0;
 
   /// High-accuracy fix for lecturer/session start (source of truth for venue GPS).
   static Future<Position> _fixForSessionStart() => Geolocator.getCurrentPosition(
@@ -75,13 +102,21 @@ class LocationService {
   }
 
   /// Best-effort precise fix: warm-up + several samples, keep lowest [accuracy].
+  ///
+  /// Throws [MockLocationDetectedException] when ANY of the samples reports
+  /// [Position.isMocked]; throws [LocationAccuracyTooLowException] when no
+  /// sample comes back tighter than [maxAcceptableAccuracyMeters].
   static Future<Position> getRefinedPositionForAttendance() async {
     await _ensureServiceAndPermission();
 
     // Discard a noisy first fix (common on cold start).
     try {
-      await _fixForAttendance();
-    } catch (_) {}
+      final warmup = await _fixForAttendance();
+      _rejectIfMocked(warmup);
+    } catch (e) {
+      if (e is MockLocationDetectedException) rethrow;
+      // warmup-only errors are tolerated; the real loop below will retry.
+    }
 
     await Future<void>.delayed(const Duration(milliseconds: 600));
 
@@ -91,16 +126,17 @@ class LocationService {
     for (var attempt = 0; attempt < 4; attempt++) {
       try {
         final p = await _fixForAttendance();
+        _rejectIfMocked(p);
         final acc = p.accuracy;
         if (acc.isFinite && acc >= 0 && acc < bestAcc) {
           bestAcc = acc;
           best = p;
-          // Stop early if the device reports a tight fix.
           if (acc <= 20) break;
         } else {
           best ??= p;
         }
       } catch (e) {
+        if (e is MockLocationDetectedException) rethrow;
         if (attempt == 3 && best == null) rethrow;
       }
       if (attempt < 3) {
@@ -108,18 +144,33 @@ class LocationService {
       }
     }
 
-    if (best != null) {
-      if (kDebugMode) {
-        // ignore: avoid_print
-        print(
-          'GPS fix chosen: accuracy=${best.accuracy.toStringAsFixed(1)} m '
-          '(${best.latitude.toStringAsFixed(6)}, ${best.longitude.toStringAsFixed(6)})',
-        );
-      }
-      return best;
+    if (best == null) {
+      // No fix at all — let the caller fall back to a single attempt so the
+      // existing error UI is consistent.
+      best = await _fixForAttendance();
+      _rejectIfMocked(best);
     }
 
-    return _fixForAttendance();
+    if (best.accuracy.isFinite && best.accuracy > maxAcceptableAccuracyMeters) {
+      throw LocationAccuracyTooLowException(best.accuracy);
+    }
+
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print(
+        'GPS fix chosen: accuracy=${best.accuracy.toStringAsFixed(1)} m '
+        '(${best.latitude.toStringAsFixed(6)}, ${best.longitude.toStringAsFixed(6)})',
+      );
+    }
+    return best;
+  }
+
+  /// Throws when the OS flagged the position as coming from a mock provider.
+  /// Only meaningful on Android; iOS always reports isMocked = false.
+  static void _rejectIfMocked(Position p) {
+    if (p.isMocked) {
+      throw const MockLocationDetectedException();
+    }
   }
 
   /// Backwards-compatible alias — uses refined pipeline.

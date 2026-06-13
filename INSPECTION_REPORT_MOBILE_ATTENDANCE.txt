@@ -1,0 +1,1213 @@
+================================================================
+INSPECTION REPORT — FLUTTER MOBILE ATTENDANCE WORKFLOW
+================================================================
+Scope          : at-end_frontend_app/  (Flutter / Dart mobile client)
+Audience       : Owner / Principal architect review
+Mode           : READ-ONLY AUDIT. No code, migrations, or refactor.
+Today          : 2026-06-09
+Surveyed areas : Offline attendance, sync queue, background sync,
+                 GPS capture, QR attendance, session validation,
+                 data persistence, API communication, retry,
+                 failure handling.
+Cross-checked  : Laravel server endpoints used by the mobile client
+                 (app/Http/Controllers/Api/AttendanceController.php,
+                  app/Support/AttendanceMarkLock.php,
+                  app/Services/AttendanceFraudGuard.php,
+                  app/Models/AttendanceSession.php).
+
+----------------------------------------------------------------
+0. KEY FILES AT A GLANCE
+----------------------------------------------------------------
+
+Storage / queue
+  at-end_frontend_app/lib/services/offline_service.dart       (767 lines)
+  at-end_frontend_app/lib/services/session_cache_prefs.dart    (86 lines)
+  at-end_frontend_app/lib/services/last_attendance_prefs.dart (106 lines)
+  at-end_frontend_app/lib/models/attendance_record.dart       (128 lines)
+
+Sync
+  at-end_frontend_app/lib/services/sync_service.dart          (116 lines)
+  at-end_frontend_app/lib/pages/sync_status_page.dart         (143 lines)
+  at-end_frontend_app/lib/pages/home_page.dart                (1876 lines — connectivity listener + initial sync)
+
+Networking
+  at-end_frontend_app/lib/services/api_service.dart           (1050 lines)
+  at-end_frontend_app/lib/services/device_service.dart         (36 lines)
+  at-end_frontend_app/lib/utils/connectivity_util.dart         (23 lines)
+  at-end_frontend_app/lib/utils/session_attendance_payload.dart(136 lines)
+
+Mark flow
+  at-end_frontend_app/lib/pages/attendance_page.dart          (1523 lines)
+  at-end_frontend_app/lib/pages/qr_scan_page.dart             (343 lines)
+
+GPS
+  at-end_frontend_app/lib/services/location_service.dart      (164 lines)
+
+QR
+  at-end_frontend_app/lib/services/signed_qr_service.dart     (242 lines)
+
+Biometric / Permissions
+  at-end_frontend_app/lib/services/biometric_service.dart     (103 lines)
+  at-end_frontend_app/lib/services/permission_service.dart     (30 lines)
+
+Manifests
+  at-end_frontend_app/android/app/src/main/AndroidManifest.xml (57 lines)
+  at-end_frontend_app/pubspec.yaml                              (152 lines)
+
+================================================================
+1. END-TO-END OFFLINE LIFECYCLE  (what actually happens today)
+================================================================
+
+  Student opens app
+    └── main.dart:28-44 boot path:
+          ThemeService.load → InstitutionThemeService.loadCached →
+          NotificationPrefs.load → NotificationBridge.initialize →
+          AttendanceLocalNotify.init →
+          runApp(LaunchGatePage)
+
+  Launch gate → HomePage.initState() at
+    at-end_frontend_app/lib/pages/home_page.dart:102-124
+        • _syncPendingOnStart()              ← runs SyncService.syncAttendance()
+        • Connectivity().onConnectivityChanged.listen(...)
+          → on Wi-Fi / Mobile / Ethernet / VPN switch
+            → _syncPendingOnStart() again
+              (lib/pages/home_page.dart:110-123)
+
+  Student marks attendance
+    • Range / GPS check  →  LocationService.getRefinedPositionForAttendance()
+      (lib/services/location_service.dart:78-123 — up to 4 fixes, picks the
+       one with the lowest reported accuracy; discards a warm-up fix)
+    • Biometric gate     →  BiometricService.authenticate()
+      (lib/services/biometric_service.dart:78-102)
+    • Builds payload via
+      lib/utils/session_attendance_payload.dart:77-136
+      (index_number, session_id, course_id, week_id, lat, lng,
+       qr_code, session_token, session_code, face_descriptor,
+       device_ip, device_id, timestamp)
+
+  Network unavailable
+    The code does NOT pre-check connectivity before POSTing.
+    The path is:
+        try {
+          await ApiService.post('attendance', payload);  // 45s timeout
+        } on TimeoutException {
+          await OfflineService.insert(record);           // queue locally
+        } catch (_) {
+          await OfflineService.insert(record);           // queue locally
+        }
+    (lib/pages/attendance_page.dart:997-1095 and 692-846)
+
+  Attendance stored locally
+    OfflineService.insert(record)
+      → sqflite DB attendance_offline.db
+      → table `attendance`
+        columns: id (AI), student_index, session_id, endpoint,
+                 course_id, week_id, lat, lng, qr_code,
+                 face_descriptor, device_ip, timestamp, synced(0)
+      (lib/services/offline_service.dart:60-76 and 444-473)
+    In parallel, the UI calls
+      OfflineService.saveAttendanceLogMark(...)
+    which inserts into table `attendance_log` (synced=1 by default)
+    so the dashboard immediately shows the mark — even though the
+    server has not yet received it.
+      (lib/services/offline_service.dart:541-562; called from
+       attendance_page.dart:1103-1112)
+
+  Sync queue created
+    Same row in `attendance` (synced=0) is the queue. There is no
+    separate queue table.
+
+  Network restored
+    HomePage's connectivity_plus listener fires
+    (only if HomePage is the foreground widget; see §7).
+
+  Sync attempted
+    SyncService.syncAttendance() iterates every row with synced=0
+    (lib/services/sync_service.dart:43-115).
+    For each row:
+      • POST endpoint = record.endpoint (defaults to 'attendance';
+        'attendance/checkout' for queued checkouts)
+      • On non-2xx & not 409: sleep 350 ms and retry ONCE
+      • On 2xx OR 409: parse body; if status in
+        {success, already_marked, "already checked in", …}
+        → markSynced(id) and saveAttendanceLogFromSyncedRecord()
+      • On TimeoutException during retry: `continue` (row stays queued)
+      • On any other Exception: `continue` (row stays queued)
+    Returns the count of newly-synced rows.
+
+  Attendance reaches server
+    POST /api/attendance →
+      app/Http/Controllers/Api/AttendanceController.php:33 markAttendance()
+    Server re-validates everything (see §10).
+
+================================================================
+2. STORAGE MECHANISM
+================================================================
+
+Storage technology
+  • Mobile (Android + iOS): SQLite via sqflite ^2.3.2
+        DB file:  attendance_offline.db
+        Path:     getDatabasesPath() + 'attendance_offline.db'
+                  (lib/services/offline_service.dart:30-31)
+        Version:  12  (12 onUpgrade branches — manual ALTER TABLE)
+        Tables :  students, attendance, attendance_log, users
+  • Web (kIsWeb): SharedPreferences only — NO offline attendance
+        queue. OfflineService.insert() returns 0 silently on web
+        (lib/services/offline_service.dart:444-447, line 488).
+  • Secrets: Sanctum bearer token + Laravel session password
+        live in flutter_secure_storage (Keychain / EncryptedSharedPreferences)
+        (lib/services/offline_service.dart:20-22, 314-363).
+  • Session JSON cache (active sessions, timetable, hero image,
+        dashboard theme) in SharedPreferences
+        (lib/services/session_cache_prefs.dart).
+
+Data structure of the queue
+  Table `attendance`  (lib/services/offline_service.dart:60-76)
+    id              INTEGER  PK AUTOINCREMENT
+    student_index   TEXT     NOT NULL
+    session_id      INTEGER  (nullable for legacy rows)
+    endpoint        TEXT     default 'attendance'
+    course_id       INTEGER  NOT NULL
+    week_id         INTEGER  NOT NULL
+    lat             REAL     NOT NULL  (0.0 for QR-only mode!)
+    lng             REAL     NOT NULL  (0.0 for QR-only mode!)
+    qr_code         TEXT
+    face_descriptor TEXT     (JSON list)
+    device_ip       TEXT     (public IP from ipify.org)
+    timestamp       TEXT     NOT NULL  ISO8601 string from client clock
+    synced          INTEGER  default 0
+
+Retention strategy
+  NONE. Once synced=1 the row stays in the DB forever — no purge,
+  no TTL, no row-count cap. `getAllRecords()` returns everything
+  (lib/services/offline_service.dart:515-523). Over a long-term
+  install the SQLite file grows monotonically.
+
+Cleanup strategy
+  • attendance_log :  bulkUpsertAttendanceLogsFromServer() does a
+                     "wipe & re-insert" per index_number when the
+                     server is pulled — only after a successful
+                     GET /api/attendance/sync
+                     (lib/services/offline_service.dart:585-640).
+  • attendance     :  NEVER cleaned up. No method exists to delete
+                     synced rows or stale rows. No background job.
+  • students / users : overwritten on next login.
+  • SharedPreferences caches: cleared per-user on logout, not by TTL.
+
+================================================================
+3. OFFLINE ATTENDANCE QUEUE — IMPLEMENTATION
+================================================================
+
+Queue type
+  Single SQLite table used both as historical record + work queue.
+  No dedicated queue framework (no `flutter_background_service`,
+  no `workmanager`, no `background_fetch`, no isolate, no Hive
+  queue — verified by grepping pubspec.yaml and lib/).
+
+Queue processing
+  Strictly foreground. Sync is launched from these call sites only:
+    1. HomePage initState                  home_page.dart:109
+    2. HomePage connectivity listener      home_page.dart:120-122
+    3. After each successful submit        attendance_page.dart:802,
+                                                              809,
+                                                              1009,
+                                                              1041
+    4. Settings → Sync now button          settings_page.dart:63
+    5. Login (online & local cached)       login_page.dart:237,284,342
+    6. Manual Sync Status page             sync_status_page.dart:36-87
+  There is NO timer-based polling, no exponential schedule, no
+  reconnect-debounce. The connectivity listener fires on EVERY
+  change (Wi-Fi off → on → off → on triggers two full sync sweeps).
+
+Queue persistence
+  Persists in `attendance` table (sqflite). Survives:
+    • App restart (yes — sqflite file on disk)
+    • Phone restart (yes — same file)
+    • App update (yes — same file, version-12 schema)
+    • App uninstall (NO — Android wipes private storage)
+    • User logout (YES — only `students`/`users` tables and
+                   secure-storage tokens are cleared by
+                   OfflineService.clearCurrentStudent()
+                   lib/services/offline_service.dart:418-441;
+                   `attendance` rows are LEFT UNTOUCHED — these
+                   will be sent under the next user's session
+                   bearer token if they log in on the same device.
+                   This is a latent multi-tenant bug if a phone
+                   is shared.)
+
+Queue recovery after app restart
+  HomePage.initState calls _syncPendingOnStart() → SyncService.syncAttendance()
+  which reads all `WHERE synced = 0`. So provided the user reaches
+  HomePage after restart, queued items will be retried.
+
+----------------------------------------------------------------
+4. APP-CLOSE-IMMEDIATELY TEST
+----------------------------------------------------------------
+
+Scenario
+  Student marks attendance offline and force-closes the app within
+  100 ms of tapping "submit".
+
+Result
+  Probably YES, but with a race window. Order of operations:
+    1. Future http.post(...).timeout(45s)   ← suspended IO
+    2. on TimeoutException OR catch (_)  → OfflineService.insert()
+       which awaits sqflite db.insert (single write transaction)
+
+  If the user kills the app BEFORE step 2 returns (i.e. during
+  the 45-second timeout), the insert NEVER runs. The mark is
+  LOST. No try/catch on the UI side persists the row first.
+
+Mitigating fact
+  In practice TimeoutException only triggers after 45 s, so if
+  the user closes the app within a few seconds of tapping
+  Submit AND there is no internet, the http call is still
+  pending and the row has not been inserted. On next launch
+  there is nothing to recover. This is a real data-loss path.
+
+What WOULD survive
+  If the user marked attendance, the http call timed out, the
+  insert succeeded, THEN the app was killed — the queued row
+  survives in sqflite and HomePage.initState will resync it on
+  next launch.
+
+================================================================
+5. APP TERMINATION + PHONE REBOOT TEST
+================================================================
+
+Scenario
+  1. Student marks attendance offline (queue row persisted)
+  2. App is force-closed
+  3. Phone restarted
+  4. Internet returns BEFORE app is opened
+
+Question: will attendance sync?
+
+Answer: NO — not until the student opens the app and reaches
+        the HomePage widget.
+
+Reason
+  The app has NO background sync mechanism:
+    • android/app/src/main/AndroidManifest.xml has no
+      FOREGROUND_SERVICE, no RECEIVE_BOOT_COMPLETED, no
+      WAKE_LOCK, no BACKGROUND_LOCATION.
+    • pubspec.yaml has no workmanager, background_fetch,
+      flutter_background_service, or isolate worker.
+    • ios/Runner/Info.plist has no UIBackgroundModes entry.
+  All sync work runs in the Dart UI isolate and only while
+  HomePage is mounted in the widget tree. So the actual
+  recovery path is:
+        phone reboots → user taps app icon → HomePage builds
+        → initState fires _syncPendingOnStart()
+        → if connectivity exists, queued rows POST.
+
+Weakness
+  If the student is offline when they mark, force-closes the
+  app, and never opens it again until after the session has
+  ended:
+    • Session expired check (server) blocks the late mark
+      (see §10) and the row stays synced=0 forever, retried on
+      every future launch.
+    • The attendance is effectively LOST even though sqflite
+      still has the row.
+
+================================================================
+6. DUPLICATE-SUBMISSION PROTECTION
+================================================================
+
+Client side
+  • In-memory `_alreadyMarkedForSession` flag set after a
+    successful mark (attendance_page.dart:441, 560-564).
+  • `OfflineService.hasMarkedSessionToday()` consulted before
+    opening the QR scanner and before the submit action
+    (offline_service.dart:702-734).
+    Logic: SELECT 1 FROM attendance_log
+            WHERE index_number=? AND session_id=? AND marked_at LIKE 'today%'
+    Source: the LOCAL attendance_log table — which is populated
+            both from server pulls AND from every successful local mark.
+    Caveat: this is INDEX_NUMBER + SESSION_ID + TODAY, so it
+            blocks a 2nd attempt for the same session+student
+            on the same calendar day but NOT across days or
+            across sessions.
+
+  No idempotency key is generated client-side per attempt.
+  No client-side hash of (student, session, day) is sent to
+  the server.
+
+Server side
+  app/Http/Controllers/Api/AttendanceController.php
+    • Line 225-227   $existing = Attendance::where(student_id, session_id)->first();
+    • Line 294-302   If $existing → return 200 'Already marked'
+    • Line 336-364   AttendanceMarkLock::run + Attendance::firstOrCreate
+                     keyed by (student_id, attendance_session_id)
+    • Line 245-262   AttendanceFraudGuard::detectCollision
+                     blocks a single device fingerprint from
+                     marking two different students in one
+                     session.
+
+  Lock backing: Cache::lock (app/Support/AttendanceMarkLock.php).
+                Behaves as a real cross-worker lock only when
+                CACHE_STORE is redis. On file/array cache
+                drivers the lock is per-process only.
+
+Q: Can the same offline record be synced multiple times?
+A: It can be POSTed multiple times across multiple sync sweeps,
+   but each POST gets the same Attendance row back via
+   firstOrCreate(student_id, session_id) → returns 200
+   "Already marked". SyncService treats both 2xx and 409 as
+   success and marks the row synced=1
+   (sync_service.dart:57, 66). Net effect: no DB duplicate.
+
+   EXCEPTION 1: legacy queue rows where session_id is NULL.
+   The server then tries to resolveSession() by qr_code/course_id.
+   If the QR token is signed and reusable across days, or if
+   course resolution picks a NEW (current week) session instead
+   of the original one, a separate row could be created in a
+   different session. Probability: low; impact: medium.
+
+   EXCEPTION 2: if the row's session_id was for a session that
+   the server has since hard-deleted (admin cleanup), firstOrCreate
+   parent lookup returns 'Session not found' (404). SyncService
+   treats 404 as non-success → continues to next row → this row
+   keeps being retried forever (no failure count, no quarantine).
+
+Q: Can race conditions occur?
+A: Yes within a single device — multiple rapid taps spawn
+   parallel POSTs. Server-side AttendanceMarkLock collapses them
+   on Redis; on non-Redis caches two PHP workers could
+   firstOrCreate concurrently, but the unique (student_id,
+   session_id) constraint at the DB level (assuming the index
+   exists; not verified here) would still prevent duplicates.
+
+Q: Can retries create duplicates?
+A: No, server is idempotent via firstOrCreate keyed by
+   (student, session).
+
+Q: Can users intentionally trigger duplicates?
+A: No duplicate row will be created, but a malicious user can
+   FLOOD the endpoint because there is no client-side rate limit
+   and only Laravel's `throttle:api-v1-login` covers login.
+   POST /api/attendance has no explicit throttle in routes/api.php
+   (only `auth:sanctum` middleware — verified via routes/api.php).
+
+----------------------------------------------------------------
+7. FAILED-SYNC RECOVERY
+----------------------------------------------------------------
+
+Failure mode             | What sync_service.dart does
+-------------------------+---------------------------------------------
+API timeout (45 s)       | catch TimeoutException → `continue`
+                         | (row stays synced=0; retried on next sweep)
+Network drops mid-upload | catch generic Exception → `continue`
+Server returns 500       | non-2xx → retry ONCE after 350 ms → if still
+                         | non-2xx → row stays synced=0
+Server returns 429       | Treated identically to other non-2xx.
+                         | No Retry-After honoured. The connectivity
+                         | listener can fire repeatedly and re-burn
+                         | the rate-limit quota.
+Server returns 422       | "Session closed", "Out of range",
+   "Out of range"        | "Out of window" — all 422. The retry-once
+   "Out of window"       | still fails; row stays synced=0 FOREVER and
+   "Session closed"      | gets POSTed again on every future sync.
+                         | Quarantine: NONE.
+Server returns 403       | "Class reps cannot mark", "Device mismatch",
+                         | "fraud_same_session_dual_mark", "Invalid QR".
+                         | Treated as non-success → row stuck in queue.
+Server returns 404       | "Student not found" / "Session not found"
+                         | → row stuck in queue.
+Invalid JSON / empty body| Treated as success when statusCode 2xx
+                         | (sync_service.dart:71-78). Aggressive but
+                         | acceptable — the server actually returned
+                         | success-class HTTP.
+
+Retry strategy
+  • In-call: exactly 1 retry per row per sync sweep, 350 ms gap
+    (sync_service.dart:57-65).
+  • Across sweeps: every connectivity transition, app launch,
+    settings tap or attendance submit re-runs syncAttendance()
+    on the full queue.
+
+Backoff strategy
+  NONE. Constant 350 ms delay. No exponential backoff. No jitter.
+
+Maximum retry count
+  UNBOUNDED. A 422-stuck row will be POSTed indefinitely — once
+  per launch, once per connectivity transition, once per
+  attendance submit, once per Settings tap.
+
+Weaknesses identified
+  • Permanently-failed rows are never quarantined (no
+    `attempt_count`, no `last_error`, no `failed_at`).
+  • There is no dead-letter queue / no way for the student to
+    see WHY a row is stuck.
+  • On a server outage, every reconnect can stampede the API
+    with the entire queue from every active user simultaneously.
+  • A 429 from Laravel will trigger retry-once-and-stop in the
+    same sweep, then the next connectivity event re-retries from
+    scratch — the worst possible behaviour against a rate-limited
+    backend.
+  • No HTTP `Retry-After`, no `If-Match`, no conditional sync.
+
+================================================================
+8. BACKGROUND SYNCHRONIZATION — RELIABILITY
+================================================================
+
+App state              | Does sync run?
+-----------------------+---------------------------------------------
+Foreground             | YES — when HomePage mounted; on every
+                       | connectivity change and any sync trigger.
+Other page foreground  | PARTIAL — sync runs after each successful
+                       | submit on attendance_page.dart (lines 802,
+                       | 809, 1009, 1041), but the connectivity
+                       | listener is on home_page.dart only.
+                       | Marking on attendance_page with no network
+                       | only queues; sync is NOT triggered by a
+                       | reconnect that happens while the user is
+                       | still on attendance_page.
+App minimised          | NO — Dart UI isolate is suspended by the OS.
+                       | No `Connectivity().onConnectivityChanged`
+                       | event is processed in the background.
+Screen locked          | NO — same reason. iOS/Android suspend the app.
+App killed by user     | NO — process is gone. No background services.
+                       | No JobScheduler / WorkManager / BGTask.
+Device rebooted        | NO — no RECEIVE_BOOT_COMPLETED receiver in
+                       | AndroidManifest.xml. iOS has no equivalent.
+                       | App stays asleep until the user opens it.
+
+Mechanism in use
+  • main.dart has a `_AppLifecycleShell` (WidgetsBindingObserver)
+    that fires `NotificationBridge.onAppForegrounded()` on
+    `AppLifecycleState.resumed` — for FCM topic sync, not
+    attendance sync.
+  • home_page.dart has `WidgetsBindingObserver` that calls
+    `_load(silent: true)` on resume — re-fetches sessions and
+    can incidentally cause UI refresh, but does NOT call
+    SyncService.syncAttendance() on resume specifically.
+
+Reliability verdict
+  Acceptable when the app is genuinely in the foreground. Below
+  par for any "fire and forget" use case (lecturer-led mass
+  attendance where students lock the screen the moment they
+  submit). Specifically vulnerable on Android 12+ where the
+  OS aggressively suspends backgrounded apps.
+
+================================================================
+9. GPS CAPTURE AUDIT
+================================================================
+
+Accuracy settings
+  • Session start (lecturer / class rep):
+        LocationAccuracy.bestForNavigation
+        (lib/services/location_service.dart:12-15)
+  • Student attendance:
+        LocationAccuracy.best
+        (lib/services/location_service.dart:18-21)
+  • Both: timeLimit = 45 seconds.
+
+Refinement strategy (student)
+  • Discard 1 warm-up fix
+  • Sample up to 4 fixes, 900 ms gap each
+  • Keep the fix with the lowest reported `accuracy`
+  • Early-exit if accuracy ≤ 20 m
+  (lib/services/location_service.dart:77-123)
+
+Tolerance / geofence math
+  Client adds `position.accuracy` to the server's `range_meters`
+  before deciding "within range" (location_service.dart:37-45,
+  141-163). Server does the SAME for the inbound request, capped
+  at config('app.geofence_accuracy_slack_cap_m') default 120 m
+  (AttendanceController.php:664-681).
+
+Timeout behaviour
+  If Geolocator hits the 45 s timeLimit a TimeoutException
+  propagates up; the attendance flow shows an error snack. The
+  refined-position pipeline catches per-attempt failures but if
+  ALL four attempts fail it rethrows on the 4th.
+
+Permission handling
+  • lib/services/location_service.dart:47-63 checks service +
+    permission, throws Exception('Location services disabled')
+    or 'Location permission denied' / 'Location permission
+    permanently denied'.
+  • android/app/src/main/AndroidManifest.xml grants
+    ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION only.
+  • iOS plist not changed (relies on geolocator default usage
+    description prompts).
+  • Permission is requested LAZILY — only when a session
+    actually needs GPS, not at app launch
+    (lib/services/permission_service.dart:8-19).
+
+Mock-location detection
+  NONE. `Geolocator` on Android exposes `position.isMocked`, but
+  the codebase never reads it. Verified via repo-wide grep:
+        grep -r "isMocked|isMockLocation|mockLocation" → no hits.
+  A rooted phone running Mock GPS apps can mark attendance from
+  anywhere; only the geofence math sees the spoofed coords as
+  legitimate.
+
+Offline GPS behaviour
+  Geolocator works fully offline — it uses the GPS chip, not the
+  network. So an offline mark still captures real coordinates.
+  HOWEVER, in QR-only mode (`sessionLocationRequired() == false`)
+  the code skips Geolocator and seeds lat=0.0, lng=0.0 into the
+  AttendanceRecord (lib/pages/attendance_page.dart:735-762).
+  When that row eventually syncs, the SERVER also skips the
+  geofence check for QR mode, so the (0,0) coordinates are
+  accepted as "no location" — but they get persisted in the
+  `attendances.lat/lng` columns as 0.0 (NOT NULL), polluting
+  the Attendance Map. Verified in attendance_record.dart:18-19
+  (lat/lng are double, not double?, and the offline DB column
+  is REAL NOT NULL — see offline_service.dart:68-69). The
+  server inserts whatever lat/lng arrive.
+
+Identified weaknesses
+  W-1 No mock-location guard.
+  W-2 No "isLocationServiceEnabled" sanity check on the LAST
+      attempted offline fix path (offline records can be saved
+      with 0,0 silently if GPS was off and QR mode was active).
+  W-3 The 4-sample loop adds up to ~3.5 seconds before the user
+      gets feedback; on weak signal it can take >10 s.
+  W-4 Refined-position discards a warm-up fix unconditionally —
+      on a perfectly stable device this wastes one GPS lock.
+  W-5 No "expected accuracy ceiling" — even a 500 m fix is
+      treated as ground truth as long as the geofence math
+      with the slack-cap passes. The server cap is 120 m; the
+      client sends full accuracy (no cap).
+
+================================================================
+10. SERVER REVALIDATION DURING SYNC
+================================================================
+
+Verified path: POST /api/attendance arrives carrying timestamp
+from the offline queue (sometimes hours/days old). Server runs
+EVERY check, in this order
+(app/Http/Controllers/Api/AttendanceController.php:33-391):
+
+  1. Settings load (face_verification toggle stripping).
+  2. Validator: index_number required, course_id exists in
+     courses table, etc.
+  3. Student lookup by index (UPPERed, trimmed).
+  4. Password policy: require_password_on_first_login.
+  5. IP binding: enable_ip_binding + student.bound_ip vs
+     $request->ip(). Re-checked on EVERY sync, not just first.
+  6. Course lookup; class-rep prohibition.
+  7. resolveSession() — by numeric session_id OR by
+     session_code OR by qr_code globally.
+     IMPORTANT: server requires `$session->isValid()` →
+     is_active && !isExpired (AttendanceSession.php:175-178).
+     OFFLINE rows that arrive after the session ended are
+     REJECTED here with HTTP 422 "Session closed or expired"
+     (AttendanceController.php:144-146).
+  8. Class membership check (course->studentMayAttend).
+  9. QR signature re-validation: SecureQrToken::isValidSubmission
+     (AttendanceController.php:168-186).
+ 10. Geofence Haversine: client lat/lng MUST be within
+     allowedGeofenceRadiusMeters + min(accuracy, 120 m cap)
+     when session->requiresLocation() (line 633-683).
+ 11. Wi-Fi SSID check when session->requiresWifiSsidProof()
+     (line 688-710).
+ 12. Window: $attendanceTime->diffInMinutes(now()) > window
+     (default 60 min) → 422 "outside allowed window"
+     (line 200-207).
+ 13. Fraud guard: AttendanceFraudGuard::detectCollision
+     (device-fingerprint cookie based — Flutter does NOT send
+     this cookie, so the check is effectively a no-op for the
+     mobile app today; only the web client benefits).
+ 14. AttendanceMarkLock::run wrapping firstOrCreate
+     (line 336-364).
+ 15. SessionLiveEvent broadcast (line 381-385) for live
+     dashboards.
+
+Q: Does the server re-check session status?
+A: YES — `$session->isValid()` (line 144).
+
+Q: Does the server re-check GPS range?
+A: YES — validateSessionGeofence() (line 189).
+
+Q: Does the server re-check QR validity?
+A: YES — SecureQrToken::isValidSubmission (line 179).
+   Also includes `expires_at` inside the signed payload.
+
+Q: Does the server re-check Wi-Fi validation?
+A: YES — validateWifiSsidForSession() (line 194).
+
+Q: Does the server re-check duplicate attendance?
+A: YES — firstOrCreate(student_id, session_id) +
+   AttendanceMarkLock with Cache::lock (line 336-364).
+
+Q: Or does the server trust the mobile app?
+A: It does NOT trust the app. Every offline mark must pass
+   server-side geofence, QR-signature, session-validity and
+   time-window checks at the moment of sync.
+
+CRITICAL CONSEQUENCE
+  This means a mark that was legitimate when captured offline
+  can later be REJECTED at sync time because the session has
+  ended OR the timestamp is outside the window. The Flutter
+  client does NOT explain this to the user. The row stays
+  synced=0 forever and the attendance is silently LOST. There
+  is no UI for "rejected sync" — only a count of "pending".
+
+================================================================
+11. ATTENDANCE SECURITY AUDIT — CAN USERS TAMPER?
+================================================================
+
+Surface     | Client-side trust | Server-side check | Tamperable?
+------------+-------------------+-------------------+----------------------
+Timestamp   | Client clock      | Window: ±60 min   | YES — root user can
+            | (DateTime.now()   | (course default;  | adjust device clock
+            |  ISO8601)         | line 204-207)     | within ±60 min and
+            |                   | + future-clock    | bypass window guard.
+            |                   | clamp on checkout |
+            |                   | (line 459-461)    |
+GPS coords  | Geolocator        | Haversine + cap   | YES — Mock GPS apps
+            | (no mock guard)   | (line 633-683)    | (FakeGPS, etc.) on
+            |                   |                   | rooted devices set
+            |                   |                   | any lat/lng. Client
+            |                   |                   | accepts; server then
+            |                   |                   | sees "in range" coords.
+Queue rows  | sqflite DB on     | Re-validated at   | YES — adb root or jailbreak
+            | private storage   | every sync POST   | can edit attendance
+            |                   |                   | rows directly. But
+            |                   |                   | server still enforces
+            |                   |                   | session validity, QR
+            |                   |                   | signature, geofence.
+Payload     | JSON, no signing  | Validator + rules | YES — the device can
+            |                   |                   | swap session_id, send
+            |                   |                   | someone else's
+            |                   |                   | index_number, etc.
+            |                   |                   | Server rejects when
+            |                   |                   | index_number !=
+            |                   |                   | authenticated student
+            |                   |                   | …EXCEPT the route
+            |                   |                   | requires only bearer
+            |                   |                   | (Sanctum), and the
+            |                   |                   | server does NOT
+            |                   |                   | match index_number
+            |                   |                   | against the
+            |                   |                   | authenticated user;
+            |                   |                   | it looks up the
+            |                   |                   | student from the
+            |                   |                   | body (line 74-78).
+            |                   |                   | An attacker with any
+            |                   |                   | valid bearer can mark
+            |                   |                   | attendance for ANY
+            |                   |                   | student in the system
+            |                   |                   | as long as IP binding
+            |                   |                   | is off OR matches.
+            |                   |                   | This is HIGH severity.
+Session ids | Stored in cache   | resolveSession()  | A malicious user can
+            | + active list     | + isValid + course| brute-force session
+            |                   | match             | ids; only the valid
+            |                   |                   | currently-active ones
+            |                   |                   | accept the POST.
+QR proof    | HMAC-SHA256       | HMAC + expires_at | NO — needs server
+            | verified offline  | re-checked        | secret. Verified in
+            | with QR_SECRET    | (SecureQrToken)   | signed_qr_service.dart
+            | (--dart-define)   |                   | lines 119-176.
+
+Trust assumptions
+  T-1 The server is the sole source of truth — every check is
+      re-run at sync time.
+  T-2 The shared QR_SECRET (Constants.qrSecret) MUST be passed via
+      --dart-define at build time. If forgotten, signed QRs cannot
+      be validated offline and the scanner throws "Signed QR
+      requires QR_SECRET" (signed_qr_service.dart:124-128).
+  T-3 The Sanctum bearer is treated as authentication only; it is
+      NOT cross-checked against the index_number in the payload.
+      This is the most material weakness in the security model
+      (see issue HIGH-1 in §17).
+  T-4 The phone's device_id (uuid v4 generated client-side) is
+      sent to the server but is also generated by the client —
+      it cannot be used as proof of identity, only as a sticky
+      tag for "same device".
+
+Identified weaknesses
+  S-1 (HIGH) Server does not bind body.index_number to the
+      authenticated user. Verified at AttendanceController.php
+      lines 74-78: Student is looked up purely from the request
+      payload; no auth()->user() check.
+  S-2 (HIGH) Mock-location detection absent on client; server
+      cannot detect a spoofed-but-plausible coordinate.
+  S-3 (MEDIUM) android:usesCleartextTraffic="true" in
+      AndroidManifest.xml:13 — allows plain HTTP in release
+      builds. Production base URL is HTTPS so this is moot today,
+      but a network-MITM proxy could downgrade with a self-signed
+      cert and the app would still accept it.
+  S-4 (MEDIUM) No certificate pinning. http: ^1.2.0 without
+      pinning means a corporate proxy / hostile Wi-Fi can MITM.
+  S-5 (LOW) Timestamps are client-supplied with no HMAC.
+  S-6 (LOW) Bearer tokens persist in flutter_secure_storage but
+      are reloaded into ApiService on every "has password or
+      api token" check — never auto-rotated.
+  S-7 (LOW) Logging in `if (kDebugMode) print(...)` writes the
+      full STATUS + BODY (api_service.dart:553-557) — fine for
+      debug, but `print` on web/release is silenced; just verify
+      no release flavour leaves kDebugMode on.
+
+================================================================
+12. BATTERY IMPACT
+================================================================
+
+Location polling
+  Not periodic. Geolocator is only called inside the attendance
+  flow — once per mark attempt (up to 4 fixes in a short burst).
+  Net battery cost: low. The 4-sample loop is the only refinement
+  pass; no continuous tracking, no background location.
+
+Background jobs
+  None. No wake-locks, no JobScheduler tasks, no foreground
+  service. Battery cost from sync = zero in the background.
+
+Sync frequency
+  Foreground only. Triggered by:
+    • Cold start                                  (1×)
+    • Login                                       (1×)
+    • Each connectivity transition                (≥1× while on home)
+    • Each successful attendance submit           (1× per submit)
+    • Each open of Settings → Sync now            (manual)
+
+  Edge case: rapidly toggling Wi-Fi (laptop tethering, weak
+  signal flapping) can trigger many sync sweeps in succession.
+  The connectivity listener has no debounce — verified at
+  home_page.dart:110-123. Each sweep iterates the full queue
+  and issues 1+ HTTP request per row.
+
+Wake locks
+  None requested. POST_NOTIFICATIONS and VIBRATE are present but
+  do not wake the CPU on demand.
+
+Network requests
+  • Every sync sweep posts ALL queued rows sequentially (no
+    batching). 50 queued rows → 50 separate HTTPS round-trips.
+  • DeviceService.getDeviceIp() pings https://api.ipify.org
+    (lib/services/device_service.dart:14-24) — a 3 s, 3rd-party
+    call — once per sync sweep, plus once per submit. Each call
+    costs ~1 KB but more importantly leaks the device's public
+    IP to a 3rd party on every attendance submission.
+
+Recommendations
+  R-1 Debounce the connectivity listener (e.g. 5 s).
+  R-2 Batch sync via the existing POST /api/attendance/sync
+      bulk endpoint (server already supports it — see
+      AttendanceController.php::syncPush at line 545). The
+      client currently POSTs one row at a time even though the
+      server can accept arrays.
+  R-3 Cache the ipify lookup for the device lifetime (or use the
+      local interface IP instead, since the SERVER overrides
+      device_ip with $request->ip() anyway:
+      AttendanceController.php:210).
+  R-4 Stop calling /api/settings every time loadAppSettings is
+      invoked with forceRemote:true; the in-memory
+      `_settingsRefreshGap` of 3 minutes (api_service.dart:106)
+      is bypassed by every `forceRemote: true` caller.
+
+================================================================
+13. NETWORK USAGE
+================================================================
+
+API payload sizes
+  • POST /attendance:
+        ~ 240 bytes WITHOUT face_descriptor
+        ~ 1.5 – 2.5 KB WITH face_descriptor (128-float JSON array;
+          enabled when settings.face_verification_enabled = true).
+        face_descriptor is sent on EVERY submit when enabled —
+        not delta-encoded, not gzip-friendly because of the JSON
+        floats.
+  • GET /sessions/active:
+        Polled on home page mount AND after attendance refresh
+        AND on resume. Server returns full session objects.
+  • GET /attendance/sync:
+        Hard-reset of the local cache — fetches ALL attendance
+        history per user. No since-cursor used by default (the
+        endpoint supports `?since=` but Flutter never sends it).
+
+Sync request frequency
+  • Login → 1× sync
+  • Cold start → 1× sync
+  • Every connectivity change while on HomePage → 1× sync
+  • Every mark submit → 1× sync
+  • Settings → 1× sync (manual)
+
+Redundant requests
+  • api_version_watcher.dart exists but per BACKEND_SYNC_NOTES.md
+    is NOT wired into ApiService.* helpers yet — every endpoint
+    handcrafts its own http.* call.
+  • DeviceService.getDeviceIp() pings ipify.org on every submit
+    AND every sync row. 50-row sync = 50 ipify pings.
+  • ApiService.loadAppSettings() is called with forceRemote:true
+    from attendance_page._load() (line 301) on every navigation
+    to the attendance page, ignoring the 3-minute gap.
+
+Polling behaviour
+  • SessionUiTicker: Timer.periodic(Duration(seconds: 1)) on
+    HomePage when there are active sessions (home_page.dart:226).
+    Pure UI — no network.
+  • Attendance countdown: Timer.periodic(Duration(seconds: 1)) on
+    attendance_page (line 273). Pure UI.
+  • No live-polling of session state. Refreshes happen on resume
+    only.
+
+Bandwidth on slow links
+  • A class of 80 students all coming online at once and the app
+    bursting sync from each → up to 80 individual POSTs per
+    student for whatever they had queued. With device_ip pings
+    and TLS overhead, an empty 1-row sync still uses ~10 KB. A
+    20-row sync uses 50–80 KB per student. Acceptable for 3G but
+    expensive on metered plans.
+
+Recommendations
+  R-5 Use POST /api/attendance/sync (bulk) for offline queue.
+  R-6 Send face_descriptor only on enrollment, not on every mark.
+      The server already has the embedding; sending it again
+      every submit is wasted bandwidth.
+  R-7 Cache /api/settings response with a hard TTL (15 min) and
+      stop calling it on every attendance page load.
+  R-8 Send `?since=` on GET /attendance/sync. The Laravel
+      endpoint already supports it (verified at
+      AttendanceController.php:507).
+  R-9 Bring back gzip/compression: the http: package supports it
+      via `Accept-Encoding: gzip` but the Laravel responses for
+      large lists (sessions, history) are typically not compressed
+      unless the host (cPanel) enables mod_deflate.
+  R-10 Stop pinging api.ipify.org per submit/sync. Use the
+       Connectivity()/networkInterfaces local IP or simply omit
+       device_ip — the server already overrides with $request->ip().
+
+================================================================
+14. SCALABILITY
+================================================================
+
+10,000 students
+  • OK with caveats. Login bursts hit /api/login throttle which
+    is already configured. Mark POSTs are O(students) per
+    session. Server-side AttendanceMarkLock + firstOrCreate keeps
+    DB consistent. The client design is "every student does a
+    full /sessions/active poll" — 10k students × ~1 KB × N polls
+    per session is manageable.
+
+50,000 students
+  • Bottleneck candidates:
+      B-1 GET /sessions/active payload size when a student is in
+          many courses or the institution has many concurrent
+          sessions. The mobile parser silently drops invalid
+          rows (api_service.dart:367-398) but still pays the
+          decode + transfer cost.
+      B-2 sync stampede on connectivity change. With no debounce
+          and no jitter, a campus Wi-Fi flap triggers 50k
+          simultaneous /attendance POSTs. The current API has no
+          ratelimiter on /attendance (verified in routes/api.php).
+      B-3 ipify.org rate-limit (per-IP). At 50k users on the same
+          campus NAT, all sharing one public IP, ipify.org will
+          throttle. Sync silently degrades because device_ip
+          becomes null.
+      B-4 Server-side AttendanceMarkLock backed by Redis is
+          recommended in production. If on file cache, the lock
+          is per-PHP-worker only and concurrent marks for the
+          same student can produce duplicates only if the
+          unique index on (student_id, attendance_session_id) is
+          missing.
+
+100,000 students
+  • The current architecture cannot scale linearly:
+      C-1 Single-row sync means O(N) network calls per device.
+          Must move to batch sync (POST /attendance/sync) before
+          this scale.
+      C-2 No server-side pagination on /attendance/sync. A
+          long-running student account with thousands of marks
+          fetches the entire history in one JSON response.
+      C-3 No CDN / edge cache on /sessions/active. A 100k campus
+          opening the app at 08:00 hammers a single origin.
+      C-4 SQLite write contention: minimal — single-process app
+          isolate. Not a real concern.
+
+Identified bottlenecks
+  Bn-1 No batching client side.
+  Bn-2 No throttling / debounce on connectivity reconnect sync.
+  Bn-3 device_ip via 3rd-party HTTPS call.
+  Bn-4 No paginated history sync.
+  Bn-5 No retry quarantine — bad rows churn forever.
+
+================================================================
+15. DATA-LOSS ANALYSIS
+================================================================
+
+Likelihood: H = high, M = medium, L = low
+Severity:   H = attendance permanently lost
+            M = attendance temporarily missing
+            L = retry will succeed
+
+Scenario                                       | Likely | Severe
+-----------------------------------------------+--------+--------
+App force-kill DURING the 45 s POST timeout    |   M    |   H
+before OfflineService.insert() ran.            |        |
+File: attendance_page.dart:1063-1095           |        |
+-----------------------------------------------+--------+--------
+Phone crash during sqflite insert              |   L    |   H
+(atomicity is on a single write — small risk). |        |
+-----------------------------------------------+--------+--------
+Offline mark synced AFTER session closes →     |   H    |   H
+422 "Session closed or expired" → row stays    |        |
+synced=0 forever (no admin path to surface     |        |
+this in the app UI).                           |        |
+-----------------------------------------------+--------+--------
+Offline mark synced > 60 min after timestamp → |   H    |   H
+422 "outside allowed window" → row stays       |        |
+synced=0 forever.                              |        |
+-----------------------------------------------+--------+--------
+User logs out while queue has unsynced rows →  |   L    |   M
+OfflineService.clearCurrentStudent does NOT    |        |
+clear the `attendance` table → rows persist    |        |
+for next user (LATENT MULTI-TENANT BUG).       |        |
+File: offline_service.dart:418-441             |        |
+-----------------------------------------------+--------+--------
+User uninstalls the app with rows queued.      |   L    |   H
+Android wipes private storage → DB gone.       |        |
+-----------------------------------------------+--------+--------
+Storage corruption / sqflite "database is      |   L    |   H
+locked" / disk full → insert throws → caller   |        |
+swallows the error (`catch (_)`).              |        |
+-----------------------------------------------+--------+--------
+Sync starts, server returns 500 mid-way →      |   M    |   L
+remaining rows kept, retried later.            |        |
+-----------------------------------------------+--------+--------
+Sync starts, network drops mid-upload → http   |   M    |   L
+SocketException → row stays queued, retried.   |        |
+-----------------------------------------------+--------+--------
+Bearer token expired between offline mark and  |   M    |   M
+sync. Sanctum returns 401 → SyncService treats |        |
+as non-success → row stuck until next login.   |        |
+-----------------------------------------------+--------+--------
+QR token rotated server-side AFTER offline     |   H    |   H
+scan but BEFORE sync. The stored qr_code is    |        |
+now invalid; server returns 403 "Invalid QR"   |        |
+on sync → row stuck.                           |        |
+(Note: rotating QR is documented as a 2026     |        |
+roll-out in BACKEND_SYNC_NOTES.md §2.)         |        |
+
+================================================================
+16. PRODUCTION-READINESS SCORE
+================================================================
+
+Architecture Score   :  5 / 10
+  + Clean separation of services, models, pages
+  + Decent SQLite schema with migration ladder
+  - No DI container, no test scaffolding visible
+  - Single sqflite table doubling as work queue
+  - Connectivity coupled to one widget (HomePage)
+  - No isolate / no background worker
+  - Sync queue is unbounded retry loop
+
+Reliability Score    :  4 / 10
+  + Sqflite persistence survives most crashes
+  + Server-side firstOrCreate + lock prevents DB dupes
+  - Late offline marks lost via 422 + no quarantine
+  - No idempotency key client side
+  - Force-kill during the 45 s timeout loses the row
+  - No background sync after reboot
+
+Security Score       :  4 / 10
+  + HMAC-SHA256 signed QR with expires_at
+  + Biometric gate before mark
+  + Sanctum bearer + encrypted secure storage
+  - Body.index_number is NOT bound to auth user
+  - No mock-location detection
+  - usesCleartextTraffic="true"
+  - No cert pinning
+  - Client clock controls timestamp (within ±60 min)
+
+Offline Capability Score :  5 / 10
+  + Offline mark IS supported
+  + GPS works without network
+  + Signed QR validates offline
+  + Local history stays usable
+  - Marks past window/session boundary silently lost
+  - Sync requires app foreground
+  - No UI for "stuck" rows
+  - No conflict / collision feedback to user
+
+Scalability Score    :  4 / 10
+  + Stateless API, idempotent on (student, session)
+  + Redis-backed lock when configured
+  - One-row-per-POST sync (server has bulk endpoint that's unused)
+  - device_ip via 3rd-party ipify on every submit
+  - No connectivity debounce → reconnect stampede
+  - /attendance/sync returns full history each call
+
+OVERALL              :  4.4 / 10
+  Production-acceptable for small institutions (< 5k students)
+  with consistent connectivity. NOT acceptable as-is for
+  10k+ users on intermittent / metered networks.
+
+================================================================
+17. FINAL — ISSUES, IMPROVEMENTS, ANTI-RECOMMENDATIONS
+================================================================
+
+CRITICAL ISSUES  (data integrity / security)
+--------------------------------------------------------------
+HIGH-1  Server-side IDOR via index_number.
+        File: app/Http/Controllers/Api/AttendanceController.php:74-78
+        The body's `index_number` resolves the Student row but
+        is NOT compared to the authenticated sanctum user. Any
+        bearer token can be used to POST attendance for any
+        other student, subject to IP binding being off (default).
+        Severity: critical for production.
+
+HIGH-2  Late offline marks silently lost.
+        Files: at-end_frontend_app/lib/services/sync_service.dart:43-115
+               app/Http/Controllers/Api/AttendanceController.php:144,204-207
+        Marks captured offline that arrive after the session
+        ends OR > 60 min after the timestamp are rejected with
+        422 and stay in the queue forever. The UI shows no
+        red-flag — students believe attendance was recorded.
+
+HIGH-3  No mock-location detection on Android.
+        File: at-end_frontend_app/lib/services/location_service.dart
+        position.isMocked is never inspected. A free FakeGPS app
+        defeats the geofence.
+
+HIGH-4  Logout does not clear the offline queue.
+        File: at-end_frontend_app/lib/services/offline_service.dart:418-441
+        Unsynced rows remain. If a different student logs in on
+        the same device they will sync (and own) the previous
+        user's attendance. Multi-tenant phone = identity leak.
+
+MEDIUM ISSUES  (reliability / cost)
+--------------------------------------------------------------
+MED-1   Connectivity-triggered sync only when HomePage mounted.
+        File: home_page.dart:110-123
+        Marking on attendance_page or being on any other page
+        while reconnecting → no auto-sync until you navigate.
+
+MED-2   No retry quarantine / no failure counter.
+        File: sync_service.dart:43-115
+        A row that fails for permanent reasons (422, 403, 404)
+        churns forever and re-burns network on every reconnect.
+
+MED-3   Single-row sync; bulk endpoint exists but unused.
+        Files: sync_service.dart (client), AttendanceController.php:545 (server)
+        Move to POST /api/attendance/sync for the batch path.
+
+MED-4   ipify.org call per submit and per sync row.
+        File: device_service.dart:14-24
+        Leaks the public IP to a 3rd party on every attendance
+        action; server overrides device_ip anyway with
+        $request->ip().
+
+MED-5   No connectivity debounce.
+        File: home_page.dart:110-123
+        Flapping Wi-Fi → many sync sweeps in a row.
+
+MED-6   No cert pinning + usesCleartextTraffic="true".
+        File: android/app/src/main/AndroidManifest.xml:13
+        Acceptable today because the prod base URL is HTTPS,
+        but the flag is a footgun for any future HTTP endpoint.
+
+MED-7   face_descriptor sent on every mark.
+        Files: attendance_record.dart:89-127,
+               session_attendance_payload.dart:77-136
+        Bandwidth waste; server already has the embedding.
+
+MED-8   No idempotency / client_uuid per record.
+        File: offline_service.dart schema (attendance table).
+        Server dedupe relies on (student_id, session_id). Works
+        as long as session_id is set; falls down for legacy
+        rows with null session_id.
+
+NICE-TO-HAVE  (UX / engineering hygiene)
+--------------------------------------------------------------
+NICE-1  Wire ApiVersionWatcher into ApiService.post/get so the
+        "please update" banner can fire automatically
+        (currently called from no live path; see
+        BACKEND_SYNC_NOTES.md §1).
+NICE-2  Surface sync errors in the Sync Status page (per-row
+        last_error + retry button), not just a count.
+NICE-3  Cache /api/settings for 15 min instead of 3 min and
+        stop hitting forceRemote=true on every attendance load.
+NICE-4  Send GET /attendance/sync with ?since= cursor.
+NICE-5  Compact the local `attendance` table — delete rows
+        synced > 30 days ago (or move to attendance_log only).
+NICE-6  Add a "stuck rows" banner when any row has been queued
+        > 24 h (alerts the student that something is wrong).
+NICE-7  Add isolate-based sync that survives nav between pages
+        (Dart Isolate or compute()) — at minimum a top-level
+        ChangeNotifier that any widget can pin.
+NICE-8  Add unit tests around SyncService (none in /test today
+        — verified: at-end_frontend_app/test/ contains only
+        widget smoke tests).
+
+RECOMMENDED ARCHITECTURE CHANGES
+--------------------------------------------------------------
+ARC-1   Promote the queue to a first-class concept:
+          • New columns: client_uuid (idempotency), attempt_count,
+            last_error_code, last_error_at, next_attempt_after.
+          • Server endpoint that accepts an array of records,
+            returns per-record status (already supported at
+            POST /api/attendance/sync — wire it up client-side).
+          • Switch to exponential backoff with jitter.
+ARC-2   Move the connectivity listener + sync trigger out of
+        HomePage into a top-level singleton (e.g. a static
+        ChangeNotifier in OfflineService) so it runs whenever
+        the app is in the foreground, regardless of route.
+ARC-3   Add a Dart background isolate or WorkManager binding
+        (workmanager: ^0.5) to retry the queue on connectivity
+        change and on app launch even before HomePage renders.
+        Guarded behind the existing connectivity_plus check.
+ARC-4   Server-side: enforce auth()->user()->id ==
+        Student::findByIndex($body)->user_id in markAttendance
+        to close HIGH-1.
+ARC-5   Server-side: when an offline mark arrives past the
+        window/session boundary, persist it as
+        `attendance_late_unrecorded` (audit trail) rather than
+        dropping silently — so the rep can manually approve
+        from the dashboard.
+ARC-6   Add mock-location detection on Android (Geolocator
+        already exposes `position.isMocked`). On iOS no API
+        exists — best effort.
+
+CHANGES THAT SHOULD NOT BE MADE
+--------------------------------------------------------------
+DO-NOT-1  Do NOT trust the local attendance_log table as the
+          source of truth. It is convenience cache only. The
+          server is the only durable record.
+
+DO-NOT-2  Do NOT remove the "retry-once with 350 ms gap"
+          inside sync_service.dart blindly. On weak 3G it
+          materially raises the success rate. Replace with
+          exponential backoff, do not delete.
+
+DO-NOT-3  Do NOT switch the sqflite DB to plaintext storage on
+          disk (it already lives in app-private storage; that is
+          enough). Adding sqlcipher complicates upgrades and
+          gives weak protection — secrets already live in
+          flutter_secure_storage.
+
+DO-NOT-4  Do NOT background-poll location to "ensure freshness".
+          The current "fix at the moment of submit" model is
+          intentional and battery-friendly. Continuous tracking
+          would also require ACCESS_BACKGROUND_LOCATION which
+          triggers Google Play policy review.
+
+DO-NOT-5  Do NOT remove the biometric gate to speed up marking.
+          It is the only OS-level binding between the student
+          and the phone. The geofence + IP binding alone are
+          insufficient.
+
+DO-NOT-6  Do NOT couple the QR rotation period (BACKEND_SYNC_NOTES.md §2)
+          to the geofence range. They are independent integrity
+          controls; conflating them will break offline scans.
+
+DO-NOT-7  Do NOT delete unsynced rows on app version upgrade
+          to "clean up" — they could still be syncable. The
+          existing sqflite version-12 migration ladder preserves
+          rows on every upgrade; keep that contract.
+
+DO-NOT-8  Do NOT switch the storage engine away from sqflite
+          (e.g. to Hive / ObjectBox / Drift) just for the
+          background-sync feature. The sync problem is at the
+          *trigger* layer (foreground only), not the storage
+          layer.
+
+================================================================
+END OF REPORT
+================================================================

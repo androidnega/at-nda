@@ -121,6 +121,7 @@ class Attendance extends Model
     }
 
     protected $fillable = [
+        'attendance_uuid',
         'student_id',
         'course_id',
         'attendance_session_id',

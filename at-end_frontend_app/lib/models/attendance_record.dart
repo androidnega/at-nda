@@ -17,6 +17,9 @@ class AttendanceRecord {
   final int weekId;
   final double lat;
   final double lng;
+  /// Reported horizontal accuracy in meters at capture time (Geolocator).
+  /// 0 / negative = unknown; never sent to the server when not finite.
+  final double? accuracyMeters;
   final String? qrCode;
   final String timestamp;
   final bool synced;
@@ -31,6 +34,7 @@ class AttendanceRecord {
     required this.weekId,
     required this.lat,
     required this.lng,
+    this.accuracyMeters,
     this.qrCode,
     required this.timestamp,
     this.synced = false,
@@ -48,6 +52,9 @@ class AttendanceRecord {
         weekId: parseApiInt(map['week_id']) ?? 0,
         lat: (map['lat'] as num).toDouble(),
         lng: (map['lng'] as num).toDouble(),
+        accuracyMeters: (map['accuracy'] is num)
+            ? (map['accuracy'] as num).toDouble()
+            : null,
         qrCode: map['qr_code'] as String?,
         timestamp: map['timestamp'] as String,
         synced: (map['synced'] as int) == 1,
@@ -64,6 +71,7 @@ class AttendanceRecord {
         'week_id': weekId,
         'lat': lat,
         'lng': lng,
+        if (accuracyMeters != null) 'accuracy': accuracyMeters,
         'qr_code': qrCode,
         'timestamp': timestamp,
         'synced': synced ? 1 : 0,
@@ -107,6 +115,7 @@ class AttendanceRecord {
         faceDescriptor: face,
         deviceIp: deviceIp,
         deviceId: deviceId,
+        accuracyMeters: accuracyMeters,
         timestamp: timestamp,
       );
     }

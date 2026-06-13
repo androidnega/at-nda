@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/student.dart';
 import '../services/api_service.dart';
+import '../services/device_identity_lock.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/permission_service.dart';
@@ -140,6 +141,21 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    // One device → one student. Block any attempt to sign in with an index
+    // number other than the one this phone was first bound to.
+    final blockedByBoundIndex =
+        await DeviceIdentityLock.conflictingBoundIndex(index);
+    if (blockedByBoundIndex != null) {
+      final masked = _maskIndex(blockedByBoundIndex);
+      setState(() {
+        _error =
+            'This phone is already linked to $masked. Use that account or '
+            'ask your class rep / admin to release this device.';
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
       if (Constants.localAuthOnly) {
         await _loginLocalOnly(index, password);
@@ -151,6 +167,15 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Show enough of the bound index to confirm identity without leaking it
+  /// to anyone shoulder-surfing the device.
+  String _maskIndex(String raw) {
+    final v = raw.trim();
+    if (v.length <= 4) return v;
+    final tail = v.substring(v.length - 3);
+    return '${v.substring(0, 2)}…$tail';
   }
 
   /// If login JSON omitted rep flags, `POST /api/rep/courses` confirms access and persists `is_class_rep`.
@@ -218,6 +243,7 @@ class _LoginPageState extends State<LoginPage> {
     final passwordForStorage = password.trim();
 
     final student = Student.fromJson(studentData);
+    await DeviceIdentityLock.recordSuccessfulLogin(student.indexNumber);
     await OfflineService.setCurrentStudent(student);
     await OfflineService.setPasswordHash(PasswordUtil.hash(passwordForStorage));
     await OfflineService.setApiSessionPassword(passwordForStorage);
@@ -274,6 +300,7 @@ class _LoginPageState extends State<LoginPage> {
     }
     // Needed for Firebase-free reminder polling (`/api/notifications/pending`).
     await OfflineService.setApiSessionPassword(passwordForStorage);
+    await DeviceIdentityLock.recordSuccessfulLogin(stored.indexNumber);
     AppState.studentIndex = stored.indexNumber;
     await _persistSavedLoginId(cleanIndex);
     final t = await OfflineService.getApiSessionToken();
@@ -326,6 +353,7 @@ class _LoginPageState extends State<LoginPage> {
       role: sameUser ? stored!.primaryRole : 'student',
     );
 
+    await DeviceIdentityLock.recordSuccessfulLogin(student.indexNumber);
     await OfflineService.setCurrentStudent(student);
     await OfflineService.setApiSessionPassword(null);
     await OfflineService.setApiSessionToken(null);
@@ -614,31 +642,48 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ],
                                   const SizedBox(height: 20),
-                                  SizedBox(
-                                    height: 48,
-                                    width: double.infinity,
-                                    child: FilledButton(
-                                      onPressed: _isLoading ? null : _login,
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: _tealButton,
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        shape: const StadiumBorder(),
-                                        textStyle: GoogleFonts.plusJakartaSans(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
+                                  // Centred + max-width capped so the pill button does
+                                  // not stretch into an elongated capsule on tablets /
+                                  // landscape phones. Slightly taller (52 dp) gives
+                                  // the stadium shape a balanced inner proportion.
+                                  Center(
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 340,
+                                        minWidth: 220,
+                                      ),
+                                      child: SizedBox(
+                                        height: 52,
+                                        width: double.infinity,
+                                        child: FilledButton(
+                                          onPressed: _isLoading ? null : _login,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: _tealButton,
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            shape: const StadiumBorder(),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 28,
+                                            ),
+                                            textStyle: GoogleFonts.plusJakartaSans(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                          child: _isLoading
+                                              ? const SizedBox(
+                                                  width: 22,
+                                                  height: 22,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2.2,
+                                                    color: Colors.white,
+                                                  ),
+                                                )
+                                              : const Text('Login'),
                                         ),
                                       ),
-                                      child: _isLoading
-                                          ? const SizedBox(
-                                              width: 22,
-                                              height: 22,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Text('Login'),
                                     ),
                                   ),
                                 ],
