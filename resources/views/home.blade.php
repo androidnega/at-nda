@@ -86,19 +86,56 @@
         50%      { background-position: 100% 50%; }
     }
 
-    /* Feature row */
-    .feature-pill {
-        background: rgba(15, 23, 42, .04);
-        border: 1px solid rgba(15, 23, 42, .08);
-        transition: transform .25s ease, background .25s ease;
+    /* Feature row — clean horizontal strips with a tinted icon tile */
+    .feature-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
     }
-    .feature-pill:hover {
-        transform: translateY(-1px);
-        background: rgba(244, 63, 94, .08);
-        border-color: rgba(244, 63, 94, .25);
+    .feature-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(255,255,255,.95) 0%, rgba(248,250,252,.9) 100%);
+        border: 1px solid rgba(15, 23, 42, .07);
+        box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 1px 2px rgba(15,23,42,.04);
+        transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
     }
-    .feature-dot {
+    .feature-row:hover {
+        transform: translateX(2px);
+        border-color: rgba(244, 63, 94, .28);
+        box-shadow:
+            0 1px 0 rgba(255,255,255,.85) inset,
+            0 8px 18px -10px rgba(225, 29, 72, .25);
+    }
+    .feature-tile {
+        flex-shrink: 0;
+        height: 36px; width: 36px;
+        border-radius: 11px;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff;
         background-image: linear-gradient(135deg, #fb7185, #e11d48);
+        box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.35),
+            0 6px 14px -6px rgba(225, 29, 72, .55);
+    }
+    .feature-tile--blue   { background-image: linear-gradient(135deg, #38bdf8, #0ea5e9); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 14px -6px rgba(14,165,233,.55); }
+    .feature-tile--amber  { background-image: linear-gradient(135deg, #fbbf24, #d97706); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 14px -6px rgba(217,119,6,.55); }
+    .feature-tile--violet { background-image: linear-gradient(135deg, #a78bfa, #7c3aed); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 14px -6px rgba(124,58,237,.5); }
+    .feature-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.2;
+        letter-spacing: -0.005em;
+    }
+    .feature-sub {
+        font-size: 11.5px;
+        color: #64748b;
+        line-height: 1.35;
+        margin-top: 1px;
     }
 
     /* Sign-in input + button */
@@ -224,26 +261,28 @@
                 </div>
             </div>
 
-            <h2 class="text-xl sm:text-2xl md:text-[26px] font-bold text-slate-900 leading-tight">
-                Mark attendance in seconds.
-                <span class="block text-slate-500 font-medium text-base sm:text-lg mt-1.5">
-                    No queues, no paper, no missed weeks.
-                </span>
-            </h2>
+            <div>
+                <h2 class="text-xl sm:text-2xl md:text-[26px] font-bold text-slate-900 leading-tight tracking-tight">
+                    Mark attendance in seconds.
+                </h2>
+                <p class="mt-1.5 text-sm sm:text-[15px] text-slate-500 leading-relaxed">
+                    No queues, no paper, no missed weeks &mdash; just a tap from your phone.
+                </p>
+            </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
+            <div class="feature-list">
                 @foreach([
-                    ['icon' => 'fa-bolt',          'label' => 'Live sessions',     'sub' => 'Open & close in real time'],
-                    ['icon' => 'fa-wifi-slash',    'label' => 'Works offline',     'sub' => 'Syncs when you reconnect'],
-                    ['icon' => 'fa-shield-halved', 'label' => 'Tamper-resistant',  'sub' => 'Device-bound check-ins'],
+                    ['icon' => 'fa-bolt',          'tile' => '',                'label' => 'Live sessions',    'sub' => 'Open and close attendance in real time.'],
+                    ['icon' => 'fa-cloud-arrow-up','tile' => 'feature-tile--blue',   'label' => 'Works offline',    'sub' => 'Marks sync automatically when you reconnect.'],
+                    ['icon' => 'fa-shield-halved', 'tile' => 'feature-tile--amber',  'label' => 'Tamper-resistant', 'sub' => 'Check-ins are bound to one student per device.'],
                 ] as $f)
-                    <div class="feature-pill rounded-xl px-3 py-2.5 flex items-start gap-2.5">
-                        <span class="feature-dot mt-0.5 h-7 w-7 rounded-lg flex items-center justify-center shrink-0 text-white shadow-sm">
-                            <i class="fas {{ $f['icon'] }} text-[11px]"></i>
+                    <div class="feature-row">
+                        <span class="feature-tile {{ $f['tile'] }}">
+                            <i class="fas {{ $f['icon'] }} text-sm" aria-hidden="true"></i>
                         </span>
-                        <div class="min-w-0">
-                            <p class="text-[12px] font-bold text-slate-800 leading-tight">{{ $f['label'] }}</p>
-                            <p class="text-[10.5px] text-slate-500 leading-tight mt-0.5">{{ $f['sub'] }}</p>
+                        <div class="min-w-0 flex-1">
+                            <p class="feature-label">{{ $f['label'] }}</p>
+                            <p class="feature-sub">{{ $f['sub'] }}</p>
                         </div>
                     </div>
                 @endforeach
