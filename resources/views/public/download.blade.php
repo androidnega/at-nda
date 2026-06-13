@@ -23,6 +23,14 @@
             </div>
 
             <div class="px-7 py-7">
+                @if(! ($schemaReady ?? true))
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-5 text-sm text-amber-900">
+                        <p class="font-semibold">App distribution is still being set up.</p>
+                        <p class="text-xs mt-1 text-amber-800">
+                            Check back in a moment — we're finishing the install.
+                        </p>
+                    </div>
+                @endif
                 @if($latest)
                     <div class="flex items-center justify-between gap-3 mb-5">
                         <div>

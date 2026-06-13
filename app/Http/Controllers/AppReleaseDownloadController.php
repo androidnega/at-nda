@@ -22,14 +22,20 @@ class AppReleaseDownloadController extends Controller
 {
     public function landing(): \Illuminate\View\View
     {
-        $latest = AppRelease::latestPublishedFor(AppRelease::PLATFORM_ANDROID);
+        $schemaReady = AppRelease::tableExists();
+        $latest = $schemaReady
+            ? AppRelease::latestPublishedFor(AppRelease::PLATFORM_ANDROID)
+            : null;
         // Hide a release whose APK got wiped — show the empty state
         // instead of a 404 link.
         if ($latest && ! $latest->fileExists()) {
             $latest = null;
         }
 
-        return view('public.download', ['latest' => $latest]);
+        return view('public.download', [
+            'latest' => $latest,
+            'schemaReady' => $schemaReady,
+        ]);
     }
 
     public function downloadLatestAndroid(): Response

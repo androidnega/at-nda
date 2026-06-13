@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -61,14 +62,43 @@ class AppRelease extends Model
     /**
      * Latest published release for a given platform, or null when
      * the admin hasn't published one yet.
+     *
+     * Defensive: also returns null (without throwing) when the
+     * `app_releases` table doesn't exist yet — i.e. the migration
+     * hasn't run on a stale deploy. Keeps the public /download
+     * page and the unauthenticated /api/app/latest endpoint from
+     * 500-ing during a half-finished deploy.
      */
     public static function latestPublishedFor(string $platform): ?self
     {
+        if (! self::tableExists()) {
+            return null;
+        }
+
         return static::query()
             ->where('platform', $platform)
             ->where('is_published', true)
             ->orderByDesc('version_code')
             ->first();
+    }
+
+    /**
+     * True when the `app_releases` table exists. Cached per-request
+     * so we don't hit the information_schema on every call.
+     */
+    public static function tableExists(): bool
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        try {
+            $cached = Schema::hasTable((new self)->getTable());
+        } catch (\Throwable) {
+            $cached = false;
+        }
+
+        return $cached;
     }
 
     /**
