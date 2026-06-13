@@ -1,5 +1,5 @@
 {{--
-  a-tenda = app / system name. Use compact on follow-up steps (password, set-password).
+  at-enda = app / system name. Use compact on follow-up steps (password, set-password).
   @param bool $compact Smaller mark + wordmark
   @param string|null $brandMb Override bottom margin (e.g. mb-4 for tighter home card)
 --}}

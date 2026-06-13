@@ -148,7 +148,7 @@ class StudentPasswordResetService
      */
     public function sendTestEmail(string $toEmail): ?string
     {
-        $appName = (string) config('app.name', 'a-tenda');
+        $appName = (string) config('app.name', 'at-enda');
         try {
             Mail::send('emails.smtp-test', ['appName' => $appName], function ($message) use ($toEmail, $appName) {
                 $message->to($toEmail)->subject($appName.' SMTP test');

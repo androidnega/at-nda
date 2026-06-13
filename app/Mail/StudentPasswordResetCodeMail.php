@@ -23,7 +23,7 @@ class StudentPasswordResetCodeMail extends Mailable
 
     public function envelope(): Envelope
     {
-        $appName = (string) config('app.name', 'a-tenda');
+        $appName = (string) config('app.name', 'at-enda');
 
         return new Envelope(
             subject: $appName.' password reset code: '.$this->code,
@@ -38,7 +38,7 @@ class StudentPasswordResetCodeMail extends Mailable
                 'student' => $this->student,
                 'code' => $this->code,
                 'expiresInMinutes' => $this->expiresInMinutes,
-                'appName' => (string) config('app.name', 'a-tenda'),
+                'appName' => (string) config('app.name', 'at-enda'),
             ],
         );
     }

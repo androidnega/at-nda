@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'a-tenda'),
+    'name' => env('APP_NAME', 'at-enda'),
 
     /*
     | Shared hero photo for the split sign-in layout (index, password, set-password).

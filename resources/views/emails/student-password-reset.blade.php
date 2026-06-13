@@ -6,7 +6,7 @@
     $brand = '#e11d48';
     $brandDark = '#9f1239';
     $brandTint = '#fff1f2';
-    $appName = $appName ?? config('app.name', 'a-tenda');
+    $appName = $appName ?? config('app.name', 'at-enda');
     $appUrl = (string) (config('app.url') ?: url('/'));
     $loginUrl = rtrim($appUrl, '/').'/student/password-reset/verify';
     $supportEmail = (string) (config('mail.from.address') ?: 'support@'.parse_url($appUrl, PHP_URL_HOST));

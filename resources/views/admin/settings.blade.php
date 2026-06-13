@@ -640,7 +640,7 @@
 
                 const fromName = document.getElementById('mail_from_name');
                 if (fromName && !fromName.value.trim()) {
-                    fromName.value = FROM_NAME || 'a-tenda';
+                    fromName.value = FROM_NAME || 'at-enda';
                 }
 
                 const enable = document.querySelector('input[name="mail_enabled"][type="checkbox"]');

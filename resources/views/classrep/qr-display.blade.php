@@ -102,7 +102,7 @@
                         </p>
                         @endif
                         <p class="mt-5 text-center text-xs text-slate-400 leading-relaxed">
-                            Scan from another device when possible · <span class="text-slate-600 font-medium">a-tenda</span> app or web check-in
+                            Scan from another device when possible · <span class="text-slate-600 font-medium">{{ config('app.name', 'at-enda') }}</span> app or web check-in
                         </p>
                         <div class="mt-5 flex justify-center">
                             <a href="{{ route('dashboard.live-sessions.qr-download', $session) }}"

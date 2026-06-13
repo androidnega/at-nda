@@ -197,7 +197,7 @@
             <div class="min-w-0">
                 <h2 class="text-base font-bold text-slate-900 dark:text-slate-100">About this app</h2>
                 <p class="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed mt-1">
-                    {{ config('app.name', 'a-tenda') }} is a private attendance system built for tertiary classrooms.
+                    {{ config('app.name', 'at-enda') }} is a private attendance system built for tertiary classrooms.
                 </p>
                 <p class="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed mt-2">
                     Developed by <span class="font-semibold text-slate-800 dark:text-slate-200">Emmanuel Kofi Kwofie</span>

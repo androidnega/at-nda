@@ -6,7 +6,7 @@
         <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
         <link rel="shortcut icon" href="{{ asset('favicon.svg') }}">
 
-        <title>{{ config('app.name', 'a-tenda') }}</title>
+        <title>{{ config('app.name', 'at-enda') }}</title>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">

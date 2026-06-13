@@ -24,7 +24,7 @@ class RoleAccess
     public static function requireStudentSession(Request $request): ?Response
     {
         if (!$request->session()->has('student_id')) {
-            return redirect()->route('home')->with('info', 'Please sign in to a-tenda first.');
+            return redirect()->route('home')->with('info', 'Please sign in to '.config('app.name', 'at-enda').' first.');
         }
 
         return null;

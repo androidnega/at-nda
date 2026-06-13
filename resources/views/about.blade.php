@@ -1,7 +1,7 @@
 @php
     $name = 'Emmanuel Kofi Kwofie';
     $aka = 'Manuel';
-    $appName = config('app.name', 'a-tenda');
+    $appName = config('app.name', 'at-enda');
     $signInUrl = \Illuminate\Support\Facades\Route::has('home') ? route('home') : url('/');
 @endphp
 <!DOCTYPE html>

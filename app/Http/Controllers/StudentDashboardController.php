@@ -990,7 +990,7 @@ class StudentDashboardController extends Controller
         }
 
         return redirect()->route('dashboard.dashboard')
-            ->with('success', 'Welcome to a-tenda!');
+            ->with('success', 'Welcome to '.config('app.name', 'at-enda').'!');
     }
 
     /**
@@ -1418,6 +1418,6 @@ class StudentDashboardController extends Controller
             'payload' => ['index_number' => $student->index_number, 'first_login' => true, 'via' => 'set_password'],
         ]);
 
-        return $this->redirectAfterStudentAuth($student)->with('success', 'You’re all set. Welcome to a-tenda!');
+        return $this->redirectAfterStudentAuth($student)->with('success', 'You’re all set. Welcome to '.config('app.name', 'at-enda').'!');
     }
 }
