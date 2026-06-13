@@ -76,6 +76,251 @@ class AttendanceRiskService
     }
 
     /**
+     * Resolve the actual accounts behind each rule that fired for
+     * [$attendance]. Used by the admin "Suspicious Attendance"
+     * panel so a reviewer can see WHO the flag is referring to
+     * (instead of just "shared with 1 other account").
+     *
+     * Returns a structured payload keyed by rule:
+     *
+     *   [
+     *     'shared_fingerprint_session' => [
+     *       'message'       => 'Same browser fingerprint marked attendance in this session.',
+     *       'count'         => 1,
+     *       'fingerprint'   => 'aa11..ee99',
+     *       'accounts'      => [['id','index_number','full_name','class_name','marked_at'], ...],
+     *     ],
+     *     'shared_ip_session' => [
+     *       'message'       => 'Same network address used by multiple students in this session.',
+     *       'count'         => 4,
+     *       'ip'            => '197.255.1.10',
+     *       'threshold'     => 3,
+     *       'accounts'      => [...],
+     *     ],
+     *     'fingerprint_history' => [
+     *       'message'       => 'This device has been seen on N accounts historically.',
+     *       'count'         => 10,
+     *       'fingerprint'   => 'aa11..ee99',
+     *       'accounts'      => [...],  // capped to 10
+     *     ],
+     *     'frequent_device_change' => [
+     *       'message'       => 'Student used N distinct devices in last 30 days.',
+     *       'count'         => 5,
+     *       'lookback_days' => 30,
+     *       'fingerprints'  => ['aa11..', 'bb22..', ...],
+     *     ],
+     *   ]
+     *
+     * Only includes keys for rules that actually fired (i.e. they
+     * would have contributed to the score). Empty array when none
+     * applied — e.g. on a row with no device log at all.
+     *
+     * Lazy-evaluated: do not call this on every row in a long
+     * report (run it for the visible page only).
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function relatedAccountsFor(Attendance $attendance): array
+    {
+        if (! SchemaFeatures::hasAttendanceDeviceLogs()) {
+            return [];
+        }
+        $sessionId = (int) ($attendance->attendance_session_id ?? 0);
+        $studentId = (int) ($attendance->student_id ?? 0);
+        if ($sessionId <= 0 || $studentId <= 0) {
+            return [];
+        }
+
+        // Pick the device log this attendance was scored against:
+        // the latest row for (session, student) — the OnlineAttendance
+        // flow only writes one per submit, so this is unique in
+        // practice. We still order to be safe.
+        $log = AttendanceDeviceLog::query()
+            ->where('session_id', $sessionId)
+            ->where('student_id', $studentId)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+        if (! $log) {
+            return [];
+        }
+
+        $out = [];
+        $fp = trim((string) ($log->fingerprint_hash ?? ''));
+        $ip = trim((string) ($log->ip_address ?? ''));
+
+        // Rule 1: same fingerprint, this session, different students.
+        if ($fp !== '') {
+            $rows = AttendanceDeviceLog::query()
+                ->with(['student.schoolClass'])
+                ->where('session_id', $sessionId)
+                ->where('fingerprint_hash', $fp)
+                ->where('student_id', '!=', $studentId)
+                ->orderBy('created_at')
+                ->get();
+            // Collapse to one row per student id (a student could in
+            // theory have multiple log rows in the same session if
+            // they reloaded; we only want each account once).
+            $byStudent = [];
+            foreach ($rows as $r) {
+                $sid = (int) $r->student_id;
+                if (! isset($byStudent[$sid])) {
+                    $byStudent[$sid] = $r;
+                }
+            }
+            if ($byStudent !== []) {
+                $accounts = [];
+                foreach ($byStudent as $r) {
+                    $accounts[] = self::accountSnapshot($r);
+                }
+                $out['shared_fingerprint_session'] = [
+                    'message' => 'Same browser fingerprint marked attendance in this session.',
+                    'count' => count($accounts),
+                    'fingerprint' => self::shortFingerprint($fp),
+                    'accounts' => $accounts,
+                ];
+            }
+        }
+
+        // Rule 2: same IP, this session, more than N distinct students.
+        if ($ip !== '') {
+            $rows = AttendanceDeviceLog::query()
+                ->with(['student.schoolClass'])
+                ->where('session_id', $sessionId)
+                ->where('ip_address', $ip)
+                ->orderBy('created_at')
+                ->get();
+            $byStudent = [];
+            foreach ($rows as $r) {
+                $sid = (int) $r->student_id;
+                if (! isset($byStudent[$sid])) {
+                    $byStudent[$sid] = $r;
+                }
+            }
+            $threshold = (int) config('attendance.risk_ip_distinct_students_threshold', 3);
+            // Rule 2 only fires when the distinct count exceeds the
+            // threshold. We still show every account on the IP so the
+            // reviewer can confirm the cluster.
+            if (count($byStudent) > $threshold) {
+                $accounts = [];
+                foreach ($byStudent as $r) {
+                    $accounts[] = self::accountSnapshot($r);
+                }
+                $out['shared_ip_session'] = [
+                    'message' => 'Same network address used by multiple students in this session.',
+                    'count' => count($accounts),
+                    'ip' => $ip,
+                    'threshold' => $threshold,
+                    'accounts' => $accounts,
+                ];
+            }
+        }
+
+        // Rule 3: this fingerprint touched many accounts across history.
+        if ($fp !== '') {
+            $threshold = (int) config('attendance.risk_fingerprint_distinct_accounts_threshold', 10);
+            $distinct = AttendanceDeviceLog::query()
+                ->where('fingerprint_hash', $fp)
+                ->distinct('student_id')
+                ->count('student_id');
+            if ($distinct >= $threshold) {
+                // Pull the most-recent log row per student (capped).
+                $rows = AttendanceDeviceLog::query()
+                    ->with(['student.schoolClass'])
+                    ->where('fingerprint_hash', $fp)
+                    ->orderByDesc('created_at')
+                    ->limit(50)
+                    ->get();
+                $byStudent = [];
+                foreach ($rows as $r) {
+                    $sid = (int) $r->student_id;
+                    if (! isset($byStudent[$sid])) {
+                        $byStudent[$sid] = $r;
+                    }
+                    if (count($byStudent) >= 10) {
+                        break;
+                    }
+                }
+                $accounts = [];
+                foreach ($byStudent as $r) {
+                    $accounts[] = self::accountSnapshot($r);
+                }
+                $out['fingerprint_history'] = [
+                    'message' => 'This device has been seen on multiple accounts historically.',
+                    'count' => $distinct,
+                    'fingerprint' => self::shortFingerprint($fp),
+                    'accounts' => $accounts,
+                    'truncated' => $distinct > count($accounts),
+                ];
+            }
+        }
+
+        // Rule 4: this student switched devices a lot recently.
+        $switchThreshold = (int) config('attendance.risk_student_device_switch_threshold', 4);
+        $lookback = (int) config('attendance.risk_student_device_switch_lookback_days', 30);
+        $fingerprints = AttendanceDeviceLog::query()
+            ->where('student_id', $studentId)
+            ->where('created_at', '>=', now()->subDays($lookback))
+            ->whereNotNull('fingerprint_hash')
+            ->orderByDesc('created_at')
+            ->pluck('fingerprint_hash')
+            ->unique()
+            ->values()
+            ->all();
+        if (count($fingerprints) >= $switchThreshold) {
+            $out['frequent_device_change'] = [
+                'message' => 'Student used several different devices recently.',
+                'count' => count($fingerprints),
+                'lookback_days' => $lookback,
+                'fingerprints' => array_slice(
+                    array_map([self::class, 'shortFingerprint'], $fingerprints),
+                    0,
+                    6,
+                ),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function accountSnapshot(AttendanceDeviceLog $log): array
+    {
+        $student = $log->student;
+
+        return [
+            'id' => $student?->id ? (int) $student->id : null,
+            'index_number' => (string) ($student?->index_number ?? '—'),
+            'full_name' => trim((string) (
+                $student?->getDisplayName()
+                ?? trim(implode(' ', array_filter([
+                    $student?->first_name,
+                    $student?->middle_name,
+                    $student?->last_name,
+                ])))
+            )) ?: null,
+            'class_name' => $student?->schoolClass?->name,
+            'ip' => $log->ip_address,
+            'marked_at' => optional($log->created_at)->toIso8601String(),
+        ];
+    }
+
+    private static function shortFingerprint(string $fp): string
+    {
+        $fp = trim($fp);
+        if ($fp === '') {
+            return '—';
+        }
+        if (strlen($fp) <= 12) {
+            return $fp;
+        }
+
+        return substr($fp, 0, 6).'…'.substr($fp, -4);
+    }
+
+    /**
      * Map a 0..200 score to a level. Defaults: <25 low, 25..49 medium, >=50 high.
      * Returns null when score is 0 (nothing to surface).
      */

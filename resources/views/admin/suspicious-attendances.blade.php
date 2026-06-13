@@ -83,6 +83,49 @@
                                 'low'    => 'slate',
                             ][$row->risk_level] ?? 'slate';
                             $reasons = is_array($row->risk_reasons) ? $row->risk_reasons : [];
+                            $related = $row->getAttribute('risk_related_accounts');
+                            $related = is_array($related) ? $related : [];
+                            // Whichever rules have a structured
+                            // payload — preferred over the flat
+                            // strings because they list the actual
+                            // accounts.
+                            $ruleOrder = [
+                                'shared_fingerprint_session',
+                                'shared_ip_session',
+                                'fingerprint_history',
+                                'frequent_device_change',
+                            ];
+                            $structuredRules = array_values(array_filter(
+                                $ruleOrder,
+                                fn ($k) => isset($related[$k]),
+                            ));
+                            // Flat-string reasons that don't match a
+                            // structured rule (very old rows, or
+                            // future rules with no expanded data) —
+                            // keep showing them so we never hide a
+                            // flag.
+                            $structuredKeywords = [
+                                'shared_fingerprint_session' => 'fingerprint',
+                                'shared_ip_session' => 'ip',
+                                'fingerprint_history' => 'historically',
+                                'frequent_device_change' => 'distinct devices',
+                            ];
+                            $usedKeywords = array_map(
+                                fn ($k) => $structuredKeywords[$k] ?? '',
+                                $structuredRules,
+                            );
+                            $unstructuredReasons = array_values(array_filter(
+                                $reasons,
+                                function ($reason) use ($usedKeywords) {
+                                    $r = strtolower((string) $reason);
+                                    foreach ($usedKeywords as $kw) {
+                                        if ($kw !== '' && str_contains($r, $kw)) {
+                                            return false;
+                                        }
+                                    }
+                                    return true;
+                                },
+                            ));
                         @endphp
                         <tr class="hover:bg-gray-50 text-sm align-top">
                             <td class="px-3 py-2.5">
@@ -114,15 +157,115 @@
                                 </span>
                             </td>
                             <td class="px-3 py-2.5 text-center font-mono font-semibold tabular-nums">{{ $row->risk_score ?? '—' }}</td>
-                            <td class="px-3 py-2.5">
-                                @if($reasons === [])
+                            <td class="px-3 py-2.5 max-w-[420px]">
+                                @if($reasons === [] && $structuredRules === [])
                                     <span class="text-gray-400">—</span>
                                 @else
-                                    <ul class="list-disc list-inside text-[12px] text-gray-700 space-y-0.5">
-                                        @foreach($reasons as $reason)
-                                            <li>{{ $reason }}</li>
+                                    <div class="space-y-2">
+                                        @foreach($structuredRules as $rk)
+                                            @php $r = $related[$rk]; @endphp
+                                            @if($rk === 'shared_fingerprint_session')
+                                                <details class="group rounded-md border border-rose-100 bg-rose-50/60 open:bg-rose-50">
+                                                    <summary class="cursor-pointer list-none px-2.5 py-1.5 flex items-center justify-between gap-2">
+                                                        <span class="text-[12px] font-semibold text-rose-800">
+                                                            <i class="fas fa-fingerprint text-[11px] mr-1"></i>
+                                                            Shared fingerprint with {{ $r['count'] }} other account(s) in this session
+                                                        </span>
+                                                        <i class="fas fa-chevron-down text-[10px] text-rose-700 transition-transform group-open:rotate-180"></i>
+                                                    </summary>
+                                                    <div class="px-2.5 pb-2 pt-1 space-y-1.5 text-[11.5px] text-rose-900">
+                                                        <p class="font-mono text-[10.5px] text-rose-700/80">
+                                                            fingerprint <span class="font-semibold">{{ $r['fingerprint'] }}</span>
+                                                        </p>
+                                                        @foreach($r['accounts'] as $acct)
+                                                            <div class="flex items-baseline justify-between gap-2 bg-white/70 rounded px-2 py-1 border border-rose-100">
+                                                                <div class="min-w-0">
+                                                                    <p class="font-mono font-semibold text-rose-900 truncate">{{ $acct['index_number'] }}</p>
+                                                                    <p class="text-[10.5px] text-rose-700/90 truncate">{{ $acct['full_name'] ?: '—' }}@if(!empty($acct['class_name'])) · {{ $acct['class_name'] }}@endif</p>
+                                                                </div>
+                                                                <a href="{{ route('dashboard.suspicious-attendances', ['session' => $row->attendance_session_id, 'level' => $level]) }}#student-{{ $acct['id'] }}"
+                                                                   class="text-[10.5px] text-rose-700 hover:underline shrink-0">in session</a>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                </details>
+                                            @elseif($rk === 'shared_ip_session')
+                                                <details class="group rounded-md border border-amber-100 bg-amber-50/60 open:bg-amber-50">
+                                                    <summary class="cursor-pointer list-none px-2.5 py-1.5 flex items-center justify-between gap-2">
+                                                        <span class="text-[12px] font-semibold text-amber-900">
+                                                            <i class="fas fa-network-wired text-[11px] mr-1"></i>
+                                                            Shared IP ({{ $r['ip'] }}) with {{ $r['count'] }} students in this session
+                                                        </span>
+                                                        <i class="fas fa-chevron-down text-[10px] text-amber-800 transition-transform group-open:rotate-180"></i>
+                                                    </summary>
+                                                    <div class="px-2.5 pb-2 pt-1 space-y-1 text-[11.5px] text-amber-950">
+                                                        <p class="text-[10.5px] text-amber-800/90">
+                                                            More than {{ $r['threshold'] }} distinct students hit the same IP for this session.
+                                                        </p>
+                                                        @foreach($r['accounts'] as $acct)
+                                                            <div class="flex items-baseline justify-between gap-2 bg-white/70 rounded px-2 py-1 border border-amber-100">
+                                                                <div class="min-w-0">
+                                                                    <p class="font-mono font-semibold text-amber-950 truncate">{{ $acct['index_number'] }}</p>
+                                                                    <p class="text-[10.5px] text-amber-800/95 truncate">{{ $acct['full_name'] ?: '—' }}@if(!empty($acct['class_name'])) · {{ $acct['class_name'] }}@endif</p>
+                                                                </div>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                </details>
+                                            @elseif($rk === 'fingerprint_history')
+                                                <details class="group rounded-md border border-rose-100 bg-rose-50/60 open:bg-rose-50">
+                                                    <summary class="cursor-pointer list-none px-2.5 py-1.5 flex items-center justify-between gap-2">
+                                                        <span class="text-[12px] font-semibold text-rose-800">
+                                                            <i class="fas fa-history text-[11px] mr-1"></i>
+                                                            This device has been used on {{ $r['count'] }} accounts historically
+                                                        </span>
+                                                        <i class="fas fa-chevron-down text-[10px] text-rose-700 transition-transform group-open:rotate-180"></i>
+                                                    </summary>
+                                                    <div class="px-2.5 pb-2 pt-1 space-y-1 text-[11.5px] text-rose-900">
+                                                        <p class="font-mono text-[10.5px] text-rose-700/80">
+                                                            fingerprint <span class="font-semibold">{{ $r['fingerprint'] }}</span>
+                                                            @if(!empty($r['truncated']))
+                                                                · showing 10 most recent
+                                                            @endif
+                                                        </p>
+                                                        @foreach($r['accounts'] as $acct)
+                                                            <div class="flex items-baseline justify-between gap-2 bg-white/70 rounded px-2 py-1 border border-rose-100">
+                                                                <div class="min-w-0">
+                                                                    <p class="font-mono font-semibold text-rose-900 truncate">{{ $acct['index_number'] }}</p>
+                                                                    <p class="text-[10.5px] text-rose-700/90 truncate">{{ $acct['full_name'] ?: '—' }}@if(!empty($acct['class_name'])) · {{ $acct['class_name'] }}@endif</p>
+                                                                </div>
+                                                                @if(!empty($acct['marked_at']))
+                                                                    <p class="text-[10px] text-rose-700/80 shrink-0 tabular-nums">{{ \Illuminate\Support\Carbon::parse($acct['marked_at'])->format('M j') }}</p>
+                                                                @endif
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                </details>
+                                            @elseif($rk === 'frequent_device_change')
+                                                <div class="rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-1.5">
+                                                    <p class="text-[12px] font-semibold text-slate-800">
+                                                        <i class="fas fa-mobile-alt text-[11px] mr-1"></i>
+                                                        {{ $r['count'] }} distinct devices in last {{ $r['lookback_days'] }} days
+                                                    </p>
+                                                    @if(!empty($r['fingerprints']))
+                                                        <p class="text-[10.5px] text-slate-600 mt-0.5 font-mono break-all">
+                                                            {{ implode(' · ', $r['fingerprints']) }}
+                                                        </p>
+                                                    @endif
+                                                </div>
+                                            @endif
                                         @endforeach
-                                    </ul>
+
+                                        {{-- Any flat-string reasons we didn't already
+                                             surface above (older rows, future rules). --}}
+                                        @if($unstructuredReasons !== [])
+                                            <ul class="list-disc list-inside text-[12px] text-gray-700 space-y-0.5 pl-1">
+                                                @foreach($unstructuredReasons as $reason)
+                                                    <li>{{ $reason }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+                                    </div>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-[12px] text-gray-600 hidden xl:table-cell">

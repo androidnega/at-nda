@@ -276,6 +276,23 @@ class AdminController extends Controller
 
         $rows = $query->paginate(30)->appends($request->query());
 
+        // Resolve the actual accounts behind each rule for the
+        // visible page only — the reviewer can see which other
+        // students share the fingerprint / IP / device history.
+        // Attached as a transient attribute so the Blade can read
+        // it without another round-trip.
+        if ($hasRiskColumns) {
+            $risk = app(\App\Services\AttendanceRiskService::class);
+            foreach ($rows as $row) {
+                try {
+                    $row->setAttribute('risk_related_accounts', $risk->relatedAccountsFor($row));
+                } catch (\Throwable $e) {
+                    report($e);
+                    $row->setAttribute('risk_related_accounts', []);
+                }
+            }
+        }
+
         $counts = $hasRiskColumns
             ? Attendance::query()
                 ->selectRaw("risk_level, COUNT(*) as c")
