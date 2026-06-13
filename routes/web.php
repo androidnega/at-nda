@@ -37,8 +37,10 @@ use App\Http\Controllers\UniversityController;
 use App\Http\Controllers\VenueController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
+use App\Models\AppRelease;
 use App\Models\Student;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function (Request $request) {
@@ -46,7 +48,24 @@ Route::get('/', function (Request $request) {
         return redirect()->route('dashboard.dashboard');
     }
 
-    return view('home');
+    // Light-touch "latest mobile build" peek for the home-page download
+    // CTA. Cached for 60s so this route stays sub-ms even under load —
+    // the homepage is the most-hit URL on the whole app.
+    $latestApp = Cache::remember('home.latest_android_release', 60, function () {
+        $rel = AppRelease::latestPublishedFor(AppRelease::PLATFORM_ANDROID);
+        if (! $rel || ! $rel->fileExists()) {
+            return null;
+        }
+
+        return [
+            'version_name' => $rel->version_name,
+            'version_code' => (int) $rel->version_code,
+            'size_human' => $rel->humanSize(),
+            'released_at' => optional($rel->released_at)->format('M j, Y'),
+        ];
+    });
+
+    return view('home', ['latestApp' => $latestApp]);
 })->middleware('no-store')->name('home');
 
 // ───── Public mobile-app distribution ─────
