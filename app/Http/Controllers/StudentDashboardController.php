@@ -17,6 +17,7 @@ use App\Services\StudentSessionGuardService;
 use App\Support\AttendanceSessionClassScope;
 use App\Support\CacheVersions;
 use App\Support\PasswordPolicy;
+use App\Support\PostMarkAutoLogout;
 use App\Support\SchemaFeatures;
 use App\Support\StudentSignOutLock;
 use Illuminate\Http\JsonResponse;
@@ -162,7 +163,10 @@ class StudentDashboardController extends Controller
     public function logout(Request $request)
     {
         $studentId = $request->session()->get('student_id');
-        if ($studentId) {
+        $forcePostMark = $request->boolean('post_mark_auto')
+            && PostMarkAutoLogout::consume($request);
+
+        if ($studentId && ! $forcePostMark) {
             $student = Student::find($studentId);
             if ($student && StudentSignOutLock::isSignOutBlocked($student)) {
                 // Keep the student inside their authenticated area while a

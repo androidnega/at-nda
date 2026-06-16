@@ -11,6 +11,7 @@ use App\Services\AuditLogService;
 use App\Services\DeviceFingerprintService;
 use App\Services\OnlineCodeService;
 use App\Support\SchemaFeatures;
+use App\Support\PostMarkAutoLogout;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -139,6 +140,8 @@ class OnlineAttendanceController extends Controller
                 $existing->update(['status' => 'present', 'attendance_time' => now()]);
             }
 
+            PostMarkAutoLogout::arm($request);
+
             return response()->json([
                 'ok'       => true,
                 'message'  => 'You are already marked present for this online session.',
@@ -201,6 +204,8 @@ class OnlineAttendanceController extends Controller
 
         // PART 10 / 11 / 12 — risk scoring (NEVER blocks).
         $this->risk->score($attendance, $student, $session, $deviceLog);
+
+        PostMarkAutoLogout::arm($request);
 
         return response()->json([
             'ok'       => true,

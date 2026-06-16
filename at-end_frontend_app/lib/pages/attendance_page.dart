@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -24,6 +25,7 @@ import '../utils/attendance_flow_mode.dart';
 import '../utils/constants.dart';
 import '../utils/session_attendance_payload.dart';
 import '../widgets/attendance_soft_location_panel.dart';
+import 'login_page.dart';
 import 'qr_scan_page.dart';
 
 /// Step 1: range check → Step 2 (if QR required): scan → submit.
@@ -59,6 +61,8 @@ class _AttendancePageState extends State<AttendancePage> {
   String? _error;
   bool _showSuccessOverlay = false;
   String _successSubtitle = 'You have successfully marked attendance';
+  int _autoLogoutSeconds = 0;
+  Timer? _autoLogoutTimer;
   /// Local DB + optional API `already_marked` on session.
   bool _alreadyMarkedForSession = false;
 
@@ -185,7 +189,42 @@ class _AttendancePageState extends State<AttendancePage> {
   void dispose() {
     _sessionCodeController.dispose();
     _countTimer?.cancel();
+    _autoLogoutTimer?.cancel();
     super.dispose();
+  }
+
+  void _cancelAutoLogoutTimer() {
+    _autoLogoutTimer?.cancel();
+    _autoLogoutTimer = null;
+  }
+
+  Future<void> _forceLogoutAfterMark() async {
+    _cancelAutoLogoutTimer();
+    await OfflineService.clearCurrentStudent();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => appSelectableScope(const LoginPage()),
+      ),
+      (_) => false,
+    );
+  }
+
+  void _startAutoLogoutCountdown(int seconds) {
+    _cancelAutoLogoutTimer();
+    _autoLogoutSeconds = seconds;
+    _autoLogoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_autoLogoutSeconds <= 1) {
+        timer.cancel();
+        unawaited(_forceLogoutAfterMark());
+        return;
+      }
+      setState(() => _autoLogoutSeconds -= 1);
+    });
   }
 
   DateTime? _parseSessionEndTime(Map<String, dynamic> session) {
@@ -1234,8 +1273,8 @@ class _AttendancePageState extends State<AttendancePage> {
     await LastAttendancePrefs.save(sessionId: sid, courseName: course);
   }
 
-  /// Full-screen dim + white card; then pop to home. No SnackBar.
-  /// [playCelebrationFeedback] is false after QR success — chime + haptics already ran in the scanner.
+  /// Full-screen success card, then auto sign-out so a shared phone
+  /// is cleared for the next student (25–35 s, randomised).
   Future<void> _presentSuccessAndPop({
     String? subtitle,
     bool playCelebrationFeedback = true,
@@ -1245,18 +1284,15 @@ class _AttendancePageState extends State<AttendancePage> {
     if (playCelebrationFeedback) {
       await SuccessChime.celebrateAttendanceMarked();
     }
+    final logoutSeconds = 25 + Random().nextInt(11);
+    if (!mounted) return;
     setState(() {
       _showSuccessOverlay = true;
       _isSubmitting = false;
+      _autoLogoutSeconds = logoutSeconds;
       if (subtitle != null) _successSubtitle = subtitle;
     });
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() {
-        _showSuccessOverlay = false;
-      });
-      Navigator.of(context).pop(true);
-    });
+    _startAutoLogoutCountdown(logoutSeconds);
   }
 
   Widget _buildSoftLocationStatusForCard(BuildContext context) {
@@ -1380,6 +1416,27 @@ class _AttendancePageState extends State<AttendancePage> {
                     color: Color(0xFF212121),
                   ),
                 ),
+                if (_autoLogoutSeconds > 0) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    'Signing out in $_autoLogoutSeconds s…',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Next student can sign in after you are logged out.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

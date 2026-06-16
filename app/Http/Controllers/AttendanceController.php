@@ -14,6 +14,7 @@ use App\Services\AuditLogService;
 use App\Support\AttendanceLocation;
 use App\Support\AttendanceMarkLock;
 use App\Support\AttendanceSessionClassScope;
+use App\Support\PostMarkAutoLogout;
 use App\Support\SecureQrToken;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -181,9 +182,12 @@ class AttendanceController extends Controller
         ]);
     }
 
-    public function success(Course $course): View
+    public function success(Request $request, Course $course): View
     {
-        return view('attendance.success', compact('course'));
+        $autoLogout = PostMarkAutoLogout::isArmed($request);
+        $logoutSeconds = $autoLogout ? PostMarkAutoLogout::delaySeconds($request) : 0;
+
+        return view('attendance.success', compact('course', 'autoLogout', 'logoutSeconds'));
     }
 
     public function mark(Request $request): JsonResponse
@@ -533,6 +537,8 @@ class AttendanceController extends Controller
         }
 
         if ($existing) {
+            PostMarkAutoLogout::arm($request);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Already marked',
@@ -646,6 +652,8 @@ class AttendanceController extends Controller
             // Broadcasting / queue outage must never break an attendance mark.
             \Log::warning('SessionLiveEvent dispatch failed: '.$e->getMessage(), ['session_id' => $session->id]);
         }
+
+        PostMarkAutoLogout::arm($request);
 
         return response()->json([
             'success' => true,
