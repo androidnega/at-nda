@@ -172,6 +172,7 @@ class SessionController extends Controller
             'accuracy' => 'nullable|numeric|min:0',
             'index_number' => 'required|string',
             'password' => 'required|string',
+            'client_meta' => 'nullable|array',
         ]);
 
         AttendanceSession::deactivateExpiredSessions();
@@ -201,6 +202,10 @@ class SessionController extends Controller
             $session->gps_accuracy = (float) $validated['accuracy'];
         }
         $session->save();
+
+        if (isset($validated['client_meta']) && is_array($validated['client_meta'])) {
+            \App\Support\SessionFloorAnchor::storeFromClientMeta($session, $validated['client_meta']);
+        }
 
         return response()->json([
             'message' => 'Session location updated',

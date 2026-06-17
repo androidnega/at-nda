@@ -140,7 +140,7 @@ class OnlineAttendanceController extends Controller
                 $existing->update(['status' => 'present', 'attendance_time' => now()]);
             }
 
-            PostMarkAutoLogout::arm($request);
+            PostMarkAutoLogout::arm($request, $session, $student);
 
             return response()->json([
                 'ok'       => true,
@@ -205,7 +205,7 @@ class OnlineAttendanceController extends Controller
         // PART 10 / 11 / 12 — risk scoring (NEVER blocks).
         $this->risk->score($attendance, $student, $session, $deviceLog);
 
-        PostMarkAutoLogout::arm($request);
+        PostMarkAutoLogout::arm($request, $session, $student);
 
         return response()->json([
             'ok'       => true,

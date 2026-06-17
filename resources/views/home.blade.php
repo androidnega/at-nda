@@ -248,6 +248,11 @@
 
             <i class="fas fa-arrow-right app-cta__arrow text-sm" aria-hidden="true"></i>
         </a>
+
+        <div class="mt-3 flex items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 text-[11px] text-slate-600">
+            <i class="fas fa-download text-emerald-600" aria-hidden="true"></i>
+            <span><span class="font-bold tabular-nums text-slate-800">{{ number_format((int) ($appDownloadCount ?? 0)) }}</span> people downloaded the app</span>
+        </div>
         @endif
     </div>
 </div>

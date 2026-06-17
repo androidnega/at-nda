@@ -12,8 +12,11 @@ use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Services\AttendanceOfflineSyncService;
 use App\Services\MissedSessionWarningService;
+use App\Support\AttendanceLocation;
 use App\Support\PasswordPolicy;
+use App\Support\PostMarkAutoLogout;
 use App\Support\SecureQrToken;
+use App\Support\SessionFloorAnchor;
 use App\Support\StudentApiPayload;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -272,7 +275,15 @@ class AttendanceController extends Controller
         }
 
         if (! $supplementalRepMark) {
-            $geofenceResponse = $this->validateSessionGeofence($session, $course, $latitude, $longitude, $accuracyMeters);
+            $clientMeta = $this->parseClientMeta($validated['client_meta'] ?? null);
+            $geofenceResponse = $this->validateSessionGeofence(
+                $session,
+                $course,
+                $latitude,
+                $longitude,
+                $accuracyMeters,
+                $clientMeta,
+            );
             if ($geofenceResponse !== null) {
                 return $geofenceResponse;
             }
@@ -507,6 +518,7 @@ class AttendanceController extends Controller
             'already_marked' => ! $created,
             'attendance_uuid' => $attendanceUuid !== '' ? $attendanceUuid : null,
             'attendance_id' => $createdRowId,
+            'auto_logout_seconds' => PostMarkAutoLogout::armForMobile($student, $session),
         ]);
     }
 
@@ -766,7 +778,8 @@ class AttendanceController extends Controller
         Course $course,
         ?float $lat,
         ?float $lng,
-        ?float $horizontalAccuracyMeters = null
+        ?float $horizontalAccuracyMeters = null,
+        array $clientMeta = [],
     ): ?JsonResponse {
         if (!$session->requiresLocation()) {
             return null;
@@ -785,32 +798,39 @@ class AttendanceController extends Controller
 
         $allowedMeters = $session->allowedGeofenceRadiusMeters($course);
 
-        $distanceMeters = $this->haversineDistanceMeters(
+        $distanceMeters = AttendanceLocation::distanceMeters(
             (float) $session->location_lat,
             (float) $session->location_lng,
             $lat,
             $lng
         );
 
-        // Align with typical mobile UI: "in range" if the uncertainty circle can overlap the geofence
-        // (distance <= R + accuracy), capped to limit abuse if a client sends a fake huge accuracy.
+        $floorMatches = SessionFloorAnchor::floorMatches($session, $clientMeta);
+
+        if (AttendanceLocation::passesGeofenceCheck(
+            $distanceMeters,
+            $allowedMeters,
+            $horizontalAccuracyMeters,
+            $clientMeta,
+            $floorMatches,
+        )) {
+            return null;
+        }
+
         $cap = (int) config('app.geofence_accuracy_slack_cap_m', 120);
         $slack = $horizontalAccuracyMeters !== null
             ? min($cap, max(0.0, $horizontalAccuracyMeters))
             : 0.0;
-        $effectiveLimit = $allowedMeters + $slack;
+        $effectiveLimit = $allowedMeters + $slack + ($floorMatches ? (int) config('app.geofence_floor_match_bonus_m', 30) : 0);
 
-        if ($distanceMeters > $effectiveLimit) {
-            return response()->json([
-                'message' => 'Out of range',
-                'distance_meters' => (int) round($distanceMeters),
-                'allowed_meters' => $allowedMeters,
-                'accuracy_slack_meters' => (int) round($slack),
-                'effective_limit_meters' => (int) round($effectiveLimit),
-            ], 403);
-        }
-
-        return null;
+        return response()->json([
+            'message' => 'Out of range',
+            'distance_meters' => (int) round($distanceMeters),
+            'allowed_meters' => $allowedMeters,
+            'accuracy_slack_meters' => (int) round($slack),
+            'effective_limit_meters' => (int) round($effectiveLimit),
+            'floor_match' => $floorMatches,
+        ], 403);
     }
 
     /**
@@ -860,7 +880,8 @@ class AttendanceController extends Controller
         AttendanceSession $session,
         Course $course,
         ?float $lat,
-        ?float $lng
+        ?float $lng,
+        array $clientMeta = [],
     ): bool {
         if (! $session->requiresLocation() || ! $session->hasLocation()) {
             return false;
@@ -868,14 +889,39 @@ class AttendanceController extends Controller
         if ($lat === null || $lng === null) {
             return true;
         }
-        $distanceMeters = $this->haversineDistanceMeters(
+        $distanceMeters = AttendanceLocation::distanceMeters(
             (float) $session->location_lat,
             (float) $session->location_lng,
             $lat,
             $lng
         );
         $allowedMeters = $session->allowedGeofenceRadiusMeters($course);
-        return $distanceMeters > $allowedMeters;
+        $floorMatches = SessionFloorAnchor::floorMatches($session, $clientMeta);
+
+        return ! AttendanceLocation::passesGeofenceCheck(
+            $distanceMeters,
+            $allowedMeters,
+            null,
+            $clientMeta,
+            $floorMatches,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function parseClientMeta(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 
     private function resolveSession(array $validated, ?Course $course, ?string $sessionToken, Student $student): ?AttendanceSession

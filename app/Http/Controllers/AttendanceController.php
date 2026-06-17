@@ -16,6 +16,7 @@ use App\Support\AttendanceMarkLock;
 use App\Support\AttendanceSessionClassScope;
 use App\Support\PostMarkAutoLogout;
 use App\Support\SecureQrToken;
+use App\Support\SessionFloorAnchor;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -90,6 +91,7 @@ class AttendanceController extends Controller
             'course_id' => 'required|exists:courses,id',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
+            'horizontal_accuracy' => 'nullable|numeric|min:0|max:2000',
             'session_token' => 'nullable|string',
             'session_id' => 'nullable|integer',
         ]);
@@ -154,19 +156,16 @@ class AttendanceController extends Controller
             $lat = $validated['latitude'] ?? null;
             $lng = $validated['longitude'] ?? null;
             if ($lat !== null && $lng !== null && is_numeric($lat) && is_numeric($lng)) {
-                $distance = $this->distance(
-                    (float) $session->location_lat,
-                    (float) $session->location_lng,
+                $reject = $this->geofenceRejectResponse(
+                    $session,
+                    $course,
                     (float) $lat,
-                    (float) $lng
+                    (float) $lng,
+                    $this->parseClientMetaArray($validated['client_meta'] ?? null),
+                    isset($validated['horizontal_accuracy']) ? (float) $validated['horizontal_accuracy'] : null,
                 );
-                if ($distance > $session->allowedGeofenceRadiusMeters($course)) {
-                    return response()->json([
-                        'verified' => false,
-                        'message' => 'Out of range',
-                        'distance' => round($distance),
-                        'allowed_meters' => $session->allowedGeofenceRadiusMeters($course),
-                    ], 422);
+                if ($reject !== null) {
+                    return $reject;
                 }
             }
         }
@@ -204,6 +203,8 @@ class AttendanceController extends Controller
             'qr_t' => 'nullable|integer',
             'wifi_ssid' => 'nullable|string|max:128',
             'client_meta' => 'nullable',
+            'horizontal_accuracy' => 'nullable|numeric|min:0|max:2000',
+            'location_confidence' => 'nullable|numeric|min:0|max:1',
         ]);
 
         // ---- [QR-DEBUG] inbound payload ----
@@ -351,6 +352,11 @@ class AttendanceController extends Controller
             'supplemental_rep_mark' => $supplementalRepMark,
         ]);
 
+        $clientMeta = $this->parseClientMetaArray($validated['client_meta'] ?? null);
+        $accuracyM = isset($validated['horizontal_accuracy'])
+            ? (float) $validated['horizontal_accuracy']
+            : (isset($clientMeta['gps_accuracy_m']) ? (float) $clientMeta['gps_accuracy_m'] : null);
+
         if (! $supplementalRepMark && $mode === 'qr') {
             if (! $isClassRep) {
                 $qrErr = $this->validateQrProofJson($session, $validated, $debugId);
@@ -363,19 +369,19 @@ class AttendanceController extends Controller
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
             if (! empty($validated['latitude']) && ! empty($validated['longitude'])) {
-                $distance = $this->distance(
-                    (float) $session->location_lat,
-                    (float) $session->location_lng,
+                $reject = $this->geofenceRejectResponse(
+                    $session,
+                    $course,
                     (float) $validated['latitude'],
-                    (float) $validated['longitude']
+                    (float) $validated['longitude'],
+                    $clientMeta,
+                    $accuracyM,
                 );
-                if ($distance > $session->allowedGeofenceRadiusMeters($course)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Out of range',
-                        'distance' => round($distance),
-                        'allowed_meters' => $session->allowedGeofenceRadiusMeters($course),
-                    ], 422);
+                if ($reject !== null) {
+                    $rejectData = $reject->getData(true);
+                    $rejectData['success'] = false;
+
+                    return response()->json($rejectData, $reject->getStatusCode());
                 }
             }
             if (! $isClassRep) {
@@ -389,19 +395,19 @@ class AttendanceController extends Controller
                 return response()->json(['success' => false, 'message' => 'Session has no location set'], 422);
             }
             if (! empty($validated['latitude']) && ! empty($validated['longitude'])) {
-                $distance = $this->distance(
-                    (float) $session->location_lat,
-                    (float) $session->location_lng,
+                $reject = $this->geofenceRejectResponse(
+                    $session,
+                    $course,
                     (float) $validated['latitude'],
-                    (float) $validated['longitude']
+                    (float) $validated['longitude'],
+                    $clientMeta,
+                    $accuracyM,
                 );
-                if ($distance > $session->allowedGeofenceRadiusMeters($course)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Out of range',
-                        'distance' => round($distance),
-                        'allowed_meters' => $session->allowedGeofenceRadiusMeters($course),
-                    ], 422);
+                if ($reject !== null) {
+                    $rejectData = $reject->getData(true);
+                    $rejectData['success'] = false;
+
+                    return response()->json($rejectData, $reject->getStatusCode());
                 }
             }
         } elseif (! $supplementalRepMark && $mode === 'wifi') {
@@ -507,13 +513,14 @@ class AttendanceController extends Controller
 
             $outsideRange = false;
             if ($session->hasLocation() && ! empty($validated['latitude']) && ! empty($validated['longitude'])) {
-                $distance = $this->distance(
-                    (float) $session->location_lat,
-                    (float) $session->location_lng,
+                $outsideRange = $this->geofenceRejectResponse(
+                    $session,
+                    $course,
                     (float) $validated['latitude'],
-                    (float) $validated['longitude']
-                );
-                $outsideRange = $distance > $session->allowedGeofenceRadiusMeters($course);
+                    (float) $validated['longitude'],
+                    $clientMeta,
+                    $accuracyM,
+                ) !== null;
             }
 
             $checkOutAt = $now;
@@ -537,7 +544,7 @@ class AttendanceController extends Controller
         }
 
         if ($existing) {
-            PostMarkAutoLogout::arm($request);
+            PostMarkAutoLogout::arm($request, $session, $student);
 
             return response()->json([
                 'success' => true,
@@ -653,7 +660,7 @@ class AttendanceController extends Controller
             \Log::warning('SessionLiveEvent dispatch failed: '.$e->getMessage(), ['session_id' => $session->id]);
         }
 
-        PostMarkAutoLogout::arm($request);
+        PostMarkAutoLogout::arm($request, $session, $student);
 
         return response()->json([
             'success' => true,
@@ -827,5 +834,61 @@ class AttendanceController extends Controller
         );
 
         return [$latF, $lngF, $distance];
+    }
+
+    /**
+     * @param  array<string, mixed>  $clientMeta
+     */
+    private function geofenceRejectResponse(
+        AttendanceSession $session,
+        Course $course,
+        float $lat,
+        float $lng,
+        array $clientMeta = [],
+        ?float $horizontalAccuracyMeters = null,
+    ): ?JsonResponse {
+        $distance = AttendanceLocation::distanceMeters(
+            (float) $session->location_lat,
+            (float) $session->location_lng,
+            $lat,
+            $lng
+        );
+        $allowed = $session->allowedGeofenceRadiusMeters($course);
+        $floorMatches = SessionFloorAnchor::floorMatches($session, $clientMeta);
+
+        if (AttendanceLocation::passesGeofenceCheck(
+            $distance,
+            $allowed,
+            $horizontalAccuracyMeters,
+            $clientMeta,
+            $floorMatches,
+        )) {
+            return null;
+        }
+
+        return response()->json([
+            'verified' => false,
+            'message' => 'Out of range',
+            'distance' => (int) round($distance),
+            'allowed_meters' => $allowed,
+            'floor_match' => $floorMatches,
+        ], 422);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function parseClientMetaArray(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 }

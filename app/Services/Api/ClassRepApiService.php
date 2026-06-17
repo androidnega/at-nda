@@ -312,6 +312,7 @@ class ClassRepApiService
             'location_lng' => 'nullable|numeric',
             'attendance_range_m' => 'nullable|integer|min:1|max:500',
             'allowed_wifi_ssid' => 'required_if:mode,wifi|nullable|string|max:128',
+            'client_meta' => 'nullable|array',
         ]);
         $validated['mode'] = $forcedMode;
 
@@ -451,6 +452,14 @@ class ClassRepApiService
 
         $sessionModel->refresh();
         $sessionModel->loadMissing(['course.lecturer', 'course.venueRelation', 'lecturer', 'venue', 'attendanceWeek']);
+
+        if ($needsAnchor) {
+            $clientMeta = is_array($validated['client_meta'] ?? null)
+                ? $validated['client_meta']
+                : [];
+            \App\Support\SessionFloorAnchor::storeFromClientMeta($sessionModel, $clientMeta);
+        }
+
         $rows = ActiveSessionListBuilder::buildRows(collect([$sessionModel]), $student);
         $row = $rows[0] ?? null;
 

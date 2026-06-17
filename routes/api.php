@@ -14,7 +14,7 @@ use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\FacultyController;
 use App\Http\Controllers\Api\LecturerMobileApiController;
 use App\Http\Controllers\Api\StudentAttendanceInsightsController;
-use App\Http\Controllers\Api\NotificationsController;
+use App\Http\Controllers\Api\OnlineAttendanceController as ApiOnlineAttendanceController;
 use App\Http\Controllers\Api\SessionController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\StudentController;
@@ -130,6 +130,7 @@ Route::post('/sessions/{session}/location', [SessionController::class, 'updateLo
 Route::get('/settings', [SettingsController::class, 'index']);
 Route::post('/notifications/pending', [NotificationsController::class, 'pending']);
 Route::post('/attendance', [AttendanceController::class, 'markAttendance']);
+Route::post('/attendance/online-code', [ApiOnlineAttendanceController::class, 'submitCode']);
 Route::post('/attendance/checkout', [AttendanceController::class, 'checkout']);
 Route::get('/attendance/sync', [AttendanceController::class, 'sync']);
 

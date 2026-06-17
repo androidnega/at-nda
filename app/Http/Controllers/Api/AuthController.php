@@ -8,6 +8,7 @@ use App\Models\Lecturer;
 use App\Models\Student;
 use App\Models\SystemSetting;
 use App\Support\PasswordPolicy;
+use App\Support\PostMarkSessionLock;
 use App\Support\StudentApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -84,6 +85,13 @@ class AuthController extends Controller
 
         if (! PasswordPolicy::matches($password, $student->password)) {
             return response()->json(['message' => 'Wrong password'], 401);
+        }
+
+        if ($lock = PostMarkSessionLock::activeLock($student)) {
+            return response()->json([
+                'message' => PostMarkSessionLock::blockMessage($lock),
+                'error_code' => 'post_mark_session_lock',
+            ], 403);
         }
 
         return response()->json($this->loginSuccessPayload($student));

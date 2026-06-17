@@ -38,6 +38,7 @@ use App\Http\Controllers\VenueController;
 use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\AppRelease;
+use App\Support\AppDownloadStats;
 use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -65,7 +66,10 @@ Route::get('/', function (Request $request) {
         ];
     });
 
-    return view('home', ['latestApp' => $latestApp]);
+    return view('home', [
+        'latestApp' => $latestApp,
+        'appDownloadCount' => AppDownloadStats::total(),
+    ]);
 })->middleware('no-store')->name('home');
 
 // ───── Public mobile-app distribution ─────

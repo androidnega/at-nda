@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\AttendanceSession;
+use App\Models\Student;
 use Illuminate\Http\Request;
 
 /**
@@ -23,14 +25,35 @@ class PostMarkAutoLogout
      * Pick a random delay (25–35 s) and store it in session so the
      * success page and the logout endpoint can honour the same window.
      */
-    public static function arm(Request $request): int
+    public static function arm(Request $request, ?AttendanceSession $session = null, ?Student $student = null): int
     {
         $seconds = random_int(self::MIN_SECONDS, self::MAX_SECONDS);
-        // Grace beyond the countdown so a slow client can still POST logout.
+        // Grace beyond the silent window so a slow client can still POST logout.
         $request->session()->put(self::SESSION_UNTIL, now()->addSeconds($seconds + 45)->timestamp);
         $request->session()->put(self::SESSION_DELAY, $seconds);
 
+        if ($session !== null) {
+            $student ??= self::studentFromRequest($request);
+            if ($student !== null) {
+                PostMarkSessionLock::lock($student, $session);
+            }
+        }
+
         return $seconds;
+    }
+
+    public static function armForMobile(Student $student, AttendanceSession $session): int
+    {
+        PostMarkSessionLock::lock($student, $session);
+
+        return random_int(self::MIN_SECONDS, self::MAX_SECONDS);
+    }
+
+    private static function studentFromRequest(Request $request): ?Student
+    {
+        $id = $request->session()->get('student_id');
+
+        return $id ? Student::find($id) : null;
     }
 
     public static function delaySeconds(Request $request): int

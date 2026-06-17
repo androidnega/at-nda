@@ -93,6 +93,37 @@ final class AttendanceLocation
      * Returns 'in' when either the distance or the radius is unknown,
      * because we should NEVER paint someone red without evidence.
      */
+    /**
+     * Server-side geofence pass: within proximity (e.g. 4 m), within radius
+     * (+ optional accuracy slack), or same floor as the session anchor.
+     *
+     * @param  array<string, mixed>  $clientMeta
+     */
+    public static function passesGeofenceCheck(
+        float $distanceMeters,
+        int $allowedMeters,
+        ?float $horizontalAccuracyMeters = null,
+        array $clientMeta = [],
+        bool $floorMatches = false,
+    ): bool {
+        $proximity = max(1, (int) config('app.geofence_proximity_pass_m', 4));
+        if ($distanceMeters <= $proximity) {
+            return true;
+        }
+
+        if ($floorMatches) {
+            $floorBonus = max(0, (int) config('app.geofence_floor_match_bonus_m', 30));
+            $allowedMeters += $floorBonus;
+        }
+
+        $cap = (int) config('app.geofence_accuracy_slack_cap_m', 120);
+        $slack = $horizontalAccuracyMeters !== null
+            ? min($cap, max(0.0, $horizontalAccuracyMeters))
+            : 0.0;
+
+        return $distanceMeters <= ($allowedMeters + $slack);
+    }
+
     public static function colorBucket(?int $distanceM, ?int $radiusM): string
     {
         if ($distanceM === null || $radiusM === null || $radiusM <= 0) {

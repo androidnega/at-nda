@@ -311,6 +311,8 @@
 
 @push('scripts')
 @if($activeSession ?? null)
+<script src="{{ asset('js/attendance-geofence.js') }}"></script>
+<script src="{{ asset('js/attendance-offline.js') }}"></script>
 @if($requireFaceVerification)
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 @endif
@@ -325,6 +327,24 @@ function runAttendanceFlow() {
     const sessionMode = {!! json_encode($activeSession?->mode ?? 'location') !!};
     const requireFaceVerification = {!! json_encode((bool) ($settings->enable_face_verification ?? true)) !!};
     const configuredFaceThreshold = {!! json_encode((float) ($settings->face_match_threshold ?? 0.5)) !!};
+    const geofenceAnchor = {!! json_encode(
+        ($activeSession && $activeSession->requiresLocation() && $activeSession->hasLocation())
+            ? ['lat' => (float) $activeSession->location_lat, 'lng' => (float) $activeSession->location_lng]
+            : null
+    ) !!};
+    const geofenceAllowedM = {!! json_encode(
+        ($activeSession && $activeSession->requiresLocation())
+            ? (int) $activeSession->allowedGeofenceRadiusMeters($course)
+            : 0
+    ) !!};
+    const geofenceCfg = {
+        proximityPassM: {!! json_encode((int) config('app.geofence_proximity_pass_m', 4)) !!},
+        accuracySlackCapM: {!! json_encode((int) config('app.geofence_accuracy_slack_cap_m', 120)) !!},
+        floorMatchBonusM: {!! json_encode((int) config('app.geofence_floor_match_bonus_m', 30)) !!},
+    };
+    const markUrl = {!! json_encode(route('web.attendance.mark')) !!};
+    const successPageUrl = {!! json_encode(route('web.attendance.success', $course)) !!};
+    let lastLocationFix = null;
     const skipLocation = true;
     const sessionTokenInput = document.getElementById('session_token');
     const sessionPkInput = document.getElementById('session_pk');
@@ -633,6 +653,12 @@ function runAttendanceFlow() {
         }
         if (latInput && latInput.value) payload.latitude = parseFloat(latInput.value);
         if (lngInput && lngInput.value) payload.longitude = parseFloat(lngInput.value);
+        if (lastLocationFix) {
+            payload.horizontal_accuracy = lastLocationFix.accuracy;
+            payload.location_confidence = lastLocationFix.confidence;
+            if (lastLocationFix.altitude != null) payload.altitude_m = lastLocationFix.altitude;
+            payload.client_validated_geofence = !!lastLocationFix.clientValidated;
+        }
         payload.client_meta = collectClientMeta();
         return payload;
     }
@@ -650,7 +676,7 @@ function runAttendanceFlow() {
                 : '';
             var tz = '';
             try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-            return {
+            var meta = {
                 platform: (navigator.platform || '').slice(0, 32),
                 screen: screenStr,
                 tz: tz,
@@ -661,16 +687,50 @@ function runAttendanceFlow() {
                 touch: 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0,
                 app: 'web'
             };
+            if (lastLocationFix) {
+                meta.gps_accuracy_m = lastLocationFix.accuracy;
+                meta.location_confidence = lastLocationFix.confidence;
+                meta.gps_samples = lastLocationFix.sampleCount;
+                if (lastLocationFix.altitude != null) meta.altitude_m = lastLocationFix.altitude;
+                if (lastLocationFix.distanceM != null) meta.distance_m = Math.round(lastLocationFix.distanceM);
+            }
+            return meta;
         } catch (e) {
             return null;
         }
     }
 
     async function submitAttendance(payload, delayRedirect) {
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        const csrf = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+        function goSuccess(data, offlineQueued) {
+            attendanceMarked = true;
+            if (typeof setCtaState === 'function') {
+                setCtaState('success', {
+                    hint: offlineQueued
+                        ? 'Saved offline — will sync automatically.'
+                        : 'Redirecting…'
+                });
+            }
+            var nextUrl = (data && data.redirect) ? String(data.redirect).trim() : successPageUrl;
+            function go() {
+                try {
+                    var resolved = new URL(nextUrl, window.location.href);
+                    window.location.href = resolved.href;
+                } catch (urlErr) {
+                    showStatus('Attendance recorded. Check your dashboard for confirmation.', 'success');
+                }
+            }
+            if (delayRedirect) {
+                setTimeout(go, delayRedirect);
+            } else {
+                go();
+            }
+        }
+
         try {
-            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-            const csrf = csrfMeta ? csrfMeta.getAttribute('content') : '';
-            const res = await fetch('{{ route("web.attendance.mark") }}', {
+            const res = await fetch(markUrl, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -696,27 +756,29 @@ function runAttendanceFlow() {
                 }
                 return;
             }
-            if (data.success && data.redirect) {
-                attendanceMarked = true;
-                if (typeof setCtaState === 'function') setCtaState('success', { hint: 'Redirecting…' });
-                var nextUrl = String(data.redirect).trim();
-                function go() {
-                    try {
-                        var resolved = new URL(nextUrl, window.location.href);
-                        window.location.href = resolved.href;
-                    } catch (urlErr) {
-                        showStatus('Could not open the success page. Your attendance may still be saved — check with your lecturer.', 'error');
-                    }
-                }
-                if (delayRedirect) {
-                    setTimeout(go, delayRedirect);
-                } else {
-                    go();
-                }
+            if (data.success) {
+                goSuccess(data, false);
             } else {
                 showStatus(data.message || 'Error', 'error');
             }
         } catch (err) {
+            // Offline-first: if the browser already validated geofence locally,
+            // queue the mark and show success immediately.
+            if (payload.client_validated_geofence && window.AttendanceOffline) {
+                try {
+                    await AttendanceOffline.enqueue({
+                        url: markUrl,
+                        csrf: csrf,
+                        payload: payload,
+                    });
+                    await AttendanceOffline.registerBackgroundSync();
+                    goSuccess({ redirect: successPageUrl }, true);
+                    return;
+                } catch (queueErr) {
+                    showStatus('Could not save attendance offline. Try again when online.', 'error');
+                    return;
+                }
+            }
             showStatus((err && err.message) ? err.message : 'Network error. Check your connection and try again.', 'error');
         }
     }
@@ -929,6 +991,10 @@ function runAttendanceFlow() {
             body.latitude = lat;
             body.longitude = lng;
         }
+        if (lastLocationFix && lastLocationFix.accuracy != null) {
+            body.horizontal_accuracy = lastLocationFix.accuracy;
+            body.location_confidence = lastLocationFix.confidence;
+        }
         var sessionTokenInput = document.getElementById('session_token');
         var sessionPkInput = document.getElementById('session_pk');
         if (sessionTokenInput && sessionTokenInput.value) {
@@ -994,31 +1060,39 @@ function runAttendanceFlow() {
     window.attendanceSetCtaState = setCtaState;
 
     /**
-     * Ask the browser for a GPS fix *up front* (so the OS permission
-     * popup appears in the same tap), with a sensible cascade:
-     *   - high-accuracy GPS, 7 s timeout
-     *   - low-accuracy Wi-Fi/network, 12 s timeout
-     * Resolves with { lat, lng, accuracy } or null if both timed out.
-     * Permission-denied returns { denied: true } so the caller can
-     * surface a clear message instead of looping into low-accuracy.
+     * Multi-sample high-accuracy GPS with outlier rejection and
+     * confidence-based geofence validation (client-first).
      */
     async function acquireStudentGps() {
         if (!('geolocation' in navigator)) return null;
-        const getPos = (opts) => new Promise((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, opts));
-        try {
-            const p = await getPos({ enableHighAccuracy: true, timeout: 7000, maximumAge: 30000 });
-            return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy || 0 };
-        } catch (e1) {
-            if (e1 && e1.code === 1) return { denied: true };
+        if (!window.AttendanceGeofence) {
+            // Fallback: single reading
+            try {
+                const p = await new Promise((resolve, reject) =>
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true, timeout: 7000, maximumAge: 0
+                    }));
+                return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy || 0 };
+            } catch (e) {
+                if (e && e.code === 1) return { denied: true };
+                return null;
+            }
         }
-        try {
-            const p = await getPos({ enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 });
-            return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy || 0 };
-        } catch (e2) {
-            if (e2 && e2.code === 1) return { denied: true };
+        return AttendanceGeofence.collectRefinedFix({
+            minSamples: 5,
+            maxSamples: 8,
+            budgetMs: 3000,
+            poorAccuracyM: 50,
+            extendedBudgetMs: 5000,
+        });
+    }
+
+    function validateClientGeofence(fix) {
+        if (!geofenceAnchor || !geofenceAllowedM || !window.AttendanceGeofence) {
+            return { passes: true, confidence: 0.5, distanceM: null };
         }
-        return null;
+        var scored = AttendanceGeofence.scoreConfidence(fix, geofenceAnchor, geofenceAllowedM, geofenceCfg);
+        return scored;
     }
 
     async function runLocationStep(indexNumber) {
@@ -1035,11 +1109,35 @@ function runAttendanceFlow() {
             setCtaState('error', { label: 'Allow location', hint: 'Tap the lock icon in the address bar to allow location, then try again.' });
             return;
         }
-        if (fix && typeof fix.lat === 'number') {
-            if (latInput) latInput.value = String(fix.lat);
-            if (lngInput) lngInput.value = String(fix.lng);
+        if (fix && fix.error) {
+            setCtaState('error', { hint: fix.error });
+            showStatus(fix.error, 'error');
+            return;
         }
-        // 2. Now verify with the server (it does the geofence check).
+        if (!fix || typeof fix.lat !== 'number') {
+            setCtaState('error', { hint: 'Could not get a GPS fix. Move near a window and try again.' });
+            showStatus('Could not get a GPS fix. Try again outdoors or near a window.', 'error');
+            return;
+        }
+
+        var geoCheck = validateClientGeofence(fix);
+        fix.confidence = geoCheck.confidence;
+        fix.distanceM = geoCheck.distanceM;
+        fix.clientValidated = geoCheck.passes;
+        lastLocationFix = fix;
+
+        if (geofenceAnchor && !geoCheck.passes) {
+            var distMsg = geoCheck.distanceM != null
+                ? ('About ' + Math.round(geoCheck.distanceM) + ' m away (±' + Math.round(fix.accuracy || 0) + ' m GPS). Move closer.')
+                : 'You appear outside the attendance area.';
+            setCtaState('error', { hint: distMsg });
+            showStatus(distMsg, 'error');
+            return;
+        }
+
+        if (latInput) latInput.value = String(fix.lat);
+        if (lngInput) lngInput.value = String(fix.lng);
+        // 2. Light server verify (face / session) — geofence already client-validated.
         setCtaState('got_location');
         try {
             const result = await postVerify(indexNumber, fix ? fix.lat : null, fix ? fix.lng : null);
@@ -1241,6 +1339,14 @@ function runAttendanceFlow() {
             submitAttendance(payload).finally(function() {
                 sessionCodeBtn.disabled = false;
             });
+        });
+    }
+
+    if (window.AttendanceOffline) {
+        AttendanceOffline.registerServiceWorker({!! json_encode(asset('sw-attendance.js')) !!});
+        AttendanceOffline.bindOnlineDrain(markUrl, function () {
+            var m = document.querySelector('meta[name="csrf-token"]');
+            return m ? m.getAttribute('content') : '';
         });
     }
 }

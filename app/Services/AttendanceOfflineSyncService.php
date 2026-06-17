@@ -8,6 +8,7 @@ use App\Models\AttendanceSession;
 use App\Models\Course;
 use App\Models\Student;
 use App\Support\AttendanceLocation;
+use App\Support\SessionFloorAnchor;
 use App\Support\SchemaFeatures;
 use App\Support\SecureQrToken;
 use Carbon\Carbon;
@@ -205,7 +206,13 @@ class AttendanceOfflineSyncService
                     (float) $lat,
                     (float) $lng
                 );
-                if ($distance > $session->allowedGeofenceRadiusMeters($course)) {
+                if (! AttendanceLocation::passesGeofenceCheck(
+                    $distance,
+                    $session->allowedGeofenceRadiusMeters($course),
+                    null,
+                    [],
+                    SessionFloorAnchor::floorMatches($session, []),
+                )) {
                     return ['status' => 'rejected', 'reason' => 'out_of_range', 'message' => 'Out of attendance range.'];
                 }
                 $markLat = (float) $lat;

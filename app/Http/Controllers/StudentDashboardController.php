@@ -18,6 +18,7 @@ use App\Support\AttendanceSessionClassScope;
 use App\Support\CacheVersions;
 use App\Support\PasswordPolicy;
 use App\Support\PostMarkAutoLogout;
+use App\Support\PostMarkSessionLock;
 use App\Support\SchemaFeatures;
 use App\Support\StudentSignOutLock;
 use Illuminate\Http\JsonResponse;
@@ -52,6 +53,10 @@ class StudentDashboardController extends Controller
         $student = Student::findByIndex($indexNumber);
         if (! $student) {
             return redirect()->route('home')->with('error', 'We couldn’t find a student account for that ID. Double-check and try again.');
+        }
+
+        if ($lock = PostMarkSessionLock::activeLock($student)) {
+            return redirect()->route('home')->with('error', PostMarkSessionLock::blockMessage($lock));
         }
 
         $request->session()->forget(['pending_password_login_index', 'pending_set_password_index']);
@@ -124,6 +129,10 @@ class StudentDashboardController extends Controller
 
         if (! PasswordPolicy::matches($validated['password'], $student->password)) {
             return redirect()->back()->withInput()->with('error', 'That password doesn’t match. Try again.');
+        }
+
+        if ($lock = PostMarkSessionLock::activeLock($student)) {
+            return redirect()->route('home')->with('error', PostMarkSessionLock::blockMessage($lock));
         }
 
         $request->session()->forget('pending_password_login_index');

@@ -12,10 +12,7 @@
         <p class="text-gray-600 mb-4">{{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}</p>
 
         @if(! empty($autoLogout))
-            <p id="success-redirect-note" class="text-sm text-slate-500">
-                Signing out in {{ (int) $logoutSeconds }} seconds…
-            </p>
-            <p class="text-[11px] text-slate-400 mt-2">The next student can sign in when you are logged out.</p>
+            <p class="text-sm text-slate-500">You can close this screen. The next student may sign in when the session ends.</p>
             <form id="auto-logout-form" method="POST" action="{{ route('student.logout') }}" class="hidden">
                 @csrf
                 <input type="hidden" name="post_mark_auto" value="1">
@@ -37,22 +34,10 @@
 (function () {
     @if(! empty($autoLogout))
     var seconds = {{ (int) $logoutSeconds }};
-    var note = document.getElementById('success-redirect-note');
     var form = document.getElementById('auto-logout-form');
-
-    function tick() {
-        if (seconds <= 0) {
-            if (note) note.textContent = 'Signing out…';
-            if (form) form.submit();
-            return;
-        }
-        if (note) {
-            note.textContent = 'Signing out in ' + seconds + ' second' + (seconds === 1 ? '' : 's') + '…';
-        }
-        seconds -= 1;
-        setTimeout(tick, 1000);
-    }
-    tick();
+    setTimeout(function () {
+        if (form) form.submit();
+    }, Math.max(1, seconds) * 1000);
     @else
     setTimeout(function () {
         window.location.href = @json(route('dashboard.dashboard'));

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppRelease;
+use App\Support\AppDownloadStats;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -69,6 +70,8 @@ class AppReleaseDownloadController extends Controller
 
     private function stream(AppRelease $release): BinaryFileResponse
     {
+        AppDownloadStats::increment();
+
         $abs = AppRelease::disk()->path($release->apk_path);
         $name = "atenda-{$release->platform}-{$release->version_name}.apk";
 

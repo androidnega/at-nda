@@ -175,4 +175,19 @@ return [
 
     'geofence_accuracy_slack_cap_m' => (int) env('GEOFENCE_ACCURACY_SLACK_CAP_M', 120),
 
+    /*
+    | Always accept marks when the student is within this many metres of the
+    | session anchor (tight proximity pass for indoor / high-accuracy GPS).
+    |
+    */
+
+    'geofence_proximity_pass_m' => (int) env('GEOFENCE_PROXIMITY_PASS_M', 4),
+
+    /*
+    | Extra geofence metres when barometer/altitude confirms same floor.
+    |
+    */
+
+    'geofence_floor_match_bonus_m' => (int) env('GEOFENCE_FLOOR_MATCH_BONUS_M', 30),
+
 ];
