@@ -829,6 +829,41 @@ class ApiService {
         .timeout(httpTimeout);
   }
 
+  /// Online rolling code — `POST /api/attendance/online-code`.
+  static Future<Map<String, dynamic>> submitOnlineCode({
+    required String indexNumber,
+    required int sessionId,
+    required String code,
+    int? courseId,
+    Map<String, dynamic>? clientMeta,
+  }) async {
+    final body = <String, dynamic>{
+      'index_number': indexNumber.trim().toUpperCase(),
+      'session_id': sessionId,
+      'code': code.trim(),
+    };
+    if (courseId != null && courseId > 0) {
+      body['course_id'] = courseId;
+    }
+    if (clientMeta != null && clientMeta.isNotEmpty) {
+      body['client'] = clientMeta;
+    }
+    final response = await post('attendance/online-code', body);
+    Map<String, dynamic> parsed = {};
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        parsed = decoded;
+      }
+    } catch (_) {}
+    if (response.statusCode >= 400) {
+      final msg = parsed['message']?.toString() ??
+          'Could not submit online attendance code.';
+      throw Exception(msg);
+    }
+    return parsed;
+  }
+
   /// Profile fields (name/email/phone) — Laravel: `POST /api/update-profile`
   static Future<http.Response> updateProfile(Map<String, dynamic> body) =>
       post('update-profile', body);

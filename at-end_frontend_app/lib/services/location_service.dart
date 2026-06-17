@@ -22,32 +22,61 @@ class LocationAccuracyTooLowException implements Exception {
       'Move to an open area and try again.';
 }
 
+/// Thrown when readings jump impossibly fast (spoof / teleport).
+class LocationSpoofDetectedException implements Exception {
+  const LocationSpoofDetectedException();
+
+  @override
+  String toString() =>
+      'Location readings were inconsistent. Disable mock-location apps and try again.';
+}
+
+/// Refined multi-sample fix with confidence scoring for geofence checks.
+class RefinedLocationFix {
+  const RefinedLocationFix({
+    required this.position,
+    required this.confidence,
+    required this.sampleCount,
+    required this.distanceMeters,
+    this.passesGeofence = false,
+  });
+
+  final Position position;
+  final double confidence;
+  final int sampleCount;
+  final double? distanceMeters;
+  final bool passesGeofence;
+
+  Map<String, dynamic> clientMetaExtras() => {
+        'gps_accuracy_m': position.accuracy,
+        'location_confidence': confidence,
+        'gps_samples': sampleCount,
+        if (position.altitude.isFinite && position.altitude.abs() > 0.01)
+          'altitude_m': position.altitude,
+        if (distanceMeters != null) 'distance_m': distanceMeters!.round(),
+      };
+}
+
 /// GPS location and range checking for attendance validation.
-/// Uses multiple high-accuracy fixes and picks the best (lowest horizontal uncertainty),
-/// then applies a geofence tolerance based on reported GPS accuracy (reduces false
-/// "out of range" when indoors / weak signal).
 class LocationService {
-  static const Duration _fixTimeLimit = Duration(seconds: 45);
+  static const Duration _fixTimeLimit = Duration(seconds: 12);
 
-  /// Hard ceiling for an attendance fix; above this the position is rejected
-  /// regardless of how many samples we collected. Wider than the typical
-  /// geofence but tight enough that a hostile "huge accuracy" payload still
-  /// fails the server-side cap.
   static const double maxAcceptableAccuracyMeters = 200.0;
+  static const double proximityPassMeters = 4.0;
+  static const double poorAccuracyThresholdM = 50.0;
+  static const double confidenceApproveThreshold = 0.55;
+  static const double maxJumpSpeedMps = 45.0;
 
-  /// High-accuracy fix for lecturer/session start (source of truth for venue GPS).
   static Future<Position> _fixForSessionStart() => Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: _fixTimeLimit,
       );
 
-  /// Fix for student attendance checks — [LocationAccuracy.best] per geofence flow.
   static Future<Position> _fixForAttendance() => Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
-        timeLimit: _fixTimeLimit,
+        timeLimit: const Duration(seconds: 8),
       );
 
-  /// Parse API [lat] / [lng] whether JSON sends numbers or strings.
   static double? parseCoordinate(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();
@@ -59,8 +88,6 @@ class LocationService {
     return double.tryParse(v.toString());
   }
 
-  /// Server [range_meters] + device-reported horizontal accuracy (real-world tolerance).
-  /// [allowedRange] = baseRange + accuracy (invalid accuracy → base only).
   static double adjustedRangeMeters(
     double baseRangeMeters,
     double positionAccuracyMeters,
@@ -89,96 +116,225 @@ class LocationService {
     }
   }
 
-  /// Single fix — best for navigation (session start / venue capture).
   static Future<Position> getCurrentPositionBestNavigation() async {
     await _ensureServiceAndPermission();
     return _fixForSessionStart();
   }
 
-  /// One-shot GPS for POST /sessions/start — phone as source of truth for venue location.
   static Future<Position> getCurrentPositionForSessionStart() async {
     await _ensureServiceAndPermission();
     return _fixForSessionStart();
   }
 
-  /// Best-effort precise fix: warm-up + several samples, keep lowest [accuracy].
-  ///
-  /// Throws [MockLocationDetectedException] when ANY of the samples reports
-  /// [Position.isMocked]; throws [LocationAccuracyTooLowException] when no
-  /// sample comes back tighter than [maxAcceptableAccuracyMeters].
-  static Future<Position> getRefinedPositionForAttendance() async {
-    await _ensureServiceAndPermission();
-
-    // Discard a noisy first fix (common on cold start).
-    try {
-      final warmup = await _fixForAttendance();
-      _rejectIfMocked(warmup);
-    } catch (e) {
-      if (e is MockLocationDetectedException) rethrow;
-      // warmup-only errors are tolerated; the real loop below will retry.
-    }
-
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-
-    Position? best;
-    var bestAcc = double.infinity;
-
-    for (var attempt = 0; attempt < 4; attempt++) {
-      try {
-        final p = await _fixForAttendance();
-        _rejectIfMocked(p);
-        final acc = p.accuracy;
-        if (acc.isFinite && acc >= 0 && acc < bestAcc) {
-          bestAcc = acc;
-          best = p;
-          if (acc <= 20) break;
-        } else {
-          best ??= p;
-        }
-      } catch (e) {
-        if (e is MockLocationDetectedException) rethrow;
-        if (attempt == 3 && best == null) rethrow;
-      }
-      if (attempt < 3) {
-        await Future<void>.delayed(const Duration(milliseconds: 900));
-      }
-    }
-
-    if (best == null) {
-      // No fix at all — let the caller fall back to a single attempt so the
-      // existing error UI is consistent.
-      best = await _fixForAttendance();
-      _rejectIfMocked(best);
-    }
-
-    if (best.accuracy.isFinite && best.accuracy > maxAcceptableAccuracyMeters) {
-      throw LocationAccuracyTooLowException(best.accuracy);
-    }
-
-    if (kDebugMode) {
-      // ignore: avoid_print
-      print(
-        'GPS fix chosen: accuracy=${best.accuracy.toStringAsFixed(1)} m '
-        '(${best.latitude.toStringAsFixed(6)}, ${best.longitude.toStringAsFixed(6)})',
-      );
-    }
-    return best;
-  }
-
-  /// Throws when the OS flagged the position as coming from a mock provider.
-  /// Only meaningful on Android; iOS always reports isMocked = false.
   static void _rejectIfMocked(Position p) {
     if (p.isMocked) {
       throw const MockLocationDetectedException();
     }
   }
 
-  /// Backwards-compatible alias — uses refined pipeline.
+  static void _rejectImpossibleJump(Position a, Position b) {
+    final dt = (b.timestamp.millisecondsSinceEpoch -
+            a.timestamp.millisecondsSinceEpoch) /
+        1000.0;
+    if (dt <= 0.2 || dt > 60) return;
+    final dist = Geolocator.distanceBetween(
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+    if (dist / dt > maxJumpSpeedMps) {
+      throw const LocationSpoofDetectedException();
+    }
+  }
+
+  static List<Position> _rejectOutliers(List<Position> samples) {
+    if (samples.length < 3) return samples;
+    final lats = samples.map((p) => p.latitude).toList()..sort();
+    final lngs = samples.map((p) => p.longitude).toList()..sort();
+    final medLat = lats[lats.length ~/ 2];
+    final medLng = lngs[lngs.length ~/ 2];
+    final kept = samples.where((p) {
+      final d = Geolocator.distanceBetween(
+        medLat,
+        medLng,
+        p.latitude,
+        p.longitude,
+      );
+      final tol = (p.accuracy.isFinite ? p.accuracy : 30) * 2.5;
+      return d <= tol.clamp(25, 120);
+    }).toList();
+    return kept.isEmpty ? samples : kept;
+  }
+
+  static Position _weightedCentroid(List<Position> samples) {
+    var sumLat = 0.0;
+    var sumLng = 0.0;
+    var totalW = 0.0;
+    var bestAcc = double.infinity;
+    var best = samples.first;
+
+    for (final p in samples) {
+      final acc = p.accuracy.isFinite && p.accuracy > 0 ? p.accuracy : 50.0;
+      final w = 1 / acc;
+      sumLat += p.latitude * w;
+      sumLng += p.longitude * w;
+      totalW += w;
+      if (acc < bestAcc) {
+        bestAcc = acc;
+        best = p;
+      }
+    }
+
+    return Position(
+      latitude: sumLat / totalW,
+      longitude: sumLng / totalW,
+      timestamp: best.timestamp,
+      accuracy: bestAcc,
+      altitude: best.altitude,
+      altitudeAccuracy: best.altitudeAccuracy,
+      heading: best.heading,
+      headingAccuracy: best.headingAccuracy,
+      speed: best.speed,
+      speedAccuracy: best.speedAccuracy,
+      isMocked: best.isMocked,
+    );
+  }
+
+  static double _scoreConfidence({
+    required double distanceM,
+    required double allowedM,
+    required double accuracyM,
+    required int sampleCount,
+    required bool passes,
+  }) {
+    final distScore = (1 - (distanceM / (allowedM + accuracyM).clamp(1, 9999)))
+        .clamp(0.0, 1.0);
+    final accScore = (1 - (accuracyM / 120)).clamp(0.0, 1.0);
+    final sampleScore = (sampleCount / 6).clamp(0.0, 1.0);
+    final raw = distScore * 0.45 + accScore * 0.35 + sampleScore * 0.2;
+    if (!passes) return raw * 0.4;
+    final stability = sampleCount >= 3 ? 1.0 : 0.65;
+    return (raw * stability + 0.12).clamp(0.0, 1.0);
+  }
+
+  /// Multi-sample pipeline (~3–5 s) with outlier rejection and confidence.
+  static Future<RefinedLocationFix> getRefinedFixForAttendance({
+    double? targetLat,
+    double? targetLng,
+    double baseRangeMeters = 200,
+  }) async {
+    await _ensureServiceAndPermission();
+
+    try {
+      final warmup = await _fixForAttendance();
+      _rejectIfMocked(warmup);
+    } catch (e) {
+      if (e is MockLocationDetectedException ||
+          e is LocationSpoofDetectedException) {
+        rethrow;
+      }
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    final samples = <Position>[];
+    final started = DateTime.now();
+    var deadline = started.add(const Duration(milliseconds: 3000));
+
+    for (var attempt = 0;
+        attempt < 8 && DateTime.now().isBefore(deadline);
+        attempt++) {
+      try {
+        final p = await _fixForAttendance();
+        _rejectIfMocked(p);
+        if (samples.isNotEmpty) {
+          _rejectImpossibleJump(samples.last, p);
+        }
+        samples.add(p);
+        if (p.accuracy.isFinite &&
+            p.accuracy <= 8 &&
+            samples.length >= 3) {
+          break;
+        }
+        if (p.accuracy > poorAccuracyThresholdM &&
+            DateTime.now().isBefore(started.add(const Duration(seconds: 5)))) {
+          deadline = started.add(const Duration(seconds: 5));
+        }
+      } catch (e) {
+        if (e is MockLocationDetectedException ||
+            e is LocationSpoofDetectedException) {
+          rethrow;
+        }
+        if (attempt >= 7 && samples.isEmpty) rethrow;
+      }
+      if (attempt < 7) {
+        await Future<void>.delayed(const Duration(milliseconds: 380));
+      }
+    }
+
+    if (samples.isEmpty) {
+      final fallback = await _fixForAttendance();
+      _rejectIfMocked(fallback);
+      samples.add(fallback);
+    }
+
+    final filtered = _rejectOutliers(samples);
+    final centroid = _weightedCentroid(filtered);
+
+    if (centroid.accuracy.isFinite &&
+        centroid.accuracy > maxAcceptableAccuracyMeters) {
+      throw LocationAccuracyTooLowException(centroid.accuracy);
+    }
+
+    double? distanceM;
+    var passes = true;
+    if (targetLat != null && targetLng != null) {
+      distanceM = calculateDistance(
+        centroid.latitude,
+        centroid.longitude,
+        targetLat,
+        targetLng,
+      );
+      passes = isWithinRange(centroid, targetLat, targetLng, baseRangeMeters);
+    }
+
+    final confidence = _scoreConfidence(
+      distanceM: distanceM ?? 0,
+      allowedM: baseRangeMeters,
+      accuracyM: centroid.accuracy,
+      sampleCount: filtered.length,
+      passes: passes,
+    );
+
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print(
+        'GPS refined: samples=${filtered.length} accuracy='
+        '${centroid.accuracy.toStringAsFixed(1)}m confidence='
+        '${confidence.toStringAsFixed(2)} distance='
+        '${distanceM?.toStringAsFixed(1) ?? "?"}m passes=$passes',
+      );
+    }
+
+    return RefinedLocationFix(
+      position: centroid,
+      confidence: confidence,
+      sampleCount: filtered.length,
+      distanceMeters: distanceM,
+      passesGeofence: passes,
+    );
+  }
+
+  static Future<Position> getRefinedPositionForAttendance() async {
+    final fix = await getRefinedFixForAttendance();
+    return fix.position;
+  }
+
   static Future<Position> getCurrentLocation() async {
     return getRefinedPositionForAttendance();
   }
 
-  /// Straight-line distance in meters.
   static double calculateDistance(
     double lat1,
     double lng1,
@@ -188,20 +344,22 @@ class LocationService {
     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
-  /// Uses [adjustedRangeMeters] with [position.accuracy].
   static bool isWithinRange(
     Position current,
     double targetLat,
     double targetLng,
     double baseRangeMeters,
   ) {
-    final allowed = adjustedRangeMeters(baseRangeMeters, current.accuracy);
     final distance = calculateDistance(
       current.latitude,
       current.longitude,
       targetLat,
       targetLng,
     );
+    if (distance <= proximityPassMeters) {
+      return true;
+    }
+    final allowed = adjustedRangeMeters(baseRangeMeters, current.accuracy);
     if (kDebugMode) {
       // ignore: avoid_print
       print(

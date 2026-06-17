@@ -7,6 +7,7 @@ use App\Models\AttendanceSession;
 use App\Models\AuditLog;
 use App\Models\Course;
 use App\Models\Student;
+use App\Support\AppDownloadStats;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -199,6 +200,8 @@ class AdminController extends Controller
             default => 'All-time',
         };
 
+        $appDownloadCount = AppDownloadStats::total();
+
         return view('admin.dashboard', array_merge(compact(
             'totalStudents',
             'totalCourses',
@@ -217,6 +220,7 @@ class AdminController extends Controller
             'attendanceRate',
             'period',
             'periodLabel',
+            'appDownloadCount',
         ), ['dashboardRole' => 'admin']));
     }
 

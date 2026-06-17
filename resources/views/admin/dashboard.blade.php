@@ -69,7 +69,7 @@
                 </p>
             </div>
         </div>
-        <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-6">
             @php
                 $detailTiles = [
                     ['label' => 'Today',         'value' => $attendanceToday,    'caption' => 'Marks recorded today',   'icon' => 'fa-calendar-day',     'tone' => 'bg-sky-100 text-sky-700'],
@@ -77,12 +77,13 @@
                     ['label' => 'Live sessions', 'value' => $liveSessionsCount,  'caption' => 'Open right now',         'icon' => 'fa-broadcast-tower',  'tone' => 'bg-rose-100 text-rose-700'],
                     ['label' => 'Courses',       'value' => $totalCourses,       'caption' => 'Active courses',         'icon' => 'fa-book-open',        'tone' => 'bg-amber-100 text-amber-700'],
                     ['label' => 'Students',      'value' => $totalStudents,      'caption' => 'Registered students',    'icon' => 'fa-user-graduate',    'tone' => 'bg-emerald-100 text-emerald-700'],
+                    ['label' => 'App downloads', 'value' => $appDownloadCount ?? 0, 'caption' => 'Android APK installs', 'icon' => 'fa-android',          'tone' => 'bg-teal-100 text-teal-700', 'fab' => true],
                 ];
             @endphp
             @foreach($detailTiles as $tile)
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
                     <span class="w-10 h-10 rounded-lg {{ $tile['tone'] }} flex items-center justify-center shrink-0">
-                        <i class="fas {{ $tile['icon'] }} text-base"></i>
+                        <i class="{{ !empty($tile['fab']) ? 'fab' : 'fas' }} {{ $tile['icon'] }} text-base"></i>
                     </span>
                     <div class="min-w-0">
                         <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 truncate">{{ $tile['label'] }}</p>

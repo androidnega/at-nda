@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/biometric_service.dart';
 import '../services/attendance_local_notify.dart';
 import '../services/device_identity_lock.dart';
+import '../services/device_sensing_service.dart';
 import '../services/device_service.dart';
 import '../services/location_service.dart';
 import '../services/attendance_submission_service.dart';
@@ -61,7 +62,6 @@ class _AttendancePageState extends State<AttendancePage> {
   String? _error;
   bool _showSuccessOverlay = false;
   String _successSubtitle = 'You have successfully marked attendance';
-  int _autoLogoutSeconds = 0;
   Timer? _autoLogoutTimer;
   /// Local DB + optional API `already_marked` on session.
   bool _alreadyMarkedForSession = false;
@@ -210,20 +210,11 @@ class _AttendancePageState extends State<AttendancePage> {
     );
   }
 
-  void _startAutoLogoutCountdown(int seconds) {
+  void _scheduleSilentLogout([int? seconds]) {
     _cancelAutoLogoutTimer();
-    _autoLogoutSeconds = seconds;
-    _autoLogoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_autoLogoutSeconds <= 1) {
-        timer.cancel();
-        unawaited(_forceLogoutAfterMark());
-        return;
-      }
-      setState(() => _autoLogoutSeconds -= 1);
+    final delay = seconds ?? (25 + Random().nextInt(11));
+    _autoLogoutTimer = Timer(Duration(seconds: delay), () {
+      unawaited(_forceLogoutAfterMark());
     });
   }
 
@@ -562,18 +553,12 @@ class _AttendancePageState extends State<AttendancePage> {
         }
         return false;
       }
-      final position = await LocationService.getRefinedPositionForAttendance();
-      final sessionLat = venue.lat;
-      final sessionLng = venue.lng;
-      final baseRange = _allowedRangeMeters;
-      final allowed = LocationService.adjustedRangeMeters(baseRange, position.accuracy);
-      final distance = LocationService.calculateDistance(
-        position.latitude,
-        position.longitude,
-        sessionLat,
-        sessionLng,
+      final refined = await LocationService.getRefinedFixForAttendance(
+        targetLat: venue.lat,
+        targetLng: venue.lng,
+        baseRangeMeters: _allowedRangeMeters,
       );
-      final within = distance <= allowed;
+      final within = refined.passesGeofence;
 
       if (!mounted) return false;
       setState(() {
@@ -1022,15 +1007,13 @@ class _AttendancePageState extends State<AttendancePage> {
         }
         return;
       }
-      final position = await LocationService.getCurrentLocation();
-      final sessionLat = venue.lat;
-      final sessionLng = venue.lng;
-      if (!LocationService.isWithinRange(
-        position,
-        sessionLat,
-        sessionLng,
-        _allowedRangeMeters,
-      )) {
+      final refined = await LocationService.getRefinedFixForAttendance(
+        targetLat: venue.lat,
+        targetLng: venue.lng,
+        baseRangeMeters: _allowedRangeMeters,
+      );
+      final position = refined.position;
+      if (!refined.passesGeofence) {
         if (mounted) {
           setState(() {
             _isSubmitting = false;
@@ -1057,6 +1040,11 @@ class _AttendancePageState extends State<AttendancePage> {
 
       final deviceIp = await DeviceService.getIp();
       final deviceId = await DeviceService.getDeviceId();
+      final sensing = await DeviceSensingService.collectForAttendance();
+      final clientMeta = <String, dynamic>{
+        ...sensing,
+        ...refined.clientMetaExtras(),
+      };
 
       final payload = buildAttendancePostBody(
         indexNumber: AppState.studentIndex ?? _student!.indexNumber,
@@ -1072,6 +1060,7 @@ class _AttendancePageState extends State<AttendancePage> {
         deviceIp: deviceIp,
         deviceId: deviceId,
         accuracyMeters: accuracyMeters,
+        clientMeta: clientMeta,
         timestamp: ts,
       );
 
@@ -1278,21 +1267,20 @@ class _AttendancePageState extends State<AttendancePage> {
   Future<void> _presentSuccessAndPop({
     String? subtitle,
     bool playCelebrationFeedback = true,
+    int? logoutSeconds,
   }) async {
     if (!mounted) return;
     await _saveLastAttendanceForHomeDashboard();
     if (playCelebrationFeedback) {
       await SuccessChime.celebrateAttendanceMarked();
     }
-    final logoutSeconds = 25 + Random().nextInt(11);
     if (!mounted) return;
     setState(() {
       _showSuccessOverlay = true;
       _isSubmitting = false;
-      _autoLogoutSeconds = logoutSeconds;
       if (subtitle != null) _successSubtitle = subtitle;
     });
-    _startAutoLogoutCountdown(logoutSeconds);
+    _scheduleSilentLogout(logoutSeconds);
   }
 
   Widget _buildSoftLocationStatusForCard(BuildContext context) {
@@ -1357,6 +1345,10 @@ class _AttendancePageState extends State<AttendancePage> {
       await _runLocationOnlyMarkAndSubmit();
       return;
     }
+    if (_mode == AttendanceFlowMode.online) {
+      await _submitOnlineCode();
+      return;
+    }
     if (_mode == AttendanceFlowMode.qr) {
       await _openQrAndSubmit();
       return;
@@ -1377,6 +1369,7 @@ class _AttendancePageState extends State<AttendancePage> {
     }
     if (_alreadyMarkedForSession) return 'Done';
     if (_mode == AttendanceFlowMode.qr) return 'Scan QR';
+    if (_mode == AttendanceFlowMode.online) return 'Submit code';
     return 'Check in';
   }
 
@@ -1416,27 +1409,6 @@ class _AttendancePageState extends State<AttendancePage> {
                     color: Color(0xFF212121),
                   ),
                 ),
-                if (_autoLogoutSeconds > 0) ...[
-                  const SizedBox(height: 14),
-                  Text(
-                    'Signing out in $_autoLogoutSeconds s…',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Next student can sign in after you are logged out.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -1589,6 +1561,173 @@ class _AttendancePageState extends State<AttendancePage> {
       );
     }
 
+    if (_mode == AttendanceFlowMode.online) {
+      return _buildOnlineModeScaffold(context);
+    }
+
     return _buildSoftLocationModeScaffold(context);
+  }
+
+  Future<void> _submitOnlineCode() async {
+    if (_session == null || _student == null) return;
+    if (_alreadyMarkedForSession) {
+      _showErrorSnackBar('Attendance already marked');
+      return;
+    }
+    final rawSession = Map<String, dynamic>.from(_session!);
+    final sessionId = parseSessionId(rawSession);
+    if (sessionId == null) {
+      setState(() => _error = 'Invalid session (missing id).');
+      return;
+    }
+    final code = _sessionCodeController.text.trim();
+    if (code.isEmpty) {
+      _showErrorSnackBar('Enter the attendance code from your lecturer.');
+      return;
+    }
+    if (!await hasInternetConnectivity()) {
+      _showErrorSnackBar('Online code attendance needs an internet connection.');
+      return;
+    }
+    if (!await _enforceSingleStudentPerSession(sessionId)) return;
+    if (!await _confirmBiometrics('marking attendance')) return;
+
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
+      final clientMeta = await DeviceSensingService.collectForAttendance();
+      final courseId = parseOptionalCourseId(rawSession);
+      final result = await ApiService.submitOnlineCode(
+        indexNumber: AppState.studentIndex ?? _student!.indexNumber,
+        sessionId: sessionId,
+        code: code,
+        courseId: courseId,
+        clientMeta: clientMeta,
+      );
+      await _rememberMarkedFromThisDevice(sessionId);
+      final logoutSeconds = result['auto_logout_seconds'];
+      final delay = logoutSeconds is num ? logoutSeconds.round() : null;
+      if (!mounted) return;
+      await _presentSuccessAndPop(
+        subtitle: result['message']?.toString() ?? 'Marked present for this online lecture.',
+        logoutSeconds: delay,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Widget _buildOnlineModeScaffold(BuildContext context) {
+    final codeLength = int.tryParse(
+          _session?['online_code_length']?.toString() ?? '',
+        ) ??
+        4;
+
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          AttendanceSoftLocationBackground(
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 2, 8, 0),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                          color: const Color(0xFF424242),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Online attendance',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(width: 48),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _softCourseLine() ?? 'Course',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Enter the $codeLength-digit code shared in the meeting chat.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF616161),
+                                ),
+                          ),
+                          const SizedBox(height: 20),
+                          TextField(
+                            controller: _sessionCodeController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            maxLength: codeLength,
+                            decoration: InputDecoration(
+                              counterText: '',
+                              hintText: '•' * codeLength,
+                              filled: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: (_isSubmitting || _alreadyMarkedForSession || _sessionEnded)
+                                  ? null
+                                  : _submitOnlineCode,
+                              child: Text(
+                                _isSubmitting ? 'Submitting…' : 'Submit code',
+                              ),
+                            ),
+                          ),
+                          if (_error != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Theme.of(context).colorScheme.error),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _successOverlayLayer(),
+        ],
+      ),
+    );
   }
 }

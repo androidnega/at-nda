@@ -8,6 +8,9 @@ enum AttendanceFlowMode {
 
   /// Range check first, then QR scan and submit.
   hybrid,
+
+  /// Rolling online session code (no GPS / QR).
+  online,
 }
 
 AttendanceFlowMode resolveAttendanceFlowMode(Map<String, dynamic>? session) {
@@ -16,6 +19,7 @@ AttendanceFlowMode resolveAttendanceFlowMode(Map<String, dynamic>? session) {
   if (m == 'qr') return AttendanceFlowMode.qr;
   if (m == 'location') return AttendanceFlowMode.location;
   if (m == 'hybrid') return AttendanceFlowMode.hybrid;
+  if (m == 'online') return AttendanceFlowMode.online;
   // Legacy API: qr_enabled + range was the old hybrid; else location-only.
   if (session['qr_enabled'] == true) return AttendanceFlowMode.hybrid;
   return AttendanceFlowMode.location;

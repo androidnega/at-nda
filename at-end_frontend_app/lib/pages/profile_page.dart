@@ -11,12 +11,12 @@ import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
 import '../services/profile_identity_cooldown.dart';
 import '../utils/api_user_message.dart';
-import '../utils/constants.dart';
+import '../widgets/profile_avatar.dart';
 import 'login_page.dart';
 import 'sync_status_page.dart';
 import '../utils/app_selectable_scope.dart';
 
-/// Profile (students & reps): name/email only on app (no profile images).
+/// Profile (students & reps): cached avatar when the server has a photo.
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -47,39 +47,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _nameBadge(Student s, TextTheme tt, ColorScheme cs) {
-    final url = s.resolvedNetworkProfileUrl(Uri.parse(Constants.baseUrl));
-    final fallback = Container(
-      width: 96,
-      height: 96,
-      decoration: BoxDecoration(
-        color: cs.primaryContainer.withValues(alpha: 0.5),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        s.greetingLastName.isNotEmpty
-            ? s.greetingLastName[0].toUpperCase()
-            : 'S',
-        style: tt.headlineLarge?.copyWith(
-          fontWeight: FontWeight.w900,
-          color: cs.onPrimaryContainer,
-        ),
-      ),
-    );
-    if (url == null || url.isEmpty) return fallback;
-    return ClipOval(
-      child: SizedBox(
-        width: 96,
-        height: 96,
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => fallback,
-          loadingBuilder: (ctx, child, evt) =>
-              evt == null ? child : fallback,
-        ),
-      ),
-    );
+    return ProfileAvatar(student: s, radius: 48);
   }
 
   Future<void> _load() async {

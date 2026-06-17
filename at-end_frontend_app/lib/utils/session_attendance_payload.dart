@@ -44,7 +44,7 @@ String? sessionQrToken(Map<String, dynamic> session) {
 bool sessionLocationRequired(Map<String, dynamic> s) {
   final mode = s['mode']?.toString().trim().toLowerCase();
   if (mode == 'location' || mode == 'hybrid') return true;
-  if (mode == 'qr' || mode == 'wifi') return false;
+  if (mode == 'qr' || mode == 'wifi' || mode == 'online') return false;
   final v = s['location_required'];
   if (v is bool) return v;
   if (v is num) return v != 0;
@@ -89,6 +89,7 @@ Map<String, dynamic> buildAttendancePostBody({
   String? deviceIp,
   String? deviceId,
   double? accuracyMeters,
+  Map<String, dynamic>? clientMeta,
   required String timestamp,
 }) {
   final m = <String, dynamic>{
@@ -127,6 +128,9 @@ Map<String, dynamic> buildAttendancePostBody({
   }
   if (deviceIp != null) m['device_ip'] = deviceIp;
   if (deviceId != null) m['device_id'] = deviceId;
+  if (clientMeta != null && clientMeta.isNotEmpty) {
+    m['client_meta'] = clientMeta;
+  }
   m['timestamp'] = timestamp;
 
   final hasSession = sessionId != null && sessionId > 0;
