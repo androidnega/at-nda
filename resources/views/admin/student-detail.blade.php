@@ -4,8 +4,13 @@
 
 @section('content')
 <div class="mb-6">
-    <a href="{{ request()->headers->get('referer') ?: route('dashboard.students.index') }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
-        <i class="fas fa-arrow-left"></i> Back
+    @php
+        $backUrl = !empty($fromClassId)
+            ? route('dashboard.classes.show', $fromClassId)
+            : (request()->headers->get('referer') ?: route('dashboard.students.index'));
+    @endphp
+    <a href="{{ $backUrl }}" class="text-gray-500 hover:text-gray-700 text-sm mb-2 inline-flex items-center gap-1">
+        <i class="fas fa-arrow-left"></i> {{ !empty($fromClassId) ? 'Back to class' : 'Back' }}
     </a>
     <div class="flex flex-col sm:flex-row sm:items-start gap-4 mt-2">
         @if($student->profileImageUrl())

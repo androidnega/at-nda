@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Student;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -153,8 +154,10 @@ class StudentController extends Controller
             'schoolClass.department',
             'schoolClass.semester',
             'classReps.schoolClass',
-            'deviceToken',
         ]);
+        if (Schema::hasTable('student_device_tokens')) {
+            $student->load('deviceToken');
+        }
 
         // Lecturers must only see attendance for the courses *they* teach
         // inside the student's class. Admins keep their global view.
@@ -186,7 +189,10 @@ class StudentController extends Controller
         $totalWeeks = $effectiveCourseIds !== []
             ? (int) \DB::table('attendance_weeks')
                 ->whereIn('course_id', $effectiveCourseIds)
-                ->whereNull('cancelled_at')
+                ->when(
+                    Schema::hasColumn('attendance_weeks', 'cancelled_at'),
+                    fn ($q) => $q->whereNull('cancelled_at')
+                )
                 ->count()
             : 0;
         $absentCount = max(0, $totalWeeks - $presentCount);
@@ -223,21 +229,28 @@ class StudentController extends Controller
         $studentLogs = collect();
         $auditAvailable = \App\Support\SchemaFeatures::hasAuditLogs();
         if ($auditAvailable) {
-            $sid = (int) $student->id;
-            $studentLogs = \App\Models\AuditLog::query()
-                ->where(function ($q) use ($sid) {
-                    $q->where(function ($qq) use ($sid) {
-                        $qq->whereIn('actor_role', ['student', 'rep'])
-                            ->where('actor_id', $sid);
-                    })->orWhere(function ($qq) use ($sid) {
-                        $qq->where('subject_type', 'student')
-                            ->where('subject_id', $sid);
-                    });
-                })
-                ->orderByDesc('id')
-                ->limit(40)
-                ->get();
+            try {
+                $sid = (int) $student->id;
+                $studentLogs = \App\Models\AuditLog::query()
+                    ->where(function ($q) use ($sid) {
+                        $q->where(function ($qq) use ($sid) {
+                            $qq->whereIn('actor_role', ['student', 'rep'])
+                                ->where('actor_id', $sid);
+                        })->orWhere(function ($qq) use ($sid) {
+                            $qq->where('subject_type', 'student')
+                                ->where('subject_id', $sid);
+                        });
+                    })
+                    ->orderByDesc('id')
+                    ->limit(40)
+                    ->get();
+            } catch (\Throwable $e) {
+                report($e);
+                $auditAvailable = false;
+                $studentLogs = collect();
+            }
         }
+        $fromClassId = (int) $request->query('from_class', 0);
         $auditActions = AuditLogController::knownActions();
 
         return view('admin.student-detail', compact(
@@ -250,7 +263,8 @@ class StudentController extends Controller
             'recentAttendance',
             'studentLogs',
             'auditAvailable',
-            'auditActions'
+            'auditActions',
+            'fromClassId',
         ));
     }
 

@@ -168,31 +168,22 @@
         <p class="text-gray-500 text-sm mt-1">Add a student above or upload a file</p>
     </div>
 @else
-    <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full min-w-[720px]">
-                <thead class="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-14">#</th>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-14"><span class="sr-only">Photo</span></th>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Index</th>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hidden md:table-cell">Program</th>
-                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Rep</th>
-                        <th scope="col" class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide w-16"><span class="sr-only">Open</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    @foreach($students as $student)
-                    @include('partials.student-table-row', [
-                        'student' => $student,
-                        'serial' => $students->firstItem() + $loop->index,
-                        'detailUrl' => route('dashboard.students.show', ['student' => $student, 'from_class' => $schoolClass->id]),
-                        'contextClassId' => $schoolClass->id,
-                    ])
-                    @endforeach
-                </tbody>
-            </table>
+    <div class="mb-3 flex items-center justify-between gap-3 px-1">
+        <p class="text-sm text-slate-600">
+            <span class="font-semibold text-slate-900 tabular-nums">{{ $students->total() }}</span> students
+        </p>
+        <p class="text-xs text-slate-400 hidden sm:block">Tap a student to open their profile</p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-3 sm:p-4 ring-1 ring-slate-200/60">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            @foreach($students as $student)
+                @include('admin.partials.class-student-row', [
+                    'student' => $student,
+                    'serial' => $students->firstItem() + $loop->index,
+                    'detailUrl' => route('dashboard.students.show', ['student' => $student, 'from_class' => $schoolClass->id]),
+                ])
+            @endforeach
         </div>
     </div>
     <div class="mt-6">

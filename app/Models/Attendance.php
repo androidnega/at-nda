@@ -243,6 +243,11 @@ class Attendance extends Model
      */
     public function scopeActiveWeeksOnly(Builder $query): Builder
     {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('attendance_weeks')
+            || ! \Illuminate\Support\Facades\Schema::hasColumn('attendance_weeks', 'cancelled_at')) {
+            return $query;
+        }
+
         return $query->where(function (Builder $q): void {
             $q->whereNull('attendances.attendance_week_id')
                 ->orWhereExists(function ($sub) {
