@@ -29,11 +29,24 @@ class AdminAppReleaseController extends Controller
         return view('admin.app-releases.index', [
             'releases' => $releases,
             'maxUploadMb' => self::MAX_APK_MB,
+            'phpUploadMaxMb' => $this->iniToMb(ini_get('upload_max_filesize')),
+            'phpPostMaxMb' => $this->iniToMb(ini_get('post_max_size')),
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
+        if ($this->uploadBodyRejectedByPhp($request)) {
+            return back()
+                ->withInput($request->except('apk'))
+                ->withErrors([
+                    'apk' => 'The upload was rejected by the server (file too large or upload timed out). '
+                        .'Current PHP limits: upload_max_filesize='.$this->formatIniLimit('upload_max_filesize')
+                        .', post_max_size='.$this->formatIniLimit('post_max_size')
+                        .'. Use the PuTTY register command below, or raise limits in cPanel → MultiPHP INI Editor.',
+                ]);
+        }
+
         $validated = $request->validate([
             'platform' => 'required|in:'.AppRelease::PLATFORM_ANDROID,
             'version_name' => ['required', 'string', 'max:32', 'regex:/^[0-9A-Za-z.\-_]+$/'],
@@ -148,5 +161,69 @@ class AdminAppReleaseController extends Controller
         $release->delete();
 
         return back()->with('success', 'Release deleted.');
+    }
+
+    /**
+     * When POST body exceeds post_max_size PHP empties $_POST and
+     * $_FILES; the host may answer with 503 before Laravel runs.
+     */
+    private function uploadBodyRejectedByPhp(Request $request): bool
+    {
+        if (! $request->isMethod('POST')) {
+            return false;
+        }
+
+        $contentLength = (int) ($request->server('CONTENT_LENGTH') ?? 0);
+        if ($contentLength <= 0) {
+            return false;
+        }
+
+        $postMaxBytes = $this->iniToBytes(ini_get('post_max_size'));
+        if ($postMaxBytes > 0 && $contentLength > $postMaxBytes) {
+            return true;
+        }
+
+        return ! $request->hasFile('apk')
+            && ! $request->filled('version_name')
+            && ! $request->filled('version_code');
+    }
+
+    private function formatIniLimit(string $key): string
+    {
+        $raw = ini_get($key);
+
+        return is_string($raw) && $raw !== '' ? $raw : 'unknown';
+    }
+
+    private function iniToMb(string|false $value): ?float
+    {
+        $bytes = $this->iniToBytes($value);
+        if ($bytes <= 0) {
+            return null;
+        }
+
+        return round($bytes / 1024 / 1024, 1);
+    }
+
+    private function iniToBytes(string|false $value): int
+    {
+        if (! is_string($value) || $value === '') {
+            return 0;
+        }
+
+        $value = trim($value);
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) substr($value, 0, -1);
+
+        return (int) match ($unit) {
+            'g' => $number * 1024 * 1024 * 1024,
+            'm' => $number * 1024 * 1024,
+            'k' => $number * 1024,
+            default => (float) $value,
+        };
     }
 }

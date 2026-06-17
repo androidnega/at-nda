@@ -29,6 +29,31 @@
         </div>
     @endif
 
+    @if(($phpUploadMaxMb ?? null) !== null && $phpUploadMaxMb < $maxUploadMb)
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p class="font-semibold"><i class="fas fa-triangle-exclamation mr-1"></i>Server upload limit is low</p>
+            <p class="mt-1 text-amber-900/90">
+                PHP allows uploads up to <strong>{{ $phpUploadMaxMb }} MB</strong> (post max {{ $phpPostMaxMb ?? '?' }} MB).
+                Large APKs may fail with a 503 error in the browser.
+                Raise limits in cPanel → <strong>MultiPHP INI Editor</strong>, or use the PuTTY command below.
+            </p>
+        </div>
+    @endif
+
+    <div class="rounded-2xl border border-slate-200 bg-slate-50/80 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200/80">
+            <h2 class="text-sm font-semibold text-slate-800">
+                <i class="fas fa-terminal mr-1 text-slate-500"></i>Upload via PuTTY (recommended for large APKs)
+            </h2>
+            <p class="text-xs text-slate-600 mt-0.5">Upload the APK with cPanel File Manager or SFTP first, then register it:</p>
+        </div>
+        <pre class="px-5 py-4 text-xs text-slate-800 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed">cd ~/at-enda.manuelcode.info
+
+php artisan app-releases:register ~/at-enda-v1.0.3-arm64.apk \
+  --version-name=1.0.3 --version-code=4 \
+  --notes="v1.0.3 release" --publish</pre>
+    </div>
+
     {{-- ───── Upload form ───── --}}
     <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
