@@ -49,136 +49,138 @@
     $totalLecturers = $classes->sum(fn ($c) => (int) ($c->lecturers_count_all ?? 0));
 @endphp
 
-{{-- Summary cards --}}
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 sm:mb-8">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-        <span class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
-            <i class="fas fa-graduation-cap text-xl"></i>
-        </span>
-        <div class="min-w-0">
-            <p class="text-gray-500 text-sm font-medium">Total Classes</p>
-            <p class="text-2xl font-bold text-gray-800">{{ $totalClasses }}</p>
-        </div>
+{{-- Summary strip --}}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+    <div class="relative overflow-hidden rounded-2xl bg-white p-4 sm:p-5 ring-1 ring-slate-200/70">
+        <div class="absolute inset-x-0 top-0 h-0.5 bg-primary"></div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Classes</p>
+        <p class="mt-1.5 text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums leading-none">{{ $totalClasses }}</p>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-        <span class="w-12 h-12 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600 flex-shrink-0">
-            <i class="fas fa-users text-xl"></i>
-        </span>
-        <div class="min-w-0">
-            <p class="text-gray-500 text-sm font-medium">Students</p>
-            <p class="text-2xl font-bold text-gray-800">{{ $totalStudents }}</p>
-        </div>
+    <div class="relative overflow-hidden rounded-2xl bg-white p-4 sm:p-5 ring-1 ring-slate-200/70">
+        <div class="absolute inset-x-0 top-0 h-0.5 bg-sky-500"></div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Students</p>
+        <p class="mt-1.5 text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums leading-none">{{ $totalStudents }}</p>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-        <span class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0">
-            <i class="fas fa-book text-xl"></i>
-        </span>
-        <div class="min-w-0">
-            <p class="text-gray-500 text-sm font-medium">Courses</p>
-            <p class="text-2xl font-bold text-gray-800">{{ $totalCourses }}</p>
-        </div>
+    <div class="relative overflow-hidden rounded-2xl bg-white p-4 sm:p-5 ring-1 ring-slate-200/70">
+        <div class="absolute inset-x-0 top-0 h-0.5 bg-amber-500"></div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Courses</p>
+        <p class="mt-1.5 text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums leading-none">{{ $totalCourses }}</p>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center gap-4">
-        <span class="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
-            <i class="fas fa-chalkboard-teacher text-xl"></i>
-        </span>
-        <div class="min-w-0">
-            <p class="text-gray-500 text-sm font-medium">Lecturers</p>
-            <p class="text-2xl font-bold text-gray-800">{{ $totalLecturers }}</p>
-        </div>
+    <div class="relative overflow-hidden rounded-2xl bg-white p-4 sm:p-5 ring-1 ring-slate-200/70">
+        <div class="absolute inset-x-0 top-0 h-0.5 bg-indigo-500"></div>
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Lecturers</p>
+        <p class="mt-1.5 text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums leading-none">{{ $totalLecturers }}</p>
     </div>
 </div>
 
-{{-- Class cards grid --}}
+{{-- Class cards --}}
 @if($classes->isEmpty())
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-        <span class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mx-auto mb-4">
-            <i class="fas fa-graduation-cap text-3xl"></i>
+    <div class="rounded-2xl bg-white ring-1 ring-slate-200/70 px-6 py-14 sm:py-16 text-center">
+        <span class="inline-flex w-14 h-14 rounded-2xl bg-slate-100 items-center justify-center text-slate-400 mb-4">
+            <i class="fas fa-graduation-cap text-2xl"></i>
         </span>
-        <p class="text-gray-600 font-medium">No classes yet</p>
-        <p class="text-gray-500 text-sm mt-1">Create your first class to get started</p>
-        <a href="{{ route('dashboard.classes.create') }}" class="inline-flex items-center gap-2 mt-4 bg-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-primary/90">
-            <i class="fas fa-plus"></i>
+        <p class="text-slate-800 font-semibold">No classes yet</p>
+        <p class="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Create your first class to organise students, courses, and lecturers.</p>
+        <a href="{{ route('dashboard.classes.create') }}" class="inline-flex items-center gap-2 mt-5 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+            <i class="fas fa-plus text-xs"></i>
             Add Class
         </a>
     </div>
 @else
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
         @foreach($classes as $class)
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
-            <div class="p-5 sm:p-6">
-                <div class="flex items-start gap-4">
-                    <span class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
-                        <i class="fas fa-chalkboard-teacher text-xl"></i>
-                    </span>
-                    <div class="flex-1 min-w-0">
-                        <h3 class="font-semibold text-gray-800 text-lg">{{ $class->name }}</h3>
-                        <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
-                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 text-primary text-sm font-medium">
-                                Level {{ $class->level ?? '—' }}
-                            </span>
-                            @php
-                                $qualKey = $class->resolvedQualification();
-                                $qualLabel = $class->qualificationLabel();
-                                $qualBg = match ($qualKey) {
-                                    'hnd' => 'bg-emerald-100 text-emerald-800',
-                                    'diploma' => 'bg-amber-100 text-amber-800',
-                                    default => 'bg-indigo-100 text-indigo-800',
-                                };
-                            @endphp
-                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg {{ $qualBg }} text-xs font-semibold uppercase tracking-wide">
-                                {{ $qualLabel }}
-                            </span>
-                            @if($class->semester)
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium">
-                                    {{ $class->semester->display_label }}
-                                </span>
+        @php
+            $qualKey = $class->resolvedQualification();
+            $qualLabel = $class->qualificationLabel();
+            $qualRing = match ($qualKey) {
+                'hnd' => 'ring-emerald-200/80 text-emerald-700 bg-emerald-50/60',
+                'diploma' => 'ring-amber-200/80 text-amber-800 bg-amber-50/60',
+                default => 'ring-indigo-200/80 text-indigo-700 bg-indigo-50/60',
+            };
+            $coursesCount = (int) ($class->courses_count_all ?? $class->courses_count ?? 0);
+            $lecturersCount = (int) ($class->lecturers_count_all ?? 0);
+            $logoUrl = $class->logoUrl();
+            $initial = strtoupper(mb_substr(trim($class->name), 0, 1));
+        @endphp
+        <article class="group flex flex-col rounded-2xl bg-white ring-1 ring-slate-200/70 overflow-hidden transition duration-200 hover:ring-slate-300/90 hover:shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
+            <div class="p-5 sm:p-5">
+                <div class="flex items-start gap-3.5">
+                    @if($logoUrl)
+                        <img src="{{ $logoUrl }}" alt="" class="w-11 h-11 rounded-xl object-cover ring-1 ring-slate-200/80 shrink-0 bg-white">
+                    @else
+                        <span class="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 flex items-center justify-center text-sm font-bold text-slate-500 shrink-0">
+                            {{ $initial }}
+                        </span>
+                    @endif
+                    <div class="min-w-0 flex-1">
+                        <h3 class="font-semibold text-slate-900 text-base leading-snug truncate" title="{{ $class->name }}">{{ $class->name }}</h3>
+                        <p class="mt-0.5 text-xs text-slate-500 truncate" title="{{ $class->faculty?->name }} · {{ $class->department?->name }}">
+                            {{ $class->faculty?->name ?? '—' }}
+                            @if($class->department?->name)
+                                <span class="text-slate-300 mx-1">·</span>{{ $class->department->name }}
                             @endif
-                            @if($class->needsAcademicMetadataReview())
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-xs font-semibold">
-                                    <i class="fas fa-exclamation-circle"></i> Update
-                                </span>
-                            @endif
-                        </div>
-                        <div class="mt-3 text-sm text-gray-500 space-y-1">
-                            <p class="flex items-center gap-2"><i class="fas fa-building text-gray-400 w-4 text-center"></i> {{ $class->faculty?->name ?? '—' }}</p>
-                            <p class="flex items-center gap-2"><i class="fas fa-sitemap text-gray-400 w-4 text-center"></i> {{ $class->department?->name ?? '—' }}</p>
-                        </div>
-                        <div class="mt-4 flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-                            @php
-                                $coursesCount = (int) ($class->courses_count_all ?? $class->courses_count ?? 0);
-                                $lecturersCount = (int) ($class->lecturers_count_all ?? 0);
-                            @endphp
-                            <span title="Includes direct assignments and shared courses via the course_class pivot">
-                                <i class="fas fa-book text-amber-500 mr-1"></i> {{ $coursesCount }} {{ $coursesCount === 1 ? 'course' : 'courses' }}
-                            </span>
-                            <span><i class="fas fa-chalkboard-teacher text-indigo-500 mr-1"></i> {{ $lecturersCount }} {{ $lecturersCount === 1 ? 'lecturer' : 'lecturers' }}</span>
-                            <span><i class="fas fa-user-graduate text-sky-500 mr-1"></i> {{ $class->students_count }} {{ $class->students_count === 1 ? 'student' : 'students' }}</span>
-                        </div>
+                        </p>
                     </div>
                 </div>
-            </div>
-            <div class="px-5 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between gap-2">
-                <a href="{{ route('dashboard.classes.show', $class) }}" class="inline-flex items-center gap-1.5 text-sky-600 hover:text-sky-700 text-sm font-medium">
-                    <i class="fas fa-users"></i>
-                    Students
-                </a>
-                <div class="flex gap-2">
-                    <a href="{{ route('dashboard.classes.edit', $class) }}" class="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 text-sm font-medium">
-                        <i class="fas fa-pen"></i>
-                        Edit
-                    </a>
-                    <form action="{{ route('dashboard.classes.destroy', ['schoolClass' => $class]) }}" method="POST" class="inline" onsubmit="return confirm('Delete this class?');">
-                        @csrf
-                        @method('DELETE')
-                        <button type="submit" class="inline-flex items-center gap-1.5 text-red-600 hover:text-red-700 text-sm font-medium">
-                            <i class="fas fa-trash-alt"></i>
-                            Delete
-                        </button>
-                    </form>
+
+                <div class="mt-3.5 flex flex-wrap gap-1.5">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium ring-1 ring-slate-200/90 bg-slate-50 text-slate-600">
+                        Level {{ $class->level ?? '—' }}
+                    </span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide ring-1 {{ $qualRing }}">
+                        {{ $qualLabel }}
+                    </span>
+                    @if($class->semester)
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium ring-1 ring-slate-200/90 bg-white text-slate-600">
+                            {{ $class->semester->display_label }}
+                        </span>
+                    @endif
+                    @if($class->needsAcademicMetadataReview())
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ring-1 ring-amber-200/90 bg-amber-50 text-amber-800">
+                            <i class="fas fa-circle-exclamation text-[9px]"></i>
+                            Needs update
+                        </span>
+                    @endif
                 </div>
             </div>
-        </div>
+
+            <div class="grid grid-cols-3 border-t border-slate-100 bg-slate-50/40">
+                <div class="px-3 py-3.5 text-center border-r border-slate-100">
+                    <p class="text-base font-semibold text-slate-900 tabular-nums">{{ $class->students_count }}</p>
+                    <p class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mt-0.5">Students</p>
+                </div>
+                <div class="px-3 py-3.5 text-center border-r border-slate-100" title="Includes direct assignments and shared courses via the course_class pivot">
+                    <p class="text-base font-semibold text-slate-900 tabular-nums">{{ $coursesCount }}</p>
+                    <p class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mt-0.5">Courses</p>
+                </div>
+                <div class="px-3 py-3.5 text-center">
+                    <p class="text-base font-semibold text-slate-900 tabular-nums">{{ $lecturersCount }}</p>
+                    <p class="text-[10px] font-medium uppercase tracking-wider text-slate-400 mt-0.5">Lecturers</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 p-2.5 border-t border-slate-100">
+                <a href="{{ route('dashboard.classes.show', $class) }}"
+                   class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 ring-1 ring-slate-200/60 transition-colors">
+                    <i class="fas fa-users text-[10px] text-slate-400"></i>
+                    Students
+                </a>
+                <a href="{{ route('dashboard.classes.edit', $class) }}"
+                   class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-primary hover:bg-primary/5 ring-1 ring-slate-200/60 transition-colors"
+                   title="Edit class">
+                    <i class="fas fa-pen text-xs"></i>
+                </a>
+                <form action="{{ route('dashboard.classes.destroy', ['schoolClass' => $class]) }}" method="POST" class="inline" onsubmit="return confirm('Delete this class?');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit"
+                            class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 ring-1 ring-slate-200/60 transition-colors"
+                            title="Delete class">
+                        <i class="fas fa-trash-alt text-xs"></i>
+                    </button>
+                </form>
+            </div>
+        </article>
         @endforeach
     </div>
 @endif
