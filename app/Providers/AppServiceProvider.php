@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Student;
 use App\Models\User;
+use App\Support\RepFlaggedStudents;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -90,7 +91,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by('att-late-read:'.$key);
         });
 
-        View::composer(['layouts.classrep', 'layouts.student'], function ($view) {
+        View::composer(['layouts.classrep', 'classrep.*'], function ($view) {
             // Every rep / student page render passes through here. A bad
             // relation eager-load, a corrupted Redis cache value inside
             // StudentSignOutLock, or a missing column on a half-deployed
@@ -136,6 +137,63 @@ class AppServiceProvider extends ServiceProvider
                     report($e);
                     $signOutBlocked = false;
                     $signOutBlockMessage = null;
+                }
+            }
+            $repFlaggedStudents = [];
+            $repFlaggedStudentsCount = 0;
+            if ($student && ($view->name() === 'layouts.classrep' || str_starts_with((string) $view->name(), 'classrep.'))) {
+                try {
+                    if ($student->isRep()) {
+                        $repFlaggedStudents = RepFlaggedStudents::forRep($student);
+                        $repFlaggedStudentsCount = count($repFlaggedStudents);
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
+            $view->with([
+                'studentSignOutBlocked' => $signOutBlocked,
+                'studentSignOutBlockMessage' => $signOutBlockMessage,
+                'repFlaggedStudents' => $repFlaggedStudents,
+                'repFlaggedStudentsCount' => $repFlaggedStudentsCount,
+            ]);
+        });
+
+        View::composer('layouts.student', function ($view) {
+            $sid = session('student_id');
+
+            $student = null;
+            if ($sid) {
+                try {
+                    $student = Student::query()
+                        ->with(['department.faculty', 'schoolClass'])
+                        ->find($sid);
+                } catch (\Throwable $e) {
+                    report($e);
+                    try {
+                        $student = Student::query()->find($sid);
+                    } catch (\Throwable $e2) {
+                        report($e2);
+                        $student = null;
+                    }
+                }
+            }
+
+            if (! $view->offsetExists('student')) {
+                $view->with('student', $student);
+            }
+
+            $signOutBlocked = false;
+            $signOutBlockMessage = null;
+            if ($student) {
+                try {
+                    $signOutBlocked = \App\Support\StudentSignOutLock::isSignOutBlocked($student);
+                    $signOutBlockMessage = $signOutBlocked
+                        ? \App\Support\StudentSignOutLock::blockMessage($student)
+                        : null;
+                } catch (\Throwable $e) {
+                    report($e);
                 }
             }
             $view->with([

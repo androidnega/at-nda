@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'pages/attendance_history_page.dart';
 import 'pages/attendance_records_page.dart';
 import 'pages/attendance_page.dart';
 import 'pages/home_page.dart';
@@ -17,6 +18,7 @@ import 'pages/rep_insights_page.dart';
 import 'pages/rep_late_attendance_page.dart';
 import 'pages/rep_session_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/student_attendance_table_page.dart';
 import 'pages/timetable_page.dart';
 import 'services/app_update_service.dart';
 import 'services/attendance_local_notify.dart';
@@ -151,6 +153,8 @@ class AttendanceApp extends StatelessWidget {
                 '/class-rep/insights': (_) =>
                     appSelectableScope(const RepInsightsPage()),
                 '/attendance': (_) => appSelectableScope(const AttendancePage()),
+                '/attendance-history': (_) =>
+                    appSelectableScope(const AttendanceHistoryPage()),
                 '/attendance-records': (context) {
                   final args = ModalRoute.of(context)?.settings.arguments;
                   int? sessionId;
@@ -167,6 +171,8 @@ class AttendanceApp extends StatelessWidget {
                 '/settings': (_) => appSelectableScope(const SettingsPage()),
                 '/rep-sessions': (_) => appSelectableScope(const RepSessionPage()),
                 '/timetable': (_) => appSelectableScope(const TimetablePage()),
+                StudentAttendanceTablePage.routeName: (_) =>
+                    appSelectableScope(const StudentAttendanceTablePage()),
                 RepLateAttendancePage.routeName: (_) =>
                     appSelectableScope(const RepLateAttendancePage()),
               },

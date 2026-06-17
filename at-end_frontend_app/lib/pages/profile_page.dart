@@ -9,6 +9,7 @@ import '../services/device_identity_lock.dart';
 import '../services/device_service.dart';
 import '../services/logout_lock_prefs.dart';
 import '../services/offline_service.dart';
+import '../services/student_profile_refresh.dart';
 import '../services/profile_identity_cooldown.dart';
 import '../utils/api_user_message.dart';
 import '../widgets/profile_avatar.dart';
@@ -51,11 +52,14 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _load() async {
-    final student = await OfflineService.getCurrentStudent();
-    if (student == null) {
+    final initial = await OfflineService.getCurrentStudent();
+    if (initial == null) {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
+
+    final refreshed = await refreshStudentProfileFromApi(initial);
+    final student = refreshed ?? initial;
 
     final bound = await DeviceIdentityLock.boundIndex();
     final since = await DeviceIdentityLock.firstSeenAt();
@@ -725,7 +729,7 @@ class _ProfilePageState extends State<ProfilePage> {
               icon: Icons.fact_check_outlined,
               title: 'Attendance history',
               onTap:
-                  () => Navigator.of(context).pushNamed('/attendance-records'),
+                  () => Navigator.of(context).pushNamed('/attendance-history'),
             ),
             _menuTile(
               icon: Icons.sync_rounded,

@@ -23,7 +23,7 @@ use App\Support\ClassTimetableAccess;
 use App\Support\LiveAttendanceCache;
 use App\Support\RepCourseAccess;
 use App\Support\SchemaFeatures;
-use App\Support\SecureQrToken;
+use App\Support\RepFlaggedStudents;
 use App\Support\SessionQrPng;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -251,6 +251,31 @@ class ClassRepController extends Controller
             'topCourses' => $topCourses,
             'topStudents' => $topStudents,
             'trendDays' => $trendDays,
+            'dashboardRole' => 'classrep',
+            'flaggedStudents' => $this->safeCall(
+                fn () => RepFlaggedStudents::forRep($student),
+                'rep_overview.flagged_students',
+                []
+            ),
+        ]);
+    }
+
+    /**
+     * Students with ≥ 3 consecutive missed sessions in any assigned course.
+     */
+    public function flaggedStudents(Request $request): View|RedirectResponse
+    {
+        $rep = $this->requireClassRep($request);
+        if ($rep instanceof RedirectResponse) {
+            return $rep;
+        }
+
+        $flagged = RepFlaggedStudents::forRep($rep);
+
+        return view('classrep.flagged-students', [
+            'student' => $rep,
+            'flaggedStudents' => $flagged,
+            'threshold' => RepFlaggedStudents::THRESHOLD,
             'dashboardRole' => 'classrep',
         ]);
     }
@@ -1237,8 +1262,14 @@ class ClassRepController extends Controller
 
         $students = $query->get();
         $classes = SchoolClass::whereIn('id', $classIds)->orderBy('name')->get();
+        $flaggedMap = RepFlaggedStudents::idMapForRep($rep);
 
-        return view('classrep.students', ['students' => $students, 'classes' => $classes, 'dashboardRole' => 'classrep']);
+        return view('classrep.students', [
+            'students' => $students,
+            'classes' => $classes,
+            'flaggedMap' => $flaggedMap,
+            'dashboardRole' => 'classrep',
+        ]);
     }
 
     /**

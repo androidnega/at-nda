@@ -79,6 +79,26 @@ class Student {
   static String? _strOrNull(dynamic v) =>
       v == null ? null : (v is String ? v : v.toString());
 
+  static String _parseIndexNumber(Map<String, dynamic> json) {
+    final raw = _strOrNull(json['index_number'])?.trim();
+    if (raw != null && raw.isNotEmpty) return raw.toUpperCase();
+    final fallback = _strOrNull(json['student_id'])?.trim();
+    if (fallback != null && fallback.isNotEmpty) {
+      // DB primary keys are numeric — never show them as the student's index.
+      if (RegExp(r'[A-Za-z]').hasMatch(fallback)) {
+        return fallback.toUpperCase();
+      }
+    }
+    return raw ?? fallback ?? '';
+  }
+
+  static String? _sanitizeLevel(String? raw) {
+    final l = raw?.trim() ?? '';
+    if (l.isEmpty) return null;
+    if (RegExp(r'^(100|200|300|400)$').hasMatch(l)) return l;
+    return null;
+  }
+
   /// HTTP(S) avatar URL when the API sends a full URL; null for paths / base64.
   String? get profilePictureUrl {
     final p = profileImage.trim();
@@ -220,7 +240,7 @@ class Student {
     return Student(
         serverId: serverId,
         lecturerId: lecturerId,
-        indexNumber: _str(json['index_number'] ?? json['student_id']),
+        indexNumber: _parseIndexNumber(json),
         name: name,
         firstName: first,
         lastName: last,
@@ -232,7 +252,7 @@ class Student {
         className: _strOrNull(json['class_name']) ?? _strOrNull(json['class']),
         faculty: _strOrNull(json['faculty']),
         department: _strOrNull(json['department']),
-        level: _strOrNull(json['level']),
+        level: _sanitizeLevel(_strOrNull(json['level'])),
         semester: _strOrNull(json['semester']),
         isClassRep: isRep,
         repRoles: roles,
@@ -263,16 +283,14 @@ class Student {
     return false;
   }
 
-  /// Class group name with level, e.g. `ITS A - 200`. Level is tied to the class.
+  /// Class group name with level, e.g. `ITS A - Level 200`.
   String? get classGroupWithLevelLabel {
     final c = className?.trim() ?? '';
     final l = level?.trim() ?? '';
     if (c.isEmpty && l.isEmpty) return null;
-    if (c.isEmpty) {
-      return l.isEmpty ? null : 'Level $l';
-    }
+    if (c.isEmpty) return 'Level $l';
     if (l.isEmpty) return c;
-    return '$c - $l';
+    return '$c · Level $l';
   }
 
   /// Line for UI: prefers first + last when present.

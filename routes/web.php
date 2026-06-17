@@ -287,6 +287,7 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         // so admins and lecturers can share them.
         Route::get('/attendance-map', [\App\Http\Controllers\AttendanceMapController::class, 'repView'])->name('attendance-map');
         Route::get('/my-class', [ClassRepController::class, 'classShow'])->name('my-class');
+        Route::get('/flagged-students', [ClassRepController::class, 'flaggedStudents'])->name('flagged-students');
         Route::get('/class-attendance', [ClassRepController::class, 'attendanceIndex'])->name('class-attendance.index');
         Route::get('/class-attendance/course/{course}', [ClassRepController::class, 'attendanceForCourse'])->name('class-attendance.course');
         Route::get('/class-attendance/course/{course}/pdf', [AttendancePdfController::class, 'export'])->name('class-attendance.course.pdf');

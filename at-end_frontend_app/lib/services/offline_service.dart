@@ -36,7 +36,7 @@ class OfflineService {
     final path = join(await getDatabasesPath(), 'attendance_offline.db');
     return openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE students(
@@ -85,6 +85,8 @@ class OfflineService {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             index_number TEXT NOT NULL,
             course_code TEXT,
+            course_name TEXT,
+            status TEXT,
             session_id INTEGER,
             marked_at TEXT NOT NULL,
             synced INTEGER DEFAULT 1
@@ -213,6 +215,18 @@ class OfflineService {
         }
         if (oldVersion < 14) {
           await _createOutboxTableIfMissing(db);
+        }
+        if (oldVersion < 15) {
+          try {
+            await db.execute(
+              'ALTER TABLE attendance_log ADD COLUMN course_name TEXT',
+            );
+          } catch (_) {}
+          try {
+            await db.execute(
+              'ALTER TABLE attendance_log ADD COLUMN status TEXT',
+            );
+          } catch (_) {}
         }
       },
     );
@@ -555,19 +569,27 @@ class OfflineService {
     return 0;
   }
 
-  /// Marks per [course_code] from dashboard logs (synced marks only).
-  static Future<Map<String, int>> countMarksByCourseCode(
+  /// Marks per course label (prefers [course_name], then [course_code]).
+  static Future<Map<String, int>> countMarksByCourseLabel(
     String indexNumber,
   ) async {
     final logs = await getAllAttendanceLogsForIndex(indexNumber);
     final map = <String, int>{};
     for (final r in logs) {
-      final c = r['course_code']?.toString().trim();
-      final key = (c == null || c.isEmpty) ? 'Other' : c;
+      final name = r['course_name']?.toString().trim();
+      final code = r['course_code']?.toString().trim();
+      final key = (name != null && name.isNotEmpty)
+          ? name
+          : ((code != null && code.isNotEmpty) ? code : 'Other');
       map[key] = (map[key] ?? 0) + 1;
     }
     return map;
   }
+
+  /// @deprecated Use [countMarksByCourseLabel] — kept for older call sites.
+  static Future<Map<String, int>> countMarksByCourseCode(
+    String indexNumber,
+  ) => countMarksByCourseLabel(indexNumber);
 
   static Future<List<AttendanceRecord>> getAllRecords() async {
     final database = await _database;
@@ -598,6 +620,8 @@ class OfflineService {
   static Future<void> saveAttendanceLogMark({
     required String indexNumber,
     String? courseCode,
+    String? courseName,
+    String? status,
     int? sessionId,
     required String markedAt,
     int synced = 1,
@@ -605,6 +629,8 @@ class OfflineService {
     final row = {
       'index_number': indexNumber,
       'course_code': courseCode,
+      'course_name': courseName,
+      'status': status,
       'session_id': sessionId,
       'marked_at': markedAt,
       'synced': synced,
@@ -652,7 +678,9 @@ class OfflineService {
       final m = Map<String, dynamic>.from(raw);
       final at = (m['attendance_time'] ?? m['created_at'])?.toString() ?? '';
       if (at.isEmpty) continue;
-      final code = (m['course_code'] ?? m['course_name'])?.toString();
+      final code = m['course_code']?.toString().trim();
+      final name = m['course_name']?.toString().trim();
+      final status = (m['status'] ?? m['attendance_status'])?.toString().trim();
       final sidRaw = m['attendance_session_id'] ?? m['session_id'];
       final sid = sidRaw is int
           ? sidRaw
@@ -661,9 +689,11 @@ class OfflineService {
               : int.tryParse(sidRaw?.toString() ?? ''));
       mapped.add({
         'index_number': cleanedIndex,
-        'course_code': (code == null || code.trim().isEmpty)
-            ? (m['course_id'] != null ? 'Course #${m['course_id']}' : null)
+        'course_code': (code == null || code.isEmpty)
+            ? null
             : code,
+        'course_name': (name == null || name.isEmpty) ? null : name,
+        'status': (status == null || status.isEmpty) ? null : status,
         'session_id': sid,
         'marked_at': at,
         'synced': 1,

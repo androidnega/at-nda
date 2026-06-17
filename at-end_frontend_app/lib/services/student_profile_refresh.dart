@@ -17,7 +17,9 @@ Future<Student?> refreshStudentProfileFromApi(Student current) async {
     final fresh = Student.fromJson(map);
     final merged = fresh.copyWith(
       faceDescriptor: fresh.faceDescriptor ?? current.faceDescriptor,
-      profileImage: '',
+      profileImage: fresh.profileImage.trim().isNotEmpty
+          ? fresh.profileImage
+          : current.profileImage,
     );
     await OfflineService.setCurrentStudent(merged);
     final tokenStr = parseLoginResponseToken(body['token']);

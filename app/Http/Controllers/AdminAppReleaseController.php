@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppRelease;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -16,10 +17,13 @@ use Illuminate\View\View;
 class AdminAppReleaseController extends Controller
 {
     /** Web upload cap for APKs (matches server ini target). */
-    private const MAX_APK_MB = 50;
+    private const MAX_APK_MB = 500;
 
-    /** Minimum PHP upload_max_filesize needed for the web form. */
-    private const REQUIRED_PHP_UPLOAD_MB = 50;
+    /** Minimum PHP upload limit to accept typical APKs (~65 MB). */
+    private const MIN_PHP_UPLOAD_MB = 70;
+
+    /** Target PHP limits written by app-releases:ensure-php-limits --write */
+    private const TARGET_PHP_UPLOAD_MB = 500;
 
     public function index(): View
     {
@@ -34,26 +38,36 @@ class AdminAppReleaseController extends Controller
         return view('admin.app-releases.index', [
             'releases' => $releases,
             'maxUploadMb' => self::MAX_APK_MB,
-            'requiredPhpUploadMb' => self::REQUIRED_PHP_UPLOAD_MB,
+            'minPhpUploadMb' => self::MIN_PHP_UPLOAD_MB,
+            'targetPhpUploadMb' => self::TARGET_PHP_UPLOAD_MB,
             'phpUploadMaxMb' => $phpUploadMaxMb,
             'phpPostMaxMb' => $phpPostMaxMb,
             'phpUploadReady' => $phpUploadMaxMb !== null
-                && $phpUploadMaxMb >= self::REQUIRED_PHP_UPLOAD_MB
-                && ($phpPostMaxMb === null || $phpPostMaxMb >= self::REQUIRED_PHP_UPLOAD_MB),
+                && $phpUploadMaxMb >= self::MIN_PHP_UPLOAD_MB
+                && ($phpPostMaxMb === null || $phpPostMaxMb >= self::MIN_PHP_UPLOAD_MB),
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse|JsonResponse
     {
+        $wantsJson = $request->expectsJson()
+            || $request->ajax()
+            || $request->header('X-Requested-With') === 'XMLHttpRequest';
+
         if ($this->uploadBodyRejectedByPhp($request)) {
+            $message = 'The upload was rejected by the server (file too large or upload timed out). '
+                .'Current PHP limits: upload_max_filesize='.$this->formatIniLimit('upload_max_filesize')
+                .', post_max_size='.$this->formatIniLimit('post_max_size')
+                .'. Set both to at least '.self::MIN_PHP_UPLOAD_MB.'M in cPanel → MultiPHP INI Editor '
+                .'(target '.self::TARGET_PHP_UPLOAD_MB.'M / '.(self::TARGET_PHP_UPLOAD_MB + 20).'M post).';
+
+            if ($wantsJson) {
+                return response()->json(['message' => $message], 422);
+            }
+
             return back()
                 ->withInput($request->except('apk'))
-                ->withErrors([
-                    'apk' => 'The upload was rejected by the server (file too large or upload timed out). '
-                        .'Current PHP limits: upload_max_filesize='.$this->formatIniLimit('upload_max_filesize')
-                        .', post_max_size='.$this->formatIniLimit('post_max_size')
-                        .'. Set both to at least '.self::REQUIRED_PHP_UPLOAD_MB.'M in cPanel → MultiPHP INI Editor (or wait 5 min after git pull for .user.ini), or use the PuTTY register command below.',
-                ]);
+                ->withErrors(['apk' => $message]);
         }
 
         $validated = $request->validate([
@@ -88,9 +102,14 @@ class AdminAppReleaseController extends Controller
             ->where('version_code', $versionCode)
             ->exists();
         if ($exists) {
+            $message = "Version code {$versionCode} is already uploaded for {$platform}. Bump the code and try again.";
+            if ($wantsJson) {
+                return response()->json(['message' => $message, 'errors' => ['version_code' => [$message]]], 422);
+            }
+
             return back()
                 ->withInput()
-                ->withErrors(['version_code' => "Version code {$versionCode} is already uploaded for {$platform}. Bump the code and try again."]);
+                ->withErrors(['version_code' => $message]);
         }
 
         $disk = AppRelease::disk();
@@ -122,9 +141,24 @@ class AdminAppReleaseController extends Controller
             'released_at' => now(),
         ]);
 
+        $success = "Release v{$release->version_name} (#{$release->version_code}) uploaded.";
+
+        if ($wantsJson) {
+            return response()->json([
+                'message' => $success,
+                'release' => [
+                    'id' => $release->id,
+                    'version_name' => $release->version_name,
+                    'version_code' => $release->version_code,
+                    'human_size' => $release->humanSize(),
+                    'is_published' => $release->is_published,
+                ],
+            ]);
+        }
+
         return redirect()
             ->route('dashboard.app-releases.index')
-            ->with('success', "Release v{$release->version_name} (#{$release->version_code}) uploaded.");
+            ->with('success', $success);
     }
 
     /**

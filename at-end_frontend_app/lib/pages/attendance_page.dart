@@ -1146,9 +1146,13 @@ class _AttendancePageState extends State<AttendancePage> {
   Future<void> _persistAttendanceLog(String markedAt) async {
     if (_student == null || _session == null) return;
     final sid = parseSessionId(Map<String, dynamic>.from(_session!));
+    final name = _session!['course_name']?.toString().trim();
+    final code = _session!['course_code']?.toString().trim();
     await OfflineService.saveAttendanceLogMark(
       indexNumber: _student!.indexNumber,
-      courseCode: _session!['course_code']?.toString(),
+      courseCode: code?.isNotEmpty == true ? code : null,
+      courseName: name?.isNotEmpty == true ? name : null,
+      status: 'present',
       sessionId: sid,
       markedAt: markedAt,
     );
@@ -1280,6 +1284,11 @@ class _AttendancePageState extends State<AttendancePage> {
       _isSubmitting = false;
       if (subtitle != null) _successSubtitle = subtitle;
     });
+    unawaited(
+      AttendanceLocalNotify.notifyAttendanceMarked(
+        _softCourseLine() ?? 'your class',
+      ),
+    );
     _scheduleSilentLogout(logoutSeconds);
   }
 

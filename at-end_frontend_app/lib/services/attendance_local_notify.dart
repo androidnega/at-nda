@@ -18,6 +18,8 @@ abstract final class AttendanceLocalNotify {
   // pushed locally — so a second poll never re-buzzes the same
   // lecturer message even if the cron pipeline ever returns it twice.
   static const _prefsSeenServerMsg = 'att_notify_seen_server_msg_ids';
+  static const _prefsClassRemindKeys = 'att_notify_class_remind_keys';
+  static const _prefsMissedWarnKeys = 'att_notify_missed_warn_keys';
   // Persisted set of OS notification ids currently shown for
   // server-side lecturer messages. When the user re-opens the app we
   // cancel all of them so the notification shade clears.
@@ -288,6 +290,119 @@ abstract final class AttendanceLocalNotify {
       920002,
       title: 'Checkout confirmed',
       body: 'Your checkout for $courseLabel was saved.',
+    );
+  }
+
+  /// ~30 minutes before a scheduled class (from today's timetable).
+  static Future<void> checkUpcomingClassReminders(
+    List<Map<String, dynamic>> slots,
+  ) async {
+    if (kIsWeb || !_initialized) return;
+    if (!NotificationPrefs.enabled) return;
+    if (slots.isEmpty) return;
+
+    final now = DateTime.now();
+    final todayKey =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final p = await SharedPreferences.getInstance();
+    final seenRaw = p.getStringList(_prefsClassRemindKeys) ?? [];
+    final seen = seenRaw.toSet();
+
+    for (final slot in slots) {
+      final start = _parseSlotStart(now, slot['start_time']?.toString());
+      if (start == null) continue;
+      final diff = start.difference(now);
+      if (diff.inMinutes > 30 || diff.inMinutes < 25) continue;
+
+      final course = _slotCourseLabel(slot);
+      final remindKey =
+          '$todayKey|${slot['course_id'] ?? course}|${slot['start_time']}';
+      if (!seen.add(remindKey)) continue;
+
+      await _show(
+        910000 + (remindKey.hashCode.abs() % 50000),
+        title: 'Class starting soon',
+        body: '$course starts in about 30 minutes.',
+      );
+    }
+
+    if (seen.length > 200) {
+      final trimmed = seen.toList()..sort();
+      await p.setStringList(
+        _prefsClassRemindKeys,
+        trimmed.sublist(trimmed.length - 200),
+      );
+    } else {
+      await p.setStringList(_prefsClassRemindKeys, seen.toList());
+    }
+  }
+
+  static DateTime? _parseSlotStart(DateTime today, String? raw) {
+    final t = raw?.trim() ?? '';
+    if (t.isEmpty) return null;
+    final parts = t.split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return DateTime(today.year, today.month, today.day, h, m);
+  }
+
+  static String _slotCourseLabel(Map<String, dynamic> slot) {
+    final n = (slot['course_name'] ?? '').toString().trim();
+    if (n.isNotEmpty) return n;
+    final c = (slot['course_code'] ?? '').toString().trim();
+    if (c.isNotEmpty) return c;
+    return 'your class';
+  }
+
+  /// Push when the API reports missed-session warnings.
+  static Future<void> notifyMissedSessionWarnings(
+    List<Map<String, dynamic>> warnings,
+  ) async {
+    if (kIsWeb || !_initialized) return;
+    if (!NotificationPrefs.enabled) return;
+    if (warnings.isEmpty) return;
+
+    final p = await SharedPreferences.getInstance();
+    final seenRaw = p.getStringList(_prefsMissedWarnKeys) ?? [];
+    final seen = seenRaw.toSet();
+
+    for (final w in warnings) {
+      final course = (w['course_name'] ?? w['course_code'] ?? w['message'])
+              ?.toString()
+              .trim() ??
+          'a course';
+      final count = w['missed_count'] ?? w['count'];
+      final key = '${w['course_id'] ?? course}|$count|${w['message']}';
+      if (!seen.add(key)) continue;
+
+      final body = w['message']?.toString().trim().isNotEmpty == true
+          ? w['message'].toString().trim()
+          : 'You may have missed recent sessions for $course. Open the app to review.';
+      await _show(
+        920100 + (key.hashCode.abs() % 50000),
+        title: 'Attendance alert',
+        body: body,
+      );
+    }
+
+    if (seen.length > 200) {
+      final trimmed = seen.toList()..sort();
+      await p.setStringList(
+        _prefsMissedWarnKeys,
+        trimmed.sublist(trimmed.length - 200),
+      );
+    } else {
+      await p.setStringList(_prefsMissedWarnKeys, seen.toList());
+    }
+  }
+
+  static Future<void> notifyAttendanceMarked(String courseLabel) async {
+    await _show(
+      920003,
+      title: 'Attendance recorded',
+      body: 'Your mark for $courseLabel was saved.',
     );
   }
 

@@ -132,6 +132,28 @@
         </div>
     </div>
 
+    @php $flaggedColl = collect($flaggedStudents ?? $repFlaggedStudents ?? []); @endphp
+    @if($flaggedColl->isNotEmpty())
+        <div class="rounded-2xl border border-rose-200 bg-gradient-to-r from-rose-50 to-orange-50 px-4 sm:px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+                <span class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                    <i class="fas fa-triangle-exclamation"></i>
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-bold text-rose-900">
+                        {{ $flaggedColl->count() }} student{{ $flaggedColl->count() === 1 ? '' : 's' }} missed 3+ classes in a row
+                    </p>
+                    <p class="text-xs text-rose-800/80 mt-0.5 leading-relaxed max-w-2xl">
+                        These students have not marked present for three or more consecutive ended sessions in at least one course. Review and follow up early.
+                    </p>
+                </div>
+            </div>
+            <a href="{{ route('dashboard.flagged-students') }}" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-rose-700 shadow-sm">
+                Review list <i class="fas fa-arrow-right text-xs"></i>
+            </a>
+        </div>
+    @endif
+
     {{-- KPI tiles: vivid gradient cards with floating decorations --}}
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div class="rep-kpi rep-kpi--teal">

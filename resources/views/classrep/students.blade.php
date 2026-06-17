@@ -128,9 +128,16 @@
                         @endif
                     </span>
                     <div class="min-w-0 flex-1">
-                        @if($student->getDisplayName() !== '')
-                            <p class="text-sm sm:text-base font-semibold text-slate-900 truncate">{{ $student->getDisplayName() }}</p>
-                        @endif
+                        <div class="flex items-center gap-2 min-w-0">
+                            @if($student->getDisplayName() !== '')
+                                <p class="text-sm sm:text-base font-semibold text-slate-900 truncate">{{ $student->getDisplayName() }}</p>
+                            @endif
+                            @if(!empty(($flaggedMap ?? [])[$student->id]))
+                                <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" title="Missed 3+ classes in a row">
+                                    <i class="fas fa-triangle-exclamation text-[9px]"></i> At risk
+                                </span>
+                            @endif
+                        </div>
                         <p class="text-xs sm:text-sm font-mono text-slate-600 mt-0.5 truncate">{{ $student->index_number }}</p>
                         @if($student->schoolClass)
                             <p class="text-xs text-slate-500 mt-1 truncate">{{ $student->schoolClass->name }}</p>

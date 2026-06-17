@@ -33,6 +33,7 @@ import '../widgets/student_today_dashboard.dart';
 import '../widgets/student_violet_calendar_dashboard.dart';
 import '../widgets/student_midnight_control_dashboard.dart';
 import '../widgets/dynamic_widget_renderer.dart';
+import '../widgets/student_course_overview_cards.dart';
 import 'attendance_history_page.dart';
 import 'attendance_page.dart';
 import 'student_attendance_table_page.dart';
@@ -591,6 +592,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
       );
       if (!mounted) return;
       setState(() => _todayTimetable = out);
+      unawaited(AttendanceLocalNotify.checkUpcomingClassReminders(out));
     }
 
     final tok = await OfflineService.getApiSessionToken();
@@ -637,6 +639,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
       );
       if (!mounted) return;
       setState(() => _todayTimetable = out);
+      unawaited(AttendanceLocalNotify.checkUpcomingClassReminders(out));
     } catch (_) {
       await loadCachedTimetable();
     }
@@ -1021,6 +1024,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
       _absenceWarningsSnapshot = list;
       _showAbsenceWarning = true;
     });
+    unawaited(AttendanceLocalNotify.notifyMissedSessionWarnings(list));
     _absenceWarningAutoDismissTimer = Timer(const Duration(seconds: 10), () {
       if (mounted) setState(() => _showAbsenceWarning = false);
     });
@@ -1029,6 +1033,17 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
   void _dismissAbsenceWarning() {
     _absenceWarningAutoDismissTimer?.cancel();
     if (mounted) setState(() => _showAbsenceWarning = false);
+  }
+
+  List<Widget> _courseOverviewBlocks() {
+    final s = _student;
+    if (s == null || s.isClassRep || _liteUiMode) return const [];
+    return const [
+      Padding(
+        padding: EdgeInsets.only(bottom: 12),
+        child: StudentCourseOverviewCards(compact: true),
+      ),
+    ];
   }
 
   void _openAttendancePage(Map<String, dynamic> session) {
@@ -1295,6 +1310,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     todayVenueHint: _firstTodayVenueHint(),
                     classRepCard: null,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1365,6 +1381,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     todayVenueHint: _firstTodayVenueHint(),
                     classRepCard: null,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1435,6 +1452,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     todayVenueHint: _firstTodayVenueHint(),
                     classRepCard: null,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1506,6 +1524,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     todayVenueHint: _firstTodayVenueHint(),
                     classRepCard: null,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1565,6 +1584,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     statsMarkedToday: _markedSessionIdsToday.length,
                     unmarkedCount: um.length,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1617,6 +1637,7 @@ bool _isCheckInCheckoutSession(Map<String, dynamic> session) {
                     classRepCard:
                         s.isClassRep ? _buildClassRepEntryCard(context) : null,
                     dynamicBlocks: [
+                      ..._courseOverviewBlocks(),
                       if (Constants.debugShowSessionApiResponseOnHome) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),

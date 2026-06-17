@@ -74,7 +74,16 @@
                 </a>
                 <a href="{{ route('dashboard.students.index') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.students.*') ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-users w-4 text-center text-xs"></i>
-                    <span>Students</span>
+                    <span class="flex-1">Students</span>
+                </a>
+                <a href="{{ route('dashboard.flagged-students') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ request()->routeIs('dashboard.flagged-students') ? 'bg-rose-50 text-rose-700 font-semibold ring-1 ring-rose-100' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
+                    <i class="fas fa-triangle-exclamation w-4 text-center text-xs {{ ($repFlaggedStudentsCount ?? 0) > 0 ? 'text-rose-500' : '' }}"></i>
+                    <span class="flex-1">At-risk students</span>
+                    @if(($repFlaggedStudentsCount ?? 0) > 0)
+                        <span class="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center tabular-nums" title="{{ $repFlaggedStudentsCount }} student(s) missed 3+ classes in a row">
+                            {{ $repFlaggedStudentsCount > 99 ? '99+' : $repFlaggedStudentsCount }}
+                        </span>
+                    @endif
                 </a>
                 <a href="{{ route('dashboard.timetable') }}" class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm {{ (request()->routeIs('dashboard.timetable') && ! request()->routeIs('dashboard.timetable.manage')) ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' }}">
                     <i class="fas fa-calendar-alt w-4 text-center text-xs"></i>
@@ -115,6 +124,16 @@
                         <span class="text-sm font-semibold text-gray-800 truncate">{{ $__env->yieldContent('title') }}</span>
                     @endif
                 </div>
+                @if(($repFlaggedStudentsCount ?? 0) > 0)
+                    <a href="{{ route('dashboard.flagged-students') }}"
+                       class="relative shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-xl text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition"
+                       title="{{ $repFlaggedStudentsCount }} student(s) missed 3+ classes in a row — review">
+                        <i class="fas fa-bell text-base"></i>
+                        <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center tabular-nums ring-2 ring-white">
+                            {{ $repFlaggedStudentsCount > 99 ? '99+' : $repFlaggedStudentsCount }}
+                        </span>
+                    </a>
+                @endif
                 <div class="relative shrink-0" id="rep-profile-wrap">
                     <button type="button" id="rep-profile-btn" class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
                         @if($repStudent ?? null)

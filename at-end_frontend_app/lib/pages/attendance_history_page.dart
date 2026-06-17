@@ -4,6 +4,7 @@ import '../models/attendance_record.dart';
 import '../theme/soft_ui.dart';
 import '../models/student.dart';
 import '../services/offline_service.dart';
+import '../services/student_attendance_grid_service.dart';
 import '../services/sync_service.dart';
 import '../utils/connectivity_util.dart';
 
@@ -89,14 +90,31 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
   Future<_HistoryBundle> _loadBundle() async {
     final student = await OfflineService.getCurrentStudent();
     if (student == null) {
-      return _HistoryBundle(student: null, rows: [], pending: [], byCourse: {});
+      return _HistoryBundle(
+        student: null,
+        rows: [],
+        pending: [],
+        byCourse: {},
+        gridData: null,
+      );
     }
+
+    // Always prefer the server — wipe local cache when online.
+    if (await hasInternetConnectivity()) {
+      await SyncService.pullRemoteAttendanceHistory();
+    }
+
     final logs = await OfflineService.getAllAttendanceLogsForIndex(
       student.indexNumber,
     );
     final pending = await OfflineService.getPendingRecords();
     final byCourse =
-        await OfflineService.countMarksByCourseCode(student.indexNumber);
+        await OfflineService.countMarksByCourseLabel(student.indexNumber);
+
+    Map<String, dynamic>? gridData;
+    if (await hasInternetConnectivity()) {
+      gridData = await StudentAttendanceGridService.fetchLive();
+    }
 
     final rows = <_HistoryRow>[];
 
@@ -155,6 +173,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
       rows: rows,
       pending: pending,
       byCourse: byCourse,
+      gridData: gridData,
     );
   }
 
@@ -404,6 +423,110 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
         if (bundle.student == null) {
           return const Center(child: Text('Log in to see stats.'));
         }
+
+        final grid = bundle.gridData;
+        final courses = grid == null
+            ? const <Map<String, dynamic>>[]
+            : (grid['courses'] as List? ?? const [])
+                .whereType<Map>()
+                .map((m) => Map<String, dynamic>.from(m))
+                .toList();
+        final summary = grid == null
+            ? const <String, dynamic>{}
+            : Map<String, dynamic>.from(grid['summary'] as Map? ?? {});
+
+        if (courses.isNotEmpty) {
+          final overall = (summary['percent'] as int?) ?? 0;
+          final attended = (summary['classes_attended'] as int?) ?? 0;
+          final held = (summary['classes_held'] as int?) ?? 0;
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                'Attendance from your school',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Live stats from the server — refreshed each time you open this tab.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      '$overall%',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '$attended of $held classes attended overall',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              ...courses.map((c) {
+                final name = c['course_name']?.toString().trim() ?? 'Course';
+                final percent = (c['percent'] as int?) ?? 0;
+                final present = (c['present_count'] as int?) ?? 0;
+                final heldC = (c['held_count'] as int?) ?? 0;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          Text('$percent%'),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: (percent / 100).clamp(0.0, 1.0),
+                          minHeight: 8,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$present of $heldC sessions attended',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          );
+        }
+
         final entries = bundle.byCourse.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value));
         final total = entries.fold<int>(0, (s, e) => s + e.value);
@@ -412,14 +535,14 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage>
           padding: const EdgeInsets.all(16),
           children: [
             Text(
-              'Recorded marks (this device)',
+              'Recorded marks (offline)',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Percentages need total sessions from your school — here you see how many times you recorded attendance per course.',
+              'Connect to the internet to load official attendance percentages.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -488,10 +611,12 @@ class _HistoryBundle {
     required this.rows,
     required this.pending,
     required this.byCourse,
+    this.gridData,
   });
 
   final Student? student;
   final List<_HistoryRow> rows;
   final List<AttendanceRecord> pending;
   final Map<String, int> byCourse;
+  final Map<String, dynamic>? gridData;
 }
