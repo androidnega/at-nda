@@ -8,7 +8,7 @@
         <h1 class="text-2xl font-bold">Courses</h1>
         <p class="text-gray-600 text-sm mt-1">Manage courses</p>
     </div>
-    <a href="{{ route('dashboard.courses.create') }}" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-700 inline-flex items-center justify-center">
+    <a href="{{ route('dashboard.courses.create') }}" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-700 inline-flex items-center justify-center shrink-0">
         Create Course
     </a>
 </div>
@@ -20,53 +20,150 @@
     <div class="mb-4 p-4 bg-red-100 text-red-800 rounded-xl">{{ session('error') }}</div>
 @endif
 
-<div class="space-y-4">
-    @foreach($courses as $course)
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="font-semibold text-gray-800">{{ $course->course_name }}{{ $course->course_code ? ' (' . $course->course_code . ')' : '' }}</h3>
-                    @php
-                        $courseQualLabel = $course->qualificationLabel();
-                        $courseQualKey = strtolower(trim((string) ($course->qualification ?? '')));
-                        $courseQualBg = match ($courseQualKey) {
-                            'hnd' => 'bg-emerald-100 text-emerald-800',
-                            'diploma' => 'bg-amber-100 text-amber-800',
-                            'degree' => 'bg-indigo-100 text-indigo-800',
-                            default => 'bg-slate-100 text-slate-700',
-                        };
-                    @endphp
-                    @if($courseQualLabel)
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide {{ $courseQualBg }}">{{ $courseQualLabel }}</span>
-                    @else
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-600" title="No qualification filter — every class can take this course">All</span>
-                    @endif
-                </div>
-                @php $classNames = $course->relationLoaded('schoolClasses') && $course->schoolClasses->isNotEmpty()
-                    ? $course->schoolClasses->pluck('name')->join(', ')
-                    : ($course->schoolClass?->name); @endphp
-                @if($classNames)
-                <p class="text-xs text-gray-500 mt-1"><i class="fas fa-layer-group text-gray-400 mr-1"></i>{{ $classNames }}</p>
-                @endif
-                <p class="text-[11px] text-gray-400 mt-1 italic">Day, time, lecturer &amp; venue are set per class by each rep.</p>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                <a href="{{ route('web.attendance.form', $course) }}" target="_blank" class="text-blue-600 hover:underline text-sm">Attendance</a>
-                <a href="{{ route('dashboard.pdf.export', $course) }}" target="_blank" class="text-gray-600 hover:underline text-sm">PDF</a>
-                <a href="{{ route('dashboard.courses.edit', $course) }}" class="text-gray-600 hover:underline text-sm">Edit</a>
-                <form action="{{ route('dashboard.courses.destroy', $course) }}" method="POST" class="inline" onsubmit="return confirm('Delete this course?')">
-                    @csrf
-                    @method('DELETE')
-                    <button type="submit" class="text-red-600 hover:underline text-sm">Delete</button>
-                </form>
-            </div>
-        </div>
+<div class="mb-5">
+    <label for="course-live-search" class="sr-only">Search courses</label>
+    <div class="relative max-w-xl">
+        <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+            <i class="fas fa-search text-sm" aria-hidden="true"></i>
+        </span>
+        <input type="search"
+               id="course-live-search"
+               name="q"
+               value="{{ request('q') }}"
+               autocomplete="off"
+               placeholder="Search by name, code, or class…"
+               class="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+        <button type="button"
+                id="course-search-clear"
+                class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 {{ request()->filled('q') ? '' : 'hidden' }}"
+                aria-label="Clear search">
+            <i class="fas fa-times text-sm"></i>
+        </button>
     </div>
-    @endforeach
+    <p id="course-search-status" class="mt-2 text-xs text-gray-500 min-h-[1rem]"></p>
 </div>
 
-<div class="mt-4">
-    {{ $courses->links() }}
+<div id="courses-list">
+    @include('admin.partials.courses-list', ['courses' => $courses])
 </div>
+
+@push('scripts')
+<script>
+(function () {
+    var input = document.getElementById('course-live-search');
+    var clearBtn = document.getElementById('course-search-clear');
+    var listHost = document.getElementById('courses-list');
+    var statusEl = document.getElementById('course-search-status');
+    if (!input || !listHost) return;
+
+    var debounceTimer = null;
+    var activeController = null;
+    var listUrl = @json(route('dashboard.courses.index'));
+
+    function setStatus(text) {
+        if (statusEl) statusEl.textContent = text || '';
+    }
+
+    function toggleClear() {
+        if (!clearBtn) return;
+        clearBtn.classList.toggle('hidden', input.value.trim() === '');
+    }
+
+    function updateUrl(q) {
+        var url = new URL(window.location.href);
+        if (q) {
+            url.searchParams.set('q', q);
+        } else {
+            url.searchParams.delete('q');
+        }
+        url.searchParams.delete('page');
+        window.history.replaceState({}, '', url);
+    }
+
+    function applyLocalFilter(q) {
+        var needle = q.trim().toLowerCase();
+        var rows = listHost.querySelectorAll('.course-row');
+        var visible = 0;
+        rows.forEach(function (row) {
+            var blob = row.getAttribute('data-search') || '';
+            var show = !needle || blob.indexOf(needle) !== -1;
+            row.classList.toggle('hidden', !show);
+            if (show) visible += 1;
+        });
+        var empty = listHost.querySelector('#courses-empty-state');
+        if (empty) {
+            empty.classList.toggle('hidden', visible > 0 || needle === '');
+        }
+        if (needle && rows.length) {
+            setStatus(visible === 1 ? '1 course on this page' : visible + ' courses on this page');
+        } else if (!needle) {
+            setStatus('');
+        }
+    }
+
+    function fetchResults(q) {
+        if (activeController) activeController.abort();
+        activeController = new AbortController();
+        setStatus('Searching…');
+
+        var url = listUrl + (q ? ('?q=' + encodeURIComponent(q)) : '');
+        fetch(url, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'text/html'
+            },
+            signal: activeController.signal
+        }).then(function (res) {
+            if (!res.ok) throw new Error('Search failed');
+            return res.text();
+        }).then(function (html) {
+            listHost.innerHTML = html;
+            updateUrl(q);
+            toggleClear();
+            if (q) {
+                var count = listHost.querySelectorAll('.course-row').length;
+                setStatus(count === 1 ? '1 course found' : count + ' courses found');
+            } else {
+                setStatus('');
+            }
+        }).catch(function (err) {
+            if (err && err.name === 'AbortError') return;
+            applyLocalFilter(q);
+            setStatus('Showing matches on this page only');
+        });
+    }
+
+    function scheduleSearch() {
+        clearTimeout(debounceTimer);
+        var q = input.value;
+        toggleClear();
+        debounceTimer = setTimeout(function () {
+            if (q.trim().length === 0) {
+                fetchResults('');
+                return;
+            }
+            if (q.trim().length < 2) {
+                applyLocalFilter(q);
+                setStatus('Type at least 2 characters to search all courses');
+                return;
+            }
+            fetchResults(q.trim());
+        }, 280);
+    }
+
+    input.addEventListener('input', scheduleSearch);
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            input.value = '';
+            toggleClear();
+            fetchResults('');
+            input.focus();
+        });
+    }
+
+    toggleClear();
+})();
+</script>
+@endpush
 @endsection

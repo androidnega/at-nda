@@ -11,13 +11,41 @@ use Illuminate\View\View;
 
 class CourseController extends Controller
 {
-    public function index(): View
+    public function index(Request $request): View|\Illuminate\Http\Response
     {
-        $courses = Course::with(['schoolClasses', 'lecturer.schoolClasses', 'lecturer.schoolClass', 'venueRelation'])
-            ->latest()
-            ->paginate(10);
+        $courses = $this->coursesIndexQuery($request)
+            ->paginate(10)
+            ->withQueryString();
+
+        if ($request->ajax() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            return response()->view('admin.partials.courses-list', compact('courses'));
+        }
 
         return view('admin.courses', compact('courses'));
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Builder<Course>
+     */
+    private function coursesIndexQuery(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = Course::with(['schoolClasses', 'lecturer.schoolClasses', 'lecturer.schoolClass', 'venueRelation'])
+            ->latest();
+
+        $term = trim((string) $request->query('q', ''));
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function ($q) use ($like) {
+                $q->where('course_name', 'like', $like)
+                    ->orWhere('course_code', 'like', $like)
+                    ->orWhere('qualification', 'like', $like)
+                    ->orWhereHas('schoolClasses', function ($sq) use ($like) {
+                        $sq->where('name', 'like', $like);
+                    });
+            });
+        }
+
+        return $query;
     }
 
     public function create(): View
