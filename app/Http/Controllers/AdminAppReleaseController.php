@@ -15,9 +15,11 @@ use Illuminate\View\View;
  */
 class AdminAppReleaseController extends Controller
 {
-    /** Cap APK uploads to 100 MB to match typical Android sizes
-     *  without giving someone a free DOS vector. */
-    private const MAX_APK_MB = 100;
+    /** Web upload cap for APKs (matches server ini target). */
+    private const MAX_APK_MB = 50;
+
+    /** Minimum PHP upload_max_filesize needed for the web form. */
+    private const REQUIRED_PHP_UPLOAD_MB = 50;
 
     public function index(): View
     {
@@ -26,11 +28,18 @@ class AdminAppReleaseController extends Controller
             ->orderByDesc('version_code')
             ->get();
 
+        $phpUploadMaxMb = $this->iniToMb(ini_get('upload_max_filesize'));
+        $phpPostMaxMb = $this->iniToMb(ini_get('post_max_size'));
+
         return view('admin.app-releases.index', [
             'releases' => $releases,
             'maxUploadMb' => self::MAX_APK_MB,
-            'phpUploadMaxMb' => $this->iniToMb(ini_get('upload_max_filesize')),
-            'phpPostMaxMb' => $this->iniToMb(ini_get('post_max_size')),
+            'requiredPhpUploadMb' => self::REQUIRED_PHP_UPLOAD_MB,
+            'phpUploadMaxMb' => $phpUploadMaxMb,
+            'phpPostMaxMb' => $phpPostMaxMb,
+            'phpUploadReady' => $phpUploadMaxMb !== null
+                && $phpUploadMaxMb >= self::REQUIRED_PHP_UPLOAD_MB
+                && ($phpPostMaxMb === null || $phpPostMaxMb >= self::REQUIRED_PHP_UPLOAD_MB),
         ]);
     }
 
@@ -43,7 +52,7 @@ class AdminAppReleaseController extends Controller
                     'apk' => 'The upload was rejected by the server (file too large or upload timed out). '
                         .'Current PHP limits: upload_max_filesize='.$this->formatIniLimit('upload_max_filesize')
                         .', post_max_size='.$this->formatIniLimit('post_max_size')
-                        .'. Use the PuTTY register command below, or raise limits in cPanel → MultiPHP INI Editor.',
+                        .'. Set both to at least '.self::REQUIRED_PHP_UPLOAD_MB.'M in cPanel → MultiPHP INI Editor (or wait 5 min after git pull for .user.ini), or use the PuTTY register command below.',
                 ]);
         }
 
