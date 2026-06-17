@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Attendance;
 use App\Models\AttendanceSession;
-use App\Models\AuditLog;
 use App\Models\Course;
 use App\Models\Student;
 use App\Support\AppDownloadStats;
@@ -159,31 +158,6 @@ class AdminController extends Controller
             $facultyBreakdown = collect();
         }
 
-        // Recent activity — last 8 marks, with student + course already
-        // eager-loaded for the feed renderer.
-        $recentActivity = Attendance::query()
-            ->with(['student:id,index_number,first_name,last_name', 'course:id,course_name,course_code'])
-            ->activeWeeksOnly()
-            ->latest('attendance_time')
-            ->limit(8)
-            ->get();
-
-        // Recent audit events (rep/admin actions) — pull from the audit
-        // log so admins can see who created sessions, extended class
-        // time, or closed sessions without leaving the dashboard.
-        $recentAudit = collect();
-        try {
-            if (Schema::hasTable('audit_logs')) {
-                $recentAudit = AuditLog::query()
-                    ->latest('id')
-                    ->limit(6)
-                    ->get(['id', 'actor_name', 'actor_role', 'action', 'created_at']);
-            }
-        } catch (\Throwable $e) {
-            report($e);
-            $recentAudit = collect();
-        }
-
         // Average attendance rate for the period: how many marks land per
         // expected student-session (capped so it never exceeds 100%).
         $expectedMarks = $totalStudents > 0 && $periodAttendances > 0
@@ -215,8 +189,6 @@ class AdminController extends Controller
             'modeBreakdown',
             'totalModeCount',
             'facultyBreakdown',
-            'recentActivity',
-            'recentAudit',
             'attendanceRate',
             'period',
             'periodLabel',

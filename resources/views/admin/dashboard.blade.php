@@ -321,69 +321,6 @@
                     </table>
                 </div>
             </div>
-
-            {{-- Live activity feed — recent marks + audit log side by side. --}}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <h3 class="text-sm font-semibold text-slate-700 mb-3 inline-flex items-center gap-2">
-                        <span class="w-9 h-9 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
-                            <i class="fas fa-stream text-sm"></i>
-                        </span>
-                        Recent attendance
-                    </h3>
-                    <ul class="space-y-2.5">
-                        @forelse($recentActivity as $row)
-                            @php
-                                $name = trim(($row->student?->first_name ?? '').' '.($row->student?->last_name ?? ''));
-                                if ($name === '') $name = $row->student?->index_number ?? '—';
-                            @endphp
-                            <li class="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
-                                <span class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                    <i class="fas fa-arrow-down-left text-xs"></i>
-                                </span>
-                                <div class="min-w-0 flex-1">
-                                    <p class="text-sm font-semibold text-slate-800 truncate">{{ $name }}</p>
-                                    <p class="text-xs text-slate-500 truncate">
-                                        {{ $row->course?->course_name ?? '—' }}
-                                        @if($row->course?->course_code)<span class="font-mono ml-1">· {{ $row->course->course_code }}</span>@endif
-                                    </p>
-                                </div>
-                                <span class="text-[11px] text-slate-400 shrink-0 tabular-nums">{{ optional($row->attendance_time)->diffForHumans() ?? '—' }}</span>
-                            </li>
-                        @empty
-                            <li class="text-sm text-slate-500 text-center py-6">No marks yet.</li>
-                        @endforelse
-                    </ul>
-                </div>
-
-                <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <h3 class="text-sm font-semibold text-slate-700 mb-3 inline-flex items-center gap-2">
-                        <span class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                            <i class="fas fa-clock-rotate-left text-sm"></i>
-                        </span>
-                        Audit trail
-                    </h3>
-                    <ul class="space-y-2.5">
-                        @forelse($recentAudit as $log)
-                            <li class="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
-                                <span class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                                    <i class="fas fa-shield-halved text-xs"></i>
-                                </span>
-                                <div class="min-w-0 flex-1">
-                                    <p class="text-sm font-semibold text-slate-800 truncate">{{ $log->action }}</p>
-                                    <p class="text-xs text-slate-500 truncate">
-                                        {{ $log->actor_name ?? '—' }}
-                                        @if($log->actor_role)<span class="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600 rounded-md ml-1">{{ $log->actor_role }}</span>@endif
-                                    </p>
-                                </div>
-                                <span class="text-[11px] text-slate-400 shrink-0 tabular-nums">{{ optional($log->created_at)->diffForHumans() ?? '—' }}</span>
-                            </li>
-                        @empty
-                            <li class="text-sm text-slate-500 text-center py-6">No audit events yet.</li>
-                        @endforelse
-                    </ul>
-                </div>
-            </div>
         </div>
     </div>
 </div>
