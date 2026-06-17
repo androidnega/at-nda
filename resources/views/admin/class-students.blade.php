@@ -21,6 +21,55 @@
     </div>
 @endif
 
+<div class="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+            <h2 class="text-sm font-semibold text-slate-800">
+                <i class="fas fa-clipboard-check mr-1 text-slate-500"></i>Class attendance
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">Attendance results for every course linked to this class.</p>
+        </div>
+        @if(($attendanceCourses ?? collect())->isNotEmpty())
+            <span class="text-xs text-slate-500">{{ $attendanceCourses->count() }} course{{ $attendanceCourses->count() === 1 ? '' : 's' }}</span>
+        @endif
+    </div>
+    @if(($attendanceCourses ?? collect())->isEmpty())
+        <div class="px-5 py-10 text-center text-sm text-slate-500">
+            No courses assigned to this class yet.
+        </div>
+    @else
+        <div class="divide-y divide-slate-100">
+            @foreach($attendanceCourses as $row)
+                @php $course = $row['course']; @endphp
+                <div class="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50/50">
+                    <div class="min-w-0">
+                        <a href="{{ route('dashboard.classes.attendance.course', [$schoolClass, $course]) }}"
+                           class="font-semibold text-slate-900 hover:text-primary">
+                            {{ $course->course_name }}
+                        </a>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            @if($course->course_code){{ $course->course_code }} · @endif
+                            {{ $row['held_weeks'] }} week{{ $row['held_weeks'] === 1 ? '' : 's' }} held
+                            · {{ $row['mark_count'] }} present mark{{ $row['mark_count'] === 1 ? '' : 's' }}
+                            · {{ $row['enrolled'] }} students
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2 shrink-0">
+                        <a href="{{ route('dashboard.classes.attendance.course', [$schoolClass, $course]) }}"
+                           class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-primary/40 hover:text-primary">
+                            <i class="fas fa-table text-[10px]"></i> View results
+                        </a>
+                        <a href="{{ route('dashboard.pdf.export', $course).'?class_id='.$schoolClass->id }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/80 px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-100">
+                            <i class="fas fa-file-pdf text-[10px]"></i> PDF
+                        </a>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    @endif
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
     <div class="bg-white rounded-xl border border-gray-100 p-4 sm:p-6">
         <h2 class="text-sm font-semibold text-gray-900 mb-3">Add one student</h2>

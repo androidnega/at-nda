@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminAppReleaseController;
 use App\Http\Controllers\AdminAttendanceWeekController;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AdminClassAttendanceController;
 use App\Http\Controllers\AppReleaseDownloadController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AdminController;
@@ -449,6 +450,9 @@ Route::prefix('dashboard')->middleware('no-store')->name('dashboard.')->group(fu
         Route::get('/classes/create', [ClassController::class, 'create'])->name('classes.create');
         Route::post('/classes', [ClassController::class, 'store'])->name('classes.store');
         Route::get('/classes/{schoolClass}', [ClassController::class, 'show'])->name('classes.show');
+        Route::get('/classes/{schoolClass}/attendance/{course}', [AdminClassAttendanceController::class, 'forCourse'])
+            ->name('classes.attendance.course')
+            ->scopeBindings();
         Route::post('/classes/{schoolClass}/students', [ClassController::class, 'storeStudent'])->name('classes.students.store');
         Route::post('/classes/{schoolClass}/students/import', [ClassController::class, 'importStudents'])->name('classes.students.import');
         Route::get('/classes/{schoolClass}/edit', [ClassController::class, 'edit'])->name('classes.edit');

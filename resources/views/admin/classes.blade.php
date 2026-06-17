@@ -99,19 +99,14 @@
             };
             $coursesCount = (int) ($class->courses_count_all ?? $class->courses_count ?? 0);
             $lecturersCount = (int) ($class->lecturers_count_all ?? 0);
-            $logoUrl = $class->logoUrl();
             $initial = strtoupper(mb_substr(trim($class->name), 0, 1));
         @endphp
         <article class="group flex flex-col rounded-2xl bg-white ring-1 ring-slate-200/70 overflow-hidden transition duration-200 hover:ring-slate-300/90 hover:shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
             <div class="p-5 sm:p-5">
                 <div class="flex items-start gap-3.5">
-                    @if($logoUrl)
-                        <img src="{{ $logoUrl }}" alt="" class="w-11 h-11 rounded-xl object-cover ring-1 ring-slate-200/80 shrink-0 bg-white">
-                    @else
-                        <span class="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 flex items-center justify-center text-sm font-bold text-slate-500 shrink-0">
-                            {{ $initial }}
-                        </span>
-                    @endif
+                    <span class="w-11 h-11 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/15 flex items-center justify-center shrink-0" aria-hidden="true">
+                        <span class="text-sm font-bold text-primary">{{ $initial }}</span>
+                    </span>
                     <div class="min-w-0 flex-1">
                         <h3 class="font-semibold text-slate-900 text-base leading-snug truncate" title="{{ $class->name }}">{{ $class->name }}</h3>
                         <p class="mt-0.5 text-xs text-slate-500 truncate" title="{{ $class->faculty?->name }} · {{ $class->department?->name }}">

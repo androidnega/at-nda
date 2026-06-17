@@ -51,14 +51,15 @@ class AttendancePdfController extends Controller
         $course->loadMissing(['lecturer', 'venueRelation', 'schoolClass.faculty.university', 'schoolClass.department']);
 
         $studentsQuery = $course->studentsQuery();
-        $studentId = $request->session()->get('student_id');
-        if ($studentId && ! $request->session()->has('admin_id')) {
-            $rep = Student::find($studentId);
+        $scopedClassIds = $this->scopedClassIdsForRequest($course, $request);
+        if ($scopedClassIds !== []) {
+            $studentsQuery = Student::query()->whereIn('class_id', $scopedClassIds);
+        } elseif ($request->session()->get('student_id') && ! $request->session()->has('admin_id')) {
+            $rep = Student::find($request->session()->get('student_id'));
             if ($rep) {
-                $scopedClassIds = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
-                if ($scopedClassIds !== []) {
-                    $studentsQuery = Student::query()
-                        ->whereIn('class_id', $scopedClassIds);
+                $repScoped = RepCourseAccess::scopedClassIdsForCourse($rep, $course);
+                if ($repScoped !== []) {
+                    $studentsQuery = Student::query()->whereIn('class_id', $repScoped);
                 }
             }
         }
@@ -242,11 +243,17 @@ class AttendancePdfController extends Controller
      */
     private function scopedClassIdsForRequest(Course $course, Request $request): array
     {
+        if ($request->session()->has('admin_id') || $request->session()->has('lecturer_id')) {
+            $classId = (int) $request->query('class_id', 0);
+            if ($classId > 0 && in_array($classId, $course->assignedClassIds(), true)) {
+                return [$classId];
+            }
+
+            return [];
+        }
+
         $studentId = $request->session()->get('student_id');
-        if (! $studentId
-            || $request->session()->has('admin_id')
-            || $request->session()->has('lecturer_id')
-        ) {
+        if (! $studentId) {
             return [];
         }
         $rep = Student::find($studentId);

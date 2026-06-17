@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesLecturerScope;
 use App\Imports\ClassStudentsImport;
+use App\Services\ClassScopedAttendanceService;
 use App\Support\LecturerAccess;
 use App\Models\Department;
 use App\Models\Faculty;
@@ -171,7 +172,7 @@ class ClassController extends Controller
         return $counts;
     }
 
-    public function show(Request $request, SchoolClass $schoolClass): View
+    public function show(Request $request, SchoolClass $schoolClass, ClassScopedAttendanceService $attendanceService): View
     {
         $this->authorizeLecturerForClass($request, $schoolClass);
         $schoolClass->load(['university', 'faculty', 'department']);
@@ -186,8 +187,9 @@ class ClassController extends Controller
         }
 
         $students = $query->paginate(24)->withQueryString();
+        $attendanceCourses = $attendanceService->coursesOverview($schoolClass);
 
-        return view('admin.class-students', compact('schoolClass', 'students'));
+        return view('admin.class-students', compact('schoolClass', 'students', 'attendanceCourses'));
     }
 
     public function importStudents(Request $request, SchoolClass $schoolClass): RedirectResponse
